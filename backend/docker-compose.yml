@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_platform_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: erp
+      POSTGRES_DB: erp_platform
+    ports:
+      - "5433:5432"
+    volumes:
+      - erp_platform_pg_data:/var/lib/postgresql/data
+
+volumes:
+  erp_platform_pg_data:

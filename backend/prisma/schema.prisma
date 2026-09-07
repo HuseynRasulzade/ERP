@@ -1,0 +1,883 @@
+// ============================================================================
+// PHASE 0 — SYSTEM ARCHITECTURE & FOUNDATION CORE
+// Prisma schema for the multi-tenant ERP/accounting platform foundation.
+//
+// This file intentionally does NOT model any business module (Sales,
+// Purchase, Inventory, Payroll, Tax, Banking, Fixed Assets, ...).
+// It models only the reusable platform foundation described in Phase 0:
+// tenancy, identity, RBAC, reference-data base shape, document framework
+// contracts, numbering, currency, periods, audit, settings, idempotency
+// and a generic document-relationship / register-movement foundation.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// 4/5. TENANT ARCHITECTURE & USER MODEL
+// ----------------------------------------------------------------------------
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+/// Tenant = highest business isolation boundary (the account/workspace).
+/// Organization/legal-entity configuration is intentionally out of scope for
+/// Phase 0 (belongs to Phase 1) — `Organization` below is only the minimal
+/// scope placeholder so later phases can attach without restructuring.
+model Tenant {
+  id              String       @id @default(uuid())
+  code            String       @unique
+  name            String
+  legalName       String?      @map("legal_name")
+  baseCurrencyId  String?      @map("base_currency_id")
+  timezone        String       @default("Asia/Baku")
+  locale          String       @default("az-AZ")
+  defaultLanguage String       @default("az") @map("default_language")
+  status          TenantStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  baseCurrency            Currency?                @relation(fields: [baseCurrencyId], references: [id])
+  memberships             TenantMembership[]
+  organizations           Organization[]
+  roles                   Role[]
+  currencies              Currency[]               @relation("TenantCurrencies")
+  exchangeRates           ExchangeRate[]
+  numberSequences         NumberSequence[]
+  periods                 AccountingPeriod[]
+  documentLinks           DocumentLink[]
+  auditEvents             AuditEvent[]
+  settings                Setting[]
+  idempotencyKeys         IdempotencyKey[]
+  foundationTestDocuments FoundationTestDocument[]
+  registerMovements       RegisterMovement[]
+  responsiblePersons      ResponsiblePerson[]
+
+  @@map("tenants")
+}
+
+/// Organization = the legal accounting/business entity under a tenant
+/// (Phase 1, section 3). A tenant may contain one or many organizations;
+/// this is the structural root everything else in Phase 1 hangs off.
+model Organization {
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  code               String
+  name               String
+  fullLegalName      String? @map("full_legal_name")
+  shortName          String? @map("short_name")
+  legalForm          String? @map("legal_form")
+  taxId              String? @map("tax_id")
+  registrationNumber String? @map("registration_number")
+  countryCode        String  @default("AZ") @map("country_code")
+  registeredAddress  String? @map("registered_address")
+  actualAddress      String? @map("actual_address")
+  phone              String?
+  email              String?
+  website            String?
+  baseCurrencyId     String? @map("base_currency_id")
+  timezone           String  @default("Asia/Baku")
+  locale             String  @default("az-AZ")
+  defaultLanguage    String  @default("az") @map("default_language")
+  active             Boolean @default(true)
+
+  // Organization-level defaults (section 5/31). Each FK is validated at the
+  // service layer to belong to this same organization before being set —
+  // never trust these across organizations.
+  defaultBranchId      String? @map("default_branch_id")
+  defaultWarehouseId   String? @map("default_warehouse_id")
+  defaultCashboxId     String? @map("default_cashbox_id")
+  defaultBankAccountId String? @map("default_bank_account_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  baseCurrency Currency? @relation("OrganizationBaseCurrency", fields: [baseCurrencyId], references: [id])
+
+  defaultBranch      Branch?      @relation("OrgDefaultBranch", fields: [defaultBranchId], references: [id])
+  defaultWarehouse   Warehouse?   @relation("OrgDefaultWarehouse", fields: [defaultWarehouseId], references: [id])
+  defaultCashbox     Cashbox?     @relation("OrgDefaultCashbox", fields: [defaultCashboxId], references: [id])
+  defaultBankAccount BankAccount? @relation("OrgDefaultBankAccount", fields: [defaultBankAccountId], references: [id])
+
+  periods            AccountingPeriod[]
+  branches           Branch[]             @relation("OrgBranches")
+  departments        Department[]         @relation("OrgDepartments")
+  warehouses         Warehouse[]          @relation("OrgWarehouses")
+  cashboxes          Cashbox[]            @relation("OrgCashboxes")
+  bankAccounts       BankAccount[]        @relation("OrgBankAccounts")
+  accountingPolicies AccountingPolicy[]   @relation("OrgAccountingPolicies")
+  taxProfiles        TaxProfile[]         @relation("OrgTaxProfiles")
+  accessGrants       OrganizationAccess[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@map("organizations")
+}
+
+/// Optional operating subdivision of an Organization (section 6).
+model Branch {
+  id              String  @id @default(uuid())
+  tenantId        String  @map("tenant_id")
+  organizationId  String  @map("organization_id")
+  code            String
+  name            String
+  address         String?
+  phone           String?
+  email           String?
+  managerPersonId String? @map("manager_person_id")
+  active          Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  organization Organization       @relation("OrgBranches", fields: [organizationId], references: [id])
+  manager      ResponsiblePerson? @relation(fields: [managerPersonId], references: [id])
+
+  departments             Department[]
+  warehouses              Warehouse[]
+  cashboxes               Cashbox[]
+  defaultForOrganizations Organization[] @relation("OrgDefaultBranch")
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@map("branches")
+}
+
+/// Hierarchical department within an Organization (section 7/8).
+model Department {
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  organizationId     String  @map("organization_id")
+  branchId           String? @map("branch_id")
+  parentDepartmentId String? @map("parent_department_id")
+  code               String
+  name               String
+  managerPersonId    String? @map("manager_person_id")
+  active             Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  organization     Organization       @relation("OrgDepartments", fields: [organizationId], references: [id])
+  branch           Branch?            @relation(fields: [branchId], references: [id])
+  parentDepartment Department?        @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  children         Department[]       @relation("DepartmentHierarchy")
+  manager          ResponsiblePerson? @relation(fields: [managerPersonId], references: [id])
+
+  @@unique([organizationId, code])
+  @@index([organizationId, parentDepartmentId])
+  @@index([organizationId, active])
+  @@map("departments")
+}
+
+/// Lightweight, tenant-global responsible-person reference (section 9/10) —
+/// NOT the future Phase 17 Employee model. May optionally link to a system
+/// User but is never required to.
+model ResponsiblePerson {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  displayName String  @map("display_name")
+  email       String?
+  phone       String?
+  userId      String? @map("user_id")
+  active      Boolean @default(true)
+  notes       String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+
+  managedBranches    Branch[]
+  managedDepartments Department[]
+  managedWarehouses  Warehouse[]
+  managedCashboxes   Cashbox[]
+
+  @@index([tenantId, active])
+  @@map("responsible_persons")
+}
+
+/// Structural warehouse master data ONLY (section 11/12) — no stock
+/// balances or movements until Phase 10.
+model Warehouse {
+  id                  String  @id @default(uuid())
+  tenantId            String  @map("tenant_id")
+  organizationId      String  @map("organization_id")
+  branchId            String? @map("branch_id")
+  code                String
+  name                String
+  warehouseType       String  @default("STANDARD") @map("warehouse_type")
+  address             String?
+  responsiblePersonId String? @map("responsible_person_id")
+  allowNegativeStock  Boolean @default(false) @map("allow_negative_stock")
+  active              Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  organization Organization       @relation("OrgWarehouses", fields: [organizationId], references: [id])
+  branch       Branch?            @relation(fields: [branchId], references: [id])
+  responsible  ResponsiblePerson? @relation(fields: [responsiblePersonId], references: [id])
+
+  defaultForOrganizations Organization[] @relation("OrgDefaultWarehouse")
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@index([organizationId, branchId])
+  @@map("warehouses")
+}
+
+/// Structural cashbox master data ONLY (section 13) — no cash balances or
+/// movements until Phase 15.
+model Cashbox {
+  id                  String  @id @default(uuid())
+  tenantId            String  @map("tenant_id")
+  organizationId      String  @map("organization_id")
+  branchId            String? @map("branch_id")
+  code                String
+  name                String
+  currencyId          String  @map("currency_id")
+  responsiblePersonId String? @map("responsible_person_id")
+  active              Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  organization Organization       @relation("OrgCashboxes", fields: [organizationId], references: [id])
+  branch       Branch?            @relation(fields: [branchId], references: [id])
+  currency     Currency           @relation(fields: [currencyId], references: [id])
+  responsible  ResponsiblePerson? @relation(fields: [responsiblePersonId], references: [id])
+
+  defaultForOrganizations Organization[] @relation("OrgDefaultCashbox")
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@map("cashboxes")
+}
+
+/// Organization bank account MASTER DATA ONLY (section 14/15) — no
+/// statements/payments/reconciliation until Phase 14.
+model BankAccount {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  organizationId       String    @map("organization_id")
+  bankName             String    @map("bank_name")
+  bankCode             String?   @map("bank_code")
+  branchName           String?   @map("branch_name")
+  accountName          String    @map("account_name")
+  iban                 String
+  swiftBic             String?   @map("swift_bic")
+  currencyId           String    @map("currency_id")
+  correspondentAccount String?   @map("correspondent_account")
+  accountType          String    @default("CURRENT") @map("account_type")
+  isDefault            Boolean   @default(false) @map("is_default")
+  active               Boolean   @default(true)
+  openedDate           DateTime? @map("opened_date") @db.Date
+  closedDate           DateTime? @map("closed_date") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  organization Organization @relation("OrgBankAccounts", fields: [organizationId], references: [id])
+  currency     Currency     @relation(fields: [currencyId], references: [id])
+
+  defaultForOrganizations Organization[] @relation("OrgDefaultBankAccount")
+
+  @@index([organizationId, active])
+  @@index([iban])
+  @@map("bank_accounts")
+}
+
+/// Accounting policy METADATA + effective dating ONLY (section 16-18) — no
+/// chart of accounts / journal entries / posting rules until Phase 4.
+model AccountingPolicy {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  organizationId         String    @map("organization_id")
+  code                   String
+  name                   String
+  validFrom              DateTime  @map("valid_from") @db.Date
+  validTo                DateTime? @map("valid_to") @db.Date
+  status                 String    @default("ACTIVE")
+  inventoryCostingMethod String    @default("WEIGHTED_AVERAGE") @map("inventory_costing_method")
+  baseCurrencyId         String?   @map("base_currency_id")
+  taxProfileId           String?   @map("tax_profile_id")
+  settings               Json?
+  active                 Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  organization Organization @relation("OrgAccountingPolicies", fields: [organizationId], references: [id])
+  baseCurrency Currency?    @relation(fields: [baseCurrencyId], references: [id])
+  taxProfile   TaxProfile?  @relation(fields: [taxProfileId], references: [id])
+
+  @@unique([organizationId, code, validFrom])
+  @@index([organizationId, validFrom, validTo])
+  @@map("accounting_policies")
+}
+
+/// Organization tax identity/configuration FOUNDATION ONLY (section 19) —
+/// no VAT rates / tax calculation / tax posting until Phase 5.
+model TaxProfile {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  code                  String
+  name                  String
+  countryCode           String    @default("AZ") @map("country_code")
+  taxId                 String?   @map("tax_id")
+  vatRegistered         Boolean   @default(false) @map("vat_registered")
+  vatRegistrationDate   DateTime? @map("vat_registration_date") @db.Date
+  vatDeregistrationDate DateTime? @map("vat_deregistration_date") @db.Date
+  taxRegimeCode         String?   @map("tax_regime_code")
+  validFrom             DateTime  @map("valid_from") @db.Date
+  validTo               DateTime? @map("valid_to") @db.Date
+  active                Boolean   @default(true)
+  metadata              Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  organization       Organization       @relation("OrgTaxProfiles", fields: [organizationId], references: [id])
+  accountingPolicies AccountingPolicy[]
+
+  @@unique([organizationId, code, validFrom])
+  @@index([organizationId, validFrom, validTo])
+  @@map("tax_profiles")
+}
+
+/// Organization-scoped access grant (section 22): a tenant membership does
+/// NOT automatically have access to every organization in the tenant —
+/// access must be explicitly granted per organization.
+model OrganizationAccess {
+  id                 String @id @default(uuid())
+  tenantMembershipId String @map("tenant_membership_id")
+  organizationId     String @map("organization_id")
+  accessLevel        String @default("FULL") @map("access_level")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  membership   TenantMembership @relation(fields: [tenantMembershipId], references: [id])
+  organization Organization     @relation(fields: [organizationId], references: [id])
+
+  @@unique([tenantMembershipId, organizationId])
+  @@index([organizationId])
+  @@map("organization_access")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  DISABLED
+  INVITED
+}
+
+/// Global system user, independent from tenant membership/authorization.
+model User {
+  id            String           @id @default(uuid())
+  email         String           @unique
+  passwordHash  String           @map("password_hash")
+  displayName   String           @map("display_name")
+  status        MembershipStatus @default(ACTIVE)
+  locale        String           @default("az-AZ")
+  timezone      String?
+  isSystemAdmin Boolean          @default(false) @map("is_system_admin")
+  lastLoginAt   DateTime?        @map("last_login_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships        TenantMembership[]
+  refreshTokens      RefreshToken[]
+  responsiblePersons ResponsiblePerson[]
+
+  @@map("users")
+}
+
+/// A user's membership inside a single tenant. Authorization (roles) is
+/// attached here, never on the global User — a user may have different
+/// rights in different tenants.
+model TenantMembership {
+  id         String           @id @default(uuid())
+  tenantId   String           @map("tenant_id")
+  userId     String           @map("user_id")
+  status     MembershipStatus @default(ACTIVE)
+  joinedAt   DateTime         @default(now()) @map("joined_at")
+  disabledAt DateTime?        @map("disabled_at")
+
+  tenant             Tenant               @relation(fields: [tenantId], references: [id])
+  user               User                 @relation(fields: [userId], references: [id])
+  roles              MembershipRole[]
+  organizationAccess OrganizationAccess[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ----------------------------------------------------------------------------
+// 6. ROLE BASED ACCESS CONTROL
+// ----------------------------------------------------------------------------
+
+/// Role is tenant-scoped (tenantId null => a system-level role template,
+/// e.g. the seeded "Tenant Administrator" role definition source).
+model Role {
+  id          String  @id @default(uuid())
+  tenantId    String? @map("tenant_id")
+  code        String
+  name        String
+  description String?
+  isSystem    Boolean @default(false) @map("is_system")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant      Tenant?          @relation(fields: [tenantId], references: [id])
+  permissions RolePermission[]
+  memberships MembershipRole[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+/// Explicit machine-readable permission codes (never hardcoded role-name checks).
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  description String?
+  module      String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Multiple roles per membership.
+model MembershipRole {
+  membershipId String @map("membership_id")
+  roleId       String @map("role_id")
+
+  membership TenantMembership @relation(fields: [membershipId], references: [id])
+  role       Role             @relation(fields: [roleId], references: [id])
+
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  @@id([membershipId, roleId])
+  @@map("membership_roles")
+}
+
+// ----------------------------------------------------------------------------
+// 3.4 / 52. ENUMERATION FOUNDATION
+// Stable, language-neutral codes for extensible business enumerations.
+// Closed, structurally-critical state machines (document/posting/period
+// status) additionally use native Prisma enums below for compile-time
+// safety; EnumType/EnumValue covers the open-ended, display-facing ones
+// (e.g. currency rate type, numbering reset policy) and localized labels.
+// ----------------------------------------------------------------------------
+
+model EnumType {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  description String?
+
+  values EnumValue[]
+
+  @@map("enum_types")
+}
+
+model EnumValue {
+  id         String  @id @default(uuid())
+  enumTypeId String  @map("enum_type_id")
+  code       String
+  sortOrder  Int     @default(0) @map("sort_order")
+  active     Boolean @default(true)
+
+  enumType     EnumType               @relation(fields: [enumTypeId], references: [id])
+  translations EnumValueTranslation[]
+
+  @@unique([enumTypeId, code])
+  @@map("enum_values")
+}
+
+model EnumValueTranslation {
+  id          String @id @default(uuid())
+  enumValueId String @map("enum_value_id")
+  locale      String
+  label       String
+
+  enumValue EnumValue @relation(fields: [enumValueId], references: [id])
+
+  @@unique([enumValueId, locale])
+  @@map("enum_value_translations")
+}
+
+// ----------------------------------------------------------------------------
+// 17/18. CURRENCY & EXCHANGE RATE FOUNDATION
+// ----------------------------------------------------------------------------
+
+/// Global currency master data (ISO 4217). Not tenant-owned: currencies are
+/// shared reference data, but a Tenant may additionally register a
+/// tenant-specific currency via `TenantCurrencies` if genuinely required.
+model Currency {
+  id            String  @id @default(uuid())
+  code          String  @unique // ISO 4217 alpha code, e.g. AZN
+  numericCode   String? @map("numeric_code")
+  name          String
+  symbol        String?
+  decimalPlaces Int     @default(2) @map("decimal_places")
+  active        Boolean @default(true)
+
+  tenantsUsingAsBase Tenant[]
+  tenantOverrides    Tenant[]       @relation("TenantCurrencies")
+  exchangeRatesFrom  ExchangeRate[] @relation("FromCurrency")
+  exchangeRatesTo    ExchangeRate[] @relation("ToCurrency")
+
+  organizationsUsingAsBase Organization[]     @relation("OrganizationBaseCurrency")
+  cashboxes                Cashbox[]
+  bankAccounts             BankAccount[]
+  accountingPolicies       AccountingPolicy[]
+
+  @@map("currencies")
+}
+
+model ExchangeRate {
+  id             String   @id @default(uuid())
+  tenantId       String?  @map("tenant_id") // null = system-level shared rate
+  currencyId     String   @map("currency_id")
+  baseCurrencyId String   @map("base_currency_id")
+  effectiveDate  DateTime @map("effective_date") @db.Date
+  rate           Decimal  @db.Decimal(24, 10)
+  multiplier     Decimal  @default(1) @db.Decimal(18, 6)
+  divisor        Decimal  @default(1) @db.Decimal(18, 6)
+  rateType       String   @default("OFFICIAL") @map("rate_type")
+  source         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  currency     Currency @relation("FromCurrency", fields: [currencyId], references: [id])
+  baseCurrency Currency @relation("ToCurrency", fields: [baseCurrencyId], references: [id])
+
+  @@unique([tenantId, currencyId, baseCurrencyId, effectiveDate, rateType], map: "uq_exchange_rate_scope")
+  @@index([tenantId, currencyId, effectiveDate])
+  @@map("exchange_rates")
+}
+
+// ----------------------------------------------------------------------------
+// 15/16. NUMBERING ENGINE
+// ----------------------------------------------------------------------------
+
+model NumberSequence {
+  id           String  @id @default(uuid())
+  tenantId     String  @map("tenant_id")
+  code         String
+  documentType String  @map("document_type")
+  prefix       String  @default("")
+  suffix       String? @default("")
+  nextNumber   BigInt  @default(1) @map("next_number")
+  padding      Int     @default(6)
+  resetPolicy  String  @default("NEVER") @map("reset_policy") // NEVER | YEARLY | MONTHLY
+  scopeType    String  @default("TENANT_DOCUMENT_TYPE") @map("scope_type")
+  currentYear  Int?    @map("current_year")
+  currentMonth Int?    @map("current_month")
+  active       Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  version   Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@index([tenantId, documentType])
+  @@map("number_sequences")
+}
+
+// ----------------------------------------------------------------------------
+// 20/21/22. ACCOUNTING / BUSINESS PERIOD FOUNDATION
+// ----------------------------------------------------------------------------
+
+enum PeriodStatus {
+  OPEN
+  SOFT_CLOSED
+  CLOSED
+}
+
+model AccountingPeriod {
+  id             String       @id @default(uuid())
+  tenantId       String       @map("tenant_id")
+  organizationId String?      @map("organization_id")
+  year           Int
+  month          Int
+  startDate      DateTime     @map("start_date") @db.Date
+  endDate        DateTime     @map("end_date") @db.Date
+  status         PeriodStatus @default(OPEN)
+  closedAt       DateTime?    @map("closed_at")
+  closedBy       String?      @map("closed_by")
+  reopenedAt     DateTime?    @map("reopened_at")
+  reopenedBy     String?      @map("reopened_by")
+  version        Int          @default(1)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@unique([tenantId, organizationId, year, month])
+  @@index([tenantId, startDate, endDate])
+  @@map("accounting_periods")
+}
+
+// ----------------------------------------------------------------------------
+// 23/24/25. AUDIT INFRASTRUCTURE
+// ----------------------------------------------------------------------------
+
+model AuditEvent {
+  id             String   @id @default(uuid())
+  tenantId       String?  @map("tenant_id") // null only for platform/system-admin events
+  eventType      String   @map("event_type")
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id")
+  action         String
+  userId         String?  @map("user_id")
+  timestamp      DateTime @default(now())
+  requestId      String?  @map("request_id")
+  correlationId  String?  @map("correlation_id")
+  ipAddress      String?  @map("ip_address")
+  clientMetadata Json?    @map("client_metadata")
+  oldValues      Json?    @map("old_values")
+  newValues      Json?    @map("new_values")
+  metadata       Json?
+  reason         String?
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, timestamp])
+  @@map("audit_events")
+}
+
+// ----------------------------------------------------------------------------
+// 26/27/28/29. DOCUMENT RELATIONSHIP FOUNDATION / CREATE BASED ON / REVERSAL
+// ----------------------------------------------------------------------------
+
+model DocumentLink {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  sourceDocumentType String   @map("source_document_type")
+  sourceDocumentId   String   @map("source_document_id")
+  targetDocumentType String   @map("target_document_type")
+  targetDocumentId   String   @map("target_document_id")
+  relationType       String   @map("relation_type") // CREATED_BASED_ON | RELATED | REVERSAL_OF | CORRECTION_OF
+  createdAt          DateTime @default(now()) @map("created_at")
+  createdBy          String?  @map("created_by")
+  metadata           Json?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([tenantId, targetDocumentType, targetDocumentId])
+  @@map("document_links")
+}
+
+// ----------------------------------------------------------------------------
+// 32/33. CONFIGURATION / SETTINGS (scoped + effective-dated)
+// ----------------------------------------------------------------------------
+
+enum SettingScope {
+  SYSTEM
+  TENANT
+  ORGANIZATION
+}
+
+/// Effective-dated, scoped settings. Resolution picks the row whose scope
+/// matches and whose [validFrom, validTo) window contains the business date
+/// in question (see SettingsService.resolve()).
+model Setting {
+  id        String       @id @default(uuid())
+  scope     SettingScope
+  scopeId   String?      @map("scope_id") // null for SYSTEM scope
+  key       String
+  value     Json
+  validFrom DateTime     @default(dbgenerated("'1970-01-01'")) @map("valid_from") @db.Date
+  validTo   DateTime?    @map("valid_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant? @relation(fields: [scopeId], references: [id], map: "settings_tenant_scope_fkey")
+
+  @@index([scope, scopeId, key, validFrom])
+  @@map("settings")
+}
+
+// ----------------------------------------------------------------------------
+// 36. IDEMPOTENCY FOUNDATION
+// ----------------------------------------------------------------------------
+
+model IdempotencyKey {
+  id           String  @id @default(uuid())
+  tenantId     String? @map("tenant_id")
+  key          String
+  operation    String
+  requestHash  String  @map("request_hash")
+  status       String  @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | FAILED
+  resultRef    String? @map("result_ref")
+  responseBody Json?   @map("response_body")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime? @map("expires_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key, operation])
+  @@map("idempotency_keys")
+}
+
+// ----------------------------------------------------------------------------
+// 3.3 / 64. REGISTER FOUNDATION (contracts only — no business registers yet)
+// A generic movement table used solely by the demo posting handler to prove
+// the posting framework end to end. Real business registers (Stock,
+// Settlement, Accounting, Payroll...) will define their own strongly-typed
+// tables in later phases and reuse this same recorder/ownership shape.
+// ----------------------------------------------------------------------------
+
+model RegisterMovement {
+  id                   String   @id @default(uuid())
+  tenantId             String   @map("tenant_id")
+  registerCode         String   @map("register_code")
+  recorderDocumentType String   @map("recorder_document_type")
+  recorderDocumentId   String   @map("recorder_document_id")
+  recorderLineId       String?  @map("recorder_line_id")
+  businessDate         DateTime @map("business_date") @db.Date
+  postingTimestamp     DateTime @default(now()) @map("posting_timestamp")
+  sequence             BigInt
+  movementType         String?  @map("movement_type")
+  dimensions           Json?
+  resources            Json?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, recorderDocumentType, recorderDocumentId])
+  @@index([tenantId, registerCode, businessDate])
+  @@map("register_movements")
+}
+
+// ----------------------------------------------------------------------------
+// 8/9/10/58. DOCUMENT BASE MODEL — DEMO/REFERENCE DOCUMENT
+//
+// FoundationTestDocument is the ONLY concrete document table in Phase 0.
+// It exists purely to exercise the framework (save/post/unpost/numbering/
+// audit/period-guard/document-links) end to end. It must not be treated as
+// a production business feature. Every field below mirrors the reusable
+// BaseDocument contract defined in `src/document-framework/base-document.ts`
+// — later phases copy this same field set into their own concrete tables
+// rather than inheriting from a single generic "documents" table.
+// ----------------------------------------------------------------------------
+
+enum DocumentStatus {
+  DRAFT
+  ACTIVE
+  CANCELLED
+  DELETION_MARKED
+}
+
+enum PostingStatus {
+  NOT_POSTED
+  POSTED
+  POSTING_FAILED
+}
+
+model FoundationTestDocument {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String?        @map("organization_id")
+  documentType   String         @default("FOUNDATION_TEST_DOCUMENT") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId     String?        @map("currency_id")
+  exchangeRate   Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+  amount         Decimal        @default(0) @db.Decimal(18, 2)
+  description    String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([tenantId, documentDate])
+  @@index([tenantId, status])
+  @@map("foundation_test_documents")
+}
