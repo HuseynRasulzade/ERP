@@ -1,3 +1,4 @@
+import './common/utils/bigint-json';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -26,6 +27,7 @@ import { OrgStructureModule } from './org-structure/org-structure.module';
 import { ProductCatalogModule } from './product-catalog/product-catalog.module';
 import { CounterpartyPricingModule } from './counterparty-pricing/counterparty-pricing.module';
 import { SalesDocumentsModule } from './sales-documents/sales-documents.module';
+import { AccountingCoreModule } from './accounting-core/accounting-core.module';
 
 @Module({
   imports: [
@@ -57,6 +59,11 @@ import { SalesDocumentsModule } from './sales-documents/sales-documents.module';
 
     // Phase 4 — Sales documents (orders + invoices)
     SalesDocumentsModule,
+
+    // Accounting Core (docx spec Phase 4 — Chart of Accounts + double-entry
+    // posting engine). Named by content, not phase number, since this
+    // repo's own "Phase 4" already means Sales documents above.
+    AccountingCoreModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

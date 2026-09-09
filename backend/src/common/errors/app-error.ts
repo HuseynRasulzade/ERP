@@ -22,6 +22,22 @@ export const ErrorCode = {
   POSTING_ERROR: 'POSTING_ERROR',
   TENANT_CONTEXT_REQUIRED: 'TENANT_CONTEXT_REQUIRED',
   UNAUTHENTICATED: 'UNAUTHENTICATED',
+
+  // Accounting Core (docx spec Phase 4, section 108)
+  ACCOUNT_NOT_POSTABLE: 'ACCOUNT_NOT_POSTABLE',
+  ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
+  ACCOUNT_DIMENSION_REQUIRED: 'ACCOUNT_DIMENSION_REQUIRED',
+  ACCOUNT_DIMENSION_NOT_ALLOWED: 'ACCOUNT_DIMENSION_NOT_ALLOWED',
+  ACCOUNT_MAPPING_NOT_FOUND: 'ACCOUNT_MAPPING_NOT_FOUND',
+  ACCOUNT_MAPPING_AMBIGUOUS: 'ACCOUNT_MAPPING_AMBIGUOUS',
+  JOURNAL_NOT_BALANCED: 'JOURNAL_NOT_BALANCED',
+  JOURNAL_ALREADY_POSTED: 'JOURNAL_ALREADY_POSTED',
+  JOURNAL_NOT_POSTED: 'JOURNAL_NOT_POSTED',
+  CURRENCY_REQUIRED: 'CURRENCY_REQUIRED',
+  QUANTITY_REQUIRED: 'QUANTITY_REQUIRED',
+  POSTING_DUPLICATE: 'POSTING_DUPLICATE',
+  REVERSAL_NOT_ALLOWED: 'REVERSAL_NOT_ALLOWED',
+  INVALID_ACCOUNT_HIERARCHY: 'INVALID_ACCOUNT_HIERARCHY',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -139,5 +155,89 @@ export class TenantContextRequiredError extends AppError {
 export class UnauthenticatedError extends AppError {
   constructor(message = 'Authentication required') {
     super(ErrorCode.UNAUTHENTICATED, message, HttpStatus.UNAUTHORIZED);
+  }
+}
+
+export class JournalNotBalancedError extends AppError {
+  constructor(debitTotal: string, creditTotal: string) {
+    super(
+      ErrorCode.JOURNAL_NOT_BALANCED,
+      `Journal Entry is out of balance: debit ${debitTotal} != credit ${creditTotal}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class AccountNotPostableError extends AppError {
+  constructor(code: string) {
+    super(
+      ErrorCode.ACCOUNT_NOT_POSTABLE,
+      `Account ${code} is a structural/reporting node and cannot receive postings`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class AccountInactiveError extends AppError {
+  constructor(code: string) {
+    super(ErrorCode.ACCOUNT_INACTIVE, `Account ${code} is inactive`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class AccountDimensionRequiredError extends AppError {
+  constructor(accountCode: string, dimensionCode: string) {
+    super(
+      ErrorCode.ACCOUNT_DIMENSION_REQUIRED,
+      `Account ${accountCode} requires dimension '${dimensionCode}'`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class AccountMappingNotFoundError extends AppError {
+  constructor(mappingKey: string) {
+    super(
+      ErrorCode.ACCOUNT_MAPPING_NOT_FOUND,
+      `Accounting mapping '${mappingKey}' is not configured`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class AccountMappingAmbiguousError extends AppError {
+  constructor(mappingKey: string) {
+    super(
+      ErrorCode.ACCOUNT_MAPPING_AMBIGUOUS,
+      `Accounting mapping '${mappingKey}' resolves to more than one equal-priority account`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class JournalAlreadyPostedError extends AppError {
+  constructor(id: string) {
+    super(ErrorCode.JOURNAL_ALREADY_POSTED, `Journal Entry ${id} is already posted`, HttpStatus.CONFLICT);
+  }
+}
+
+export class JournalNotPostedError extends AppError {
+  constructor(id: string) {
+    super(ErrorCode.JOURNAL_NOT_POSTED, `Journal Entry ${id} is not posted`, HttpStatus.CONFLICT);
+  }
+}
+
+export class PostingDuplicateError extends AppError {
+  constructor(sourceDocumentType: string, sourceDocumentId: string) {
+    super(
+      ErrorCode.POSTING_DUPLICATE,
+      `${sourceDocumentType} ${sourceDocumentId} already has an active posting generation`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class ReversalNotAllowedError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.REVERSAL_NOT_ALLOWED, reason, HttpStatus.CONFLICT);
   }
 }

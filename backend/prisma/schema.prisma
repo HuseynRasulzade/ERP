@@ -48,34 +48,41 @@ model Tenant {
   createdBy String?  @map("created_by")
   version   Int      @default(1)
 
-  baseCurrency            Currency?                @relation(fields: [baseCurrencyId], references: [id])
-  memberships             TenantMembership[]
-  organizations           Organization[]
-  roles                   Role[]
-  currencies              Currency[]               @relation("TenantCurrencies")
-  exchangeRates           ExchangeRate[]
-  numberSequences         NumberSequence[]
-  periods                 AccountingPeriod[]
-  documentLinks           DocumentLink[]
-  auditEvents             AuditEvent[]
-  settings                Setting[]
-  idempotencyKeys         IdempotencyKey[]
-  foundationTestDocuments FoundationTestDocument[]
-  registerMovements       RegisterMovement[]
-  responsiblePersons      ResponsiblePerson[]
-  unitsOfMeasure          UnitOfMeasure[]
-  productCategories       ProductCategory[]
-  products                Product[]
-  unitConversions         UnitConversion[]
-  counterparties          Counterparty[]
-  counterpartyAddresses   CounterpartyAddress[]
-  counterpartyContacts    CounterpartyContact[]
-  priceLists              PriceList[]
-  productPrices           ProductPrice[]
-  salesOrders             SalesOrder[]
-  salesOrderLines         SalesOrderLine[]
-  salesInvoices           SalesInvoice[]
-  salesInvoiceLines       SalesInvoiceLine[]
+  baseCurrency                   Currency?                       @relation(fields: [baseCurrencyId], references: [id])
+  memberships                    TenantMembership[]
+  organizations                  Organization[]
+  roles                          Role[]
+  currencies                     Currency[]                      @relation("TenantCurrencies")
+  exchangeRates                  ExchangeRate[]
+  numberSequences                NumberSequence[]
+  periods                        AccountingPeriod[]
+  documentLinks                  DocumentLink[]
+  auditEvents                    AuditEvent[]
+  settings                       Setting[]
+  idempotencyKeys                IdempotencyKey[]
+  foundationTestDocuments        FoundationTestDocument[]
+  registerMovements              RegisterMovement[]
+  responsiblePersons             ResponsiblePerson[]
+  unitsOfMeasure                 UnitOfMeasure[]
+  productCategories              ProductCategory[]
+  products                       Product[]
+  unitConversions                UnitConversion[]
+  counterparties                 Counterparty[]
+  counterpartyAddresses          CounterpartyAddress[]
+  counterpartyContacts           CounterpartyContact[]
+  priceLists                     PriceList[]
+  productPrices                  ProductPrice[]
+  salesOrders                    SalesOrder[]
+  salesOrderLines                SalesOrderLine[]
+  salesInvoices                  SalesInvoice[]
+  salesInvoiceLines              SalesInvoiceLine[]
+  chartsOfAccounts               ChartOfAccounts[]
+  accounts                       Account[]
+  accountingDimensionDefinitions AccountingDimensionDefinition[]
+  accountingMappings             AccountingMapping[]
+  journalEntries                 JournalEntry[]
+  accountingMovements            AccountingMovement[]
+  postingRuns                    PostingRun[]
 
   @@map("tenants")
 }
@@ -127,21 +134,27 @@ model Organization {
   defaultCashbox     Cashbox?     @relation("OrgDefaultCashbox", fields: [defaultCashboxId], references: [id])
   defaultBankAccount BankAccount? @relation("OrgDefaultBankAccount", fields: [defaultBankAccountId], references: [id])
 
-  periods            AccountingPeriod[]
-  branches           Branch[]             @relation("OrgBranches")
-  departments        Department[]         @relation("OrgDepartments")
-  warehouses         Warehouse[]          @relation("OrgWarehouses")
-  cashboxes          Cashbox[]            @relation("OrgCashboxes")
-  bankAccounts       BankAccount[]        @relation("OrgBankAccounts")
-  accountingPolicies AccountingPolicy[]   @relation("OrgAccountingPolicies")
-  taxProfiles        TaxProfile[]         @relation("OrgTaxProfiles")
-  accessGrants       OrganizationAccess[]
-  productCategories  ProductCategory[]
-  products           Product[]
-  counterparties     Counterparty[]
-  priceLists         PriceList[]
-  salesOrders        SalesOrder[]
-  salesInvoices      SalesInvoice[]
+  periods             AccountingPeriod[]
+  branches            Branch[]             @relation("OrgBranches")
+  departments         Department[]         @relation("OrgDepartments")
+  warehouses          Warehouse[]          @relation("OrgWarehouses")
+  cashboxes           Cashbox[]            @relation("OrgCashboxes")
+  bankAccounts        BankAccount[]        @relation("OrgBankAccounts")
+  accountingPolicies  AccountingPolicy[]   @relation("OrgAccountingPolicies")
+  taxProfiles         TaxProfile[]         @relation("OrgTaxProfiles")
+  accessGrants        OrganizationAccess[]
+  productCategories   ProductCategory[]
+  products            Product[]
+  counterparties      Counterparty[]
+  priceLists          PriceList[]
+  salesOrders         SalesOrder[]
+  salesInvoices       SalesInvoice[]
+  chartsOfAccounts    ChartOfAccounts[]
+  accounts            Account[]
+  accountingMappings  AccountingMapping[]
+  journalEntries      JournalEntry[]
+  accountingMovements AccountingMovement[]
+  postingRuns         PostingRun[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -614,7 +627,7 @@ model Currency {
   exchangeRatesFrom  ExchangeRate[] @relation("FromCurrency")
   exchangeRatesTo    ExchangeRate[] @relation("ToCurrency")
 
-  organizationsUsingAsBase Organization[]     @relation("OrganizationBaseCurrency")
+  organizationsUsingAsBase Organization[]       @relation("OrganizationBaseCurrency")
   cashboxes                Cashbox[]
   bankAccounts             BankAccount[]
   accountingPolicies       AccountingPolicy[]
@@ -622,6 +635,8 @@ model Currency {
   priceLists               PriceList[]
   salesOrders              SalesOrder[]
   salesInvoices            SalesInvoice[]
+  journalEntryLines        JournalEntryLine[]
+  accountingMovements      AccountingMovement[]
 
   @@map("currencies")
 }
@@ -934,13 +949,15 @@ model UnitOfMeasure {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id])
-  products Product[]
-  conversionsFrom UnitConversion[] @relation("ConversionFromUnit")
-  conversionsTo   UnitConversion[] @relation("ConversionToUnit")
-  productPrices   ProductPrice[]   @relation("ProductPriceUnit")
-  salesOrderLines   SalesOrderLine[]   @relation("SalesOrderLineUnit")
-  salesInvoiceLines SalesInvoiceLine[] @relation("SalesInvoiceLineUnit")
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  products            Product[]
+  conversionsFrom     UnitConversion[]     @relation("ConversionFromUnit")
+  conversionsTo       UnitConversion[]     @relation("ConversionToUnit")
+  productPrices       ProductPrice[]       @relation("ProductPriceUnit")
+  salesOrderLines     SalesOrderLine[]     @relation("SalesOrderLineUnit")
+  salesInvoiceLines   SalesInvoiceLine[]   @relation("SalesInvoiceLineUnit")
+  journalEntryLines   JournalEntryLine[]
+  accountingMovements AccountingMovement[]
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
@@ -966,11 +983,11 @@ model ProductCategory {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant         Tenant            @relation(fields: [tenantId], references: [id])
-  organization   Organization      @relation(fields: [organizationId], references: [id])
-  parentCategory ProductCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  tenant          Tenant            @relation(fields: [tenantId], references: [id])
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  parentCategory  ProductCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
   childCategories ProductCategory[] @relation("CategoryHierarchy")
-  products       Product[]
+  products        Product[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -979,10 +996,10 @@ model ProductCategory {
 }
 
 enum ProductType {
-  GOODS       // Physical goods (inventory tracked)
-  SERVICE     // Services (no inventory)
-  WORK        // Work/labor
-  SET         // Product set/bundle (Phase 3+)
+  GOODS // Physical goods (inventory tracked)
+  SERVICE // Services (no inventory)
+  WORK // Work/labor
+  SET // Product set/bundle (Phase 3+)
 }
 
 /// Product — organization-scoped product master data (section 81-84).
@@ -991,31 +1008,31 @@ enum ProductType {
 /// stable once transactional documents reference it: deactivate rather
 /// than repurpose.
 model Product {
-  id                String      @id @default(uuid())
-  tenantId          String      @map("tenant_id")
-  organizationId    String      @map("organization_id")
-  categoryId        String?     @map("category_id")
-  code              String
-  name              String
-  fullName          String?     @map("full_name")
-  productType       ProductType @default(GOODS) @map("product_type")
-  baseUnitId        String      @map("base_unit_id") // primary UOM
-  description       String?
-  sku               String?     // Stock Keeping Unit
-  barcode           String?
-  manufacturer      String?
-  brand             String?
-  model             String?
-  weight            Decimal?    @db.Decimal(18, 6)
-  weightUnitId      String?     @map("weight_unit_id")
-  volume            Decimal?    @db.Decimal(18, 6)
-  volumeUnitId      String?     @map("volume_unit_id")
+  id             String      @id @default(uuid())
+  tenantId       String      @map("tenant_id")
+  organizationId String      @map("organization_id")
+  categoryId     String?     @map("category_id")
+  code           String
+  name           String
+  fullName       String?     @map("full_name")
+  productType    ProductType @default(GOODS) @map("product_type")
+  baseUnitId     String      @map("base_unit_id") // primary UOM
+  description    String?
+  sku            String? // Stock Keeping Unit
+  barcode        String?
+  manufacturer   String?
+  brand          String?
+  model          String?
+  weight         Decimal?    @db.Decimal(18, 6)
+  weightUnitId   String?     @map("weight_unit_id")
+  volume         Decimal?    @db.Decimal(18, 6)
+  volumeUnitId   String?     @map("volume_unit_id")
 
   // Inventory tracking flags (Phase 10 uses these)
-  trackInventory    Boolean     @default(true) @map("track_inventory")
-  allowNegativeStock Boolean    @default(false) @map("allow_negative_stock")
+  trackInventory     Boolean @default(true) @map("track_inventory")
+  allowNegativeStock Boolean @default(false) @map("allow_negative_stock")
 
-  active            Boolean     @default(true)
+  active Boolean @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1023,11 +1040,11 @@ model Product {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id])
-  organization Organization     @relation(fields: [organizationId], references: [id])
-  category     ProductCategory? @relation(fields: [categoryId], references: [id])
-  baseUnit     UnitOfMeasure    @relation(fields: [baseUnitId], references: [id])
-  prices       ProductPrice[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  category          ProductCategory?   @relation(fields: [categoryId], references: [id])
+  baseUnit          UnitOfMeasure      @relation(fields: [baseUnitId], references: [id])
+  prices            ProductPrice[]
   salesOrderLines   SalesOrderLine[]
   salesInvoiceLines SalesInvoiceLine[]
 
@@ -1053,13 +1070,13 @@ model Product {
 /// Conversions are tenant-scoped since measurement standards are standardized
 /// at the tenant level.
 model UnitConversion {
-  id             String  @id @default(uuid())
-  tenantId       String  @map("tenant_id")
-  fromUnitId     String  @map("from_unit_id")
-  toUnitId       String  @map("to_unit_id")
-  factor         Decimal @db.Decimal(18, 6) // fromUnit * factor = toUnit
-  description    String?
-  active         Boolean @default(true)
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  fromUnitId  String  @map("from_unit_id")
+  toUnitId    String  @map("to_unit_id")
+  factor      Decimal @db.Decimal(18, 6) // fromUnit * factor = toUnit
+  description String?
+  active      Boolean @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1077,32 +1094,32 @@ model UnitConversion {
 }
 
 enum CounterpartyType {
-  CUSTOMER   // Sells to
-  SUPPLIER   // Buys from
-  BOTH       // Both customer and supplier
+  CUSTOMER // Sells to
+  SUPPLIER // Buys from
+  BOTH // Both customer and supplier
 }
 
 /// Counterparty — organization-scoped customer/supplier master data (section 86-89).
 /// A counterparty can be a customer, supplier, or both. This is master data only:
 /// no invoices, orders, or payment history yet (Phase 4+).
 model Counterparty {
-  id               String           @id @default(uuid())
-  tenantId         String           @map("tenant_id")
-  organizationId   String           @map("organization_id")
-  counterpartyType CounterpartyType @map("counterparty_type")
-  code             String
-  name             String
-  fullLegalName    String?          @map("full_legal_name")
-  taxId            String?          @map("tax_id")
-  registrationNumber String?        @map("registration_number")
-  phone            String?
-  email            String?
-  website          String?
-  paymentTerms     Int?             @map("payment_terms") // days
-  creditLimit      Decimal?         @map("credit_limit") @db.Decimal(18, 2)
-  currencyId       String?          @map("currency_id")
-  notes            String?
-  active           Boolean          @default(true)
+  id                 String           @id @default(uuid())
+  tenantId           String           @map("tenant_id")
+  organizationId     String           @map("organization_id")
+  counterpartyType   CounterpartyType @map("counterparty_type")
+  code               String
+  name               String
+  fullLegalName      String?          @map("full_legal_name")
+  taxId              String?          @map("tax_id")
+  registrationNumber String?          @map("registration_number")
+  phone              String?
+  email              String?
+  website            String?
+  paymentTerms       Int?             @map("payment_terms") // days
+  creditLimit        Decimal?         @map("credit_limit") @db.Decimal(18, 2)
+  currencyId         String?          @map("currency_id")
+  notes              String?
+  active             Boolean          @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1110,13 +1127,13 @@ model Counterparty {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant       Tenant            @relation(fields: [tenantId], references: [id])
-  organization Organization      @relation(fields: [organizationId], references: [id])
-  currency     Currency?         @relation(fields: [currencyId], references: [id])
-  addresses    CounterpartyAddress[]
-  contacts     CounterpartyContact[]
-  priceLists   PriceList[]
-  salesOrders  SalesOrder[]
+  tenant        Tenant                @relation(fields: [tenantId], references: [id])
+  organization  Organization          @relation(fields: [organizationId], references: [id])
+  currency      Currency?             @relation(fields: [currencyId], references: [id])
+  addresses     CounterpartyAddress[]
+  contacts      CounterpartyContact[]
+  priceLists    PriceList[]
+  salesOrders   SalesOrder[]
   salesInvoices SalesInvoice[]
 
   @@unique([organizationId, code])
@@ -1127,26 +1144,26 @@ model Counterparty {
 }
 
 enum AddressType {
-  LEGAL      // Legal/registered address
-  SHIPPING   // Shipping address
-  BILLING    // Billing address
-  OTHER      // Other
+  LEGAL // Legal/registered address
+  SHIPPING // Shipping address
+  BILLING // Billing address
+  OTHER // Other
 }
 
 /// Counterparty Address — delivery/billing addresses for counterparties.
 model CounterpartyAddress {
-  id              String      @id @default(uuid())
-  tenantId        String      @map("tenant_id")
-  counterpartyId  String      @map("counterparty_id")
-  addressType     AddressType @map("address_type")
-  addressLine1    String      @map("address_line1")
-  addressLine2    String?     @map("address_line2")
-  city            String
-  stateProvince   String?     @map("state_province")
-  postalCode      String?     @map("postal_code")
-  countryCode     String      @map("country_code") @default("AZ")
-  isDefault       Boolean     @default(false) @map("is_default")
-  active          Boolean     @default(true)
+  id             String      @id @default(uuid())
+  tenantId       String      @map("tenant_id")
+  counterpartyId String      @map("counterparty_id")
+  addressType    AddressType @map("address_type")
+  addressLine1   String      @map("address_line1")
+  addressLine2   String?     @map("address_line2")
+  city           String
+  stateProvince  String?     @map("state_province")
+  postalCode     String?     @map("postal_code")
+  countryCode    String      @default("AZ") @map("country_code")
+  isDefault      Boolean     @default(false) @map("is_default")
+  active         Boolean     @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1192,28 +1209,28 @@ model CounterpartyContact {
 }
 
 enum PriceListType {
-  SALE       // Sales price list
-  PURCHASE   // Purchase price list
+  SALE // Sales price list
+  PURCHASE // Purchase price list
 }
 
 /// Price List — organization-scoped pricing rules (section 90-92).
 /// A price list defines prices for products, optionally for specific
 /// counterparties, categories, or date ranges. Effective-dated.
 model PriceList {
-  id               String        @id @default(uuid())
-  tenantId         String        @map("tenant_id")
-  organizationId   String        @map("organization_id")
-  priceListType    PriceListType @map("price_list_type")
-  code             String
-  name             String
-  description      String?
-  currencyId       String        @map("currency_id")
-  validFrom        DateTime      @map("valid_from") @db.Date
-  validTo          DateTime?     @map("valid_to") @db.Date
-  counterpartyId   String?       @map("counterparty_id") // null = applies to all
-  priority         Int           @default(0) // higher priority wins
-  includesTax      Boolean       @default(false) @map("includes_tax")
-  active           Boolean       @default(true)
+  id             String        @id @default(uuid())
+  tenantId       String        @map("tenant_id")
+  organizationId String        @map("organization_id")
+  priceListType  PriceListType @map("price_list_type")
+  code           String
+  name           String
+  description    String?
+  currencyId     String        @map("currency_id")
+  validFrom      DateTime      @map("valid_from") @db.Date
+  validTo        DateTime?     @map("valid_to") @db.Date
+  counterpartyId String?       @map("counterparty_id") // null = applies to all
+  priority       Int           @default(0) // higher priority wins
+  includesTax    Boolean       @default(false) @map("includes_tax")
+  active         Boolean       @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1221,10 +1238,10 @@ model PriceList {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  organization Organization  @relation(fields: [organizationId], references: [id])
-  currency     Currency      @relation(fields: [currencyId], references: [id])
-  counterparty Counterparty? @relation(fields: [counterpartyId], references: [id])
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  currency     Currency       @relation(fields: [currencyId], references: [id])
+  counterparty Counterparty?  @relation(fields: [counterpartyId], references: [id])
   prices       ProductPrice[]
 
   @@unique([organizationId, code])
@@ -1236,15 +1253,15 @@ model PriceList {
 
 /// Product Price — individual product prices within a price list.
 model ProductPrice {
-  id          String  @id @default(uuid())
-  tenantId    String  @map("tenant_id")
-  priceListId String  @map("price_list_id")
-  productId   String  @map("product_id")
-  unitId      String  @map("unit_id") // can be different from product's base unit
-  price       Decimal @db.Decimal(18, 6)
-  minQuantity Decimal @default(1) @map("min_quantity") @db.Decimal(18, 6)
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  priceListId String   @map("price_list_id")
+  productId   String   @map("product_id")
+  unitId      String   @map("unit_id") // can be different from product's base unit
+  price       Decimal  @db.Decimal(18, 6)
+  minQuantity Decimal  @default(1) @map("min_quantity") @db.Decimal(18, 6)
   maxQuantity Decimal? @map("max_quantity") @db.Decimal(18, 6)
-  active      Boolean @default(true)
+  active      Boolean  @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1276,23 +1293,23 @@ model ProductPrice {
 /// Sales Order — customer order document (DRAFT -> POSTED reserves nothing
 /// yet; stock reservation is a later phase concern).
 model SalesOrder {
-  id             String         @id @default(uuid())
-  tenantId       String         @map("tenant_id")
-  organizationId String         @map("organization_id")
-  counterpartyId String         @map("counterparty_id")
-  documentType   String         @default("SALES_ORDER") @map("document_type")
-  number         String?
-  documentDate   DateTime       @map("document_date") @db.Date
-  postingDate    DateTime?      @map("posting_date") @db.Date
-  status         DocumentStatus @default(DRAFT)
-  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
-  currencyId     String?        @map("currency_id")
-  exchangeRate   Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
-  subtotal       Decimal        @default(0) @db.Decimal(18, 2)
-  taxTotal       Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
-  grandTotal     Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
-  priceIncludesTax Boolean      @default(false) @map("price_includes_tax")
-  description    String?
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  organizationId   String         @map("organization_id")
+  counterpartyId   String         @map("counterparty_id")
+  documentType     String         @default("SALES_ORDER") @map("document_type")
+  number           String?
+  documentDate     DateTime       @map("document_date") @db.Date
+  postingDate      DateTime?      @map("posting_date") @db.Date
+  status           DocumentStatus @default(DRAFT)
+  postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId       String?        @map("currency_id")
+  exchangeRate     Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+  subtotal         Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal         Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal       Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  priceIncludesTax Boolean        @default(false) @map("price_includes_tax")
+  description      String?
 
   createdAt    DateTime  @default(now()) @map("created_at")
   createdBy    String?   @map("created_by")
@@ -1305,10 +1322,10 @@ model SalesOrder {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?    @relation(fields: [currencyId], references: [id])
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty     @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?        @relation(fields: [currencyId], references: [id])
   lines        SalesOrderLine[]
 
   @@unique([tenantId, number])
@@ -1354,23 +1371,23 @@ model SalesOrderLine {
 /// Sales Invoice — billing document, creatable standalone or based on a
 /// SalesOrder (CreateBasedOn SALES_ORDER => SALES_INVOICE).
 model SalesInvoice {
-  id             String         @id @default(uuid())
-  tenantId       String         @map("tenant_id")
-  organizationId String         @map("organization_id")
-  counterpartyId String         @map("counterparty_id")
-  documentType   String         @default("SALES_INVOICE") @map("document_type")
-  number         String?
-  documentDate   DateTime       @map("document_date") @db.Date
-  postingDate    DateTime?      @map("posting_date") @db.Date
-  status         DocumentStatus @default(DRAFT)
-  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
-  currencyId     String?        @map("currency_id")
-  exchangeRate   Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
-  subtotal       Decimal        @default(0) @db.Decimal(18, 2)
-  taxTotal       Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
-  grandTotal     Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
-  priceIncludesTax Boolean      @default(false) @map("price_includes_tax")
-  description    String?
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  organizationId   String         @map("organization_id")
+  counterpartyId   String         @map("counterparty_id")
+  documentType     String         @default("SALES_INVOICE") @map("document_type")
+  number           String?
+  documentDate     DateTime       @map("document_date") @db.Date
+  postingDate      DateTime?      @map("posting_date") @db.Date
+  status           DocumentStatus @default(DRAFT)
+  postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId       String?        @map("currency_id")
+  exchangeRate     Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+  subtotal         Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal         Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal       Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  priceIncludesTax Boolean        @default(false) @map("price_includes_tax")
+  description      String?
 
   createdAt    DateTime  @default(now()) @map("created_at")
   createdBy    String?   @map("created_by")
@@ -1383,10 +1400,10 @@ model SalesInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?    @relation(fields: [currencyId], references: [id])
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty       @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?          @relation(fields: [currencyId], references: [id])
   lines        SalesInvoiceLine[]
 
   @@unique([tenantId, number])
@@ -1397,22 +1414,22 @@ model SalesInvoice {
 }
 
 model SalesInvoiceLine {
-  id               String  @id @default(uuid())
-  tenantId         String  @map("tenant_id")
-  salesInvoiceId   String  @map("sales_invoice_id")
-  position         Int     @default(0)
-  productId        String  @map("product_id")
-  unitId           String  @map("unit_id")
-  quantity         Decimal @db.Decimal(18, 6)
-  price            Decimal @db.Decimal(18, 6)
-  lineTotal        Decimal @map("line_total") @db.Decimal(18, 2)
-  taxRate          Decimal @default(0) @map("tax_rate") @db.Decimal(18, 2)
-  taxAmount        Decimal @default(0) @map("tax_amount") @db.Decimal(18, 2)
-  lineTotalWithTax Decimal @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
-  priceListId      String? @map("price_list_id")
-  productPriceId   String? @map("product_price_id")
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  salesInvoiceId    String  @map("sales_invoice_id")
+  position          Int     @default(0)
+  productId         String  @map("product_id")
+  unitId            String  @map("unit_id")
+  quantity          Decimal @db.Decimal(18, 6)
+  price             Decimal @db.Decimal(18, 6)
+  lineTotal         Decimal @map("line_total") @db.Decimal(18, 2)
+  taxRate           Decimal @default(0) @map("tax_rate") @db.Decimal(18, 2)
+  taxAmount         Decimal @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  lineTotalWithTax  Decimal @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
+  priceListId       String? @map("price_list_id")
+  productPriceId    String? @map("product_price_id")
   sourceOrderLineId String? @map("source_order_line_id")
-  description      String?
+  description       String?
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1428,4 +1445,442 @@ model SalesInvoiceLine {
   @@index([salesInvoiceId, position])
   @@index([tenantId, productId])
   @@map("sales_invoice_lines")
+}
+
+// ============================================================================
+// ACCOUNTING CORE — CHART OF ACCOUNTS & DOUBLE-ENTRY POSTING ENGINE
+// (docx spec "Phase 4 — Accounting Core & Azerbaijan Chart of Accounts";
+// named by content rather than a phase number here because this repo's own
+// Phase 4 already means Sales Documents. See docs/ACCOUNTING_CORE.md.)
+//
+// Architecture: Business Document -> Posting Handler -> AccountingPostingBatch
+// -> AccountingPostingEngine -> JournalEntry -> AccountingMovement -> GL.
+// AccountingMovement is the only source of truth for balances — never a
+// cached account.balance column (spec section 4).
+// ============================================================================
+
+/// System template (tenantId=null) vs a tenant's own adopted chart
+/// (tenantId set) — spec section 7. Sections/Groups always hang off the
+/// system template only (shared classification metadata); Accounts hang
+/// off the tenant's adopted chart so each tenant can extend its own copy
+/// without ever touching the template.
+model ChartOfAccounts {
+  id               String    @id @default(uuid())
+  tenantId         String?   @map("tenant_id") // null = system template
+  code             String
+  name             String
+  countryCode      String    @default("AZ") @map("country_code")
+  localizationCode String    @default("AZ_STANDARD_COA") @map("localization_code")
+  versionCode      String    @default("1.0") @map("version_code")
+  validFrom        DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  systemTemplate   Boolean   @default(false) @map("system_template")
+  active           Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant         Tenant?                     @relation(fields: [tenantId], references: [id])
+  sections       FinancialStatementSection[]
+  accounts       Account[]
+  Organization   Organization?               @relation(fields: [organizationId], references: [id])
+  organizationId String?
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("charts_of_accounts")
+}
+
+/// Top-level reporting node (spec section 9) — never posting_allowed.
+model FinancialStatementSection {
+  id                String  @id @default(uuid())
+  chartOfAccountsId String  @map("chart_of_accounts_id")
+  code              String
+  name              String
+  sequence          Int     @default(0)
+  statementType     String  @default("BALANCE_SHEET") @map("statement_type") // BALANCE_SHEET | INCOME_STATEMENT
+  active            Boolean @default(true)
+
+  chart    ChartOfAccounts           @relation(fields: [chartOfAccountsId], references: [id])
+  groups   FinancialStatementGroup[]
+  accounts Account[]
+
+  @@unique([chartOfAccountsId, code])
+  @@map("financial_statement_sections")
+}
+
+/// Second-level reporting node (spec section 10) — never posting_allowed.
+model FinancialStatementGroup {
+  id        String  @id @default(uuid())
+  sectionId String  @map("section_id")
+  code      String
+  name      String
+  sequence  Int     @default(0)
+  active    Boolean @default(true)
+
+  section  FinancialStatementSection @relation(fields: [sectionId], references: [id])
+  accounts Account[]
+
+  @@unique([sectionId, code])
+  @@map("financial_statement_groups")
+}
+
+enum AccountClass {
+  ASSET
+  CONTRA_ASSET
+  LIABILITY
+  CONTRA_LIABILITY
+  EQUITY
+  CONTRA_EQUITY
+  REVENUE
+  CONTRA_REVENUE
+  EXPENSE
+  PROFIT_LOSS
+  TAX_EXPENSE
+  OFF_BALANCE
+}
+
+enum NormalBalance {
+  DEBIT
+  CREDIT
+  BOTH
+}
+
+/// A posting-eligible or purely-structural ledger account (spec sections
+/// 21-24, 79-82). Code is always a STRING (section 79) — 414-1, 205.01 etc
+/// are valid and hierarchy is explicit via parentAccountId, never inferred
+/// from code length/prefix (section 152).
+model Account {
+  id                          String        @id @default(uuid())
+  tenantId                    String?       @map("tenant_id") // null = system template account (see ChartOfAccounts)
+  organizationId              String?       @map("organization_id") // null = shared across the tenant's organizations
+  chartOfAccountsId           String        @map("chart_of_accounts_id")
+  parentAccountId             String?       @map("parent_account_id")
+  financialStatementSectionId String?       @map("financial_statement_section_id")
+  financialStatementGroupId   String?       @map("financial_statement_group_id")
+  code                        String
+  name                        String
+  description                 String?
+  accountClass                AccountClass  @map("account_class")
+  normalBalance               NormalBalance @map("normal_balance")
+  postingAllowed              Boolean       @default(true) @map("posting_allowed")
+  offBalance                  Boolean       @default(false) @map("off_balance")
+  currencyTracking            Boolean       @default(false) @map("currency_tracking")
+  quantityTracking            Boolean       @default(false) @map("quantity_tracking")
+  systemAccount               Boolean       @default(false) @map("system_account")
+  customizable                Boolean       @default(true)
+  active                      Boolean       @default(true)
+  validFrom                   DateTime      @default(now()) @map("valid_from") @db.Date
+  validTo                     DateTime?     @map("valid_to") @db.Date
+  // Seed provenance (spec section 77) so upgrades never clobber org edits.
+  sourceTemplate              String?       @default("AZ_STANDARD_COA") @map("source_template")
+  templateVersion             String?       @map("template_version")
+  systemSeed                  Boolean       @default(false) @map("system_seed")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant?                    @relation(fields: [tenantId], references: [id])
+  organization Organization?              @relation(fields: [organizationId], references: [id])
+  chart        ChartOfAccounts            @relation(fields: [chartOfAccountsId], references: [id])
+  parent       Account?                   @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children     Account[]                  @relation("AccountHierarchy")
+  section      FinancialStatementSection? @relation(fields: [financialStatementSectionId], references: [id])
+  group        FinancialStatementGroup?   @relation(fields: [financialStatementGroupId], references: [id])
+
+  dimensionRules      AccountDimensionRule[]
+  accountingMappings  AccountingMapping[]
+  journalEntryLines   JournalEntryLine[]
+  accountingMovements AccountingMovement[]
+
+  @@unique([tenantId, chartOfAccountsId, code])
+  @@index([tenantId, active])
+  @@index([tenantId, parentAccountId])
+  @@map("accounts")
+}
+
+/// Subconto definition (spec sections 25-26). Kept tenant-nullable (null =
+/// system-defined, shared) following the ExchangeRate precedent elsewhere
+/// in this schema for shared-vs-tenant rows.
+model AccountingDimensionDefinition {
+  id                  String  @id @default(uuid())
+  tenantId            String? @map("tenant_id") // null = system-defined, shared
+  code                String
+  name                String
+  valueType           String  @default("REFERENCE") @map("value_type") // REFERENCE | TEXT | NUMBER
+  referenceEntityType String? @map("reference_entity_type") // e.g. PARTNER, WAREHOUSE, PRODUCT ...
+  active              Boolean @default(true)
+  systemDefined       Boolean @default(true) @map("system_defined")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  dimensionRules        AccountDimensionRule[]
+  journalLineDimensions JournalLineDimension[]
+  movementDimensions    AccountingMovementDimension[]
+
+  @@unique([tenantId, code])
+  @@map("accounting_dimension_definitions")
+}
+
+/// Which dimensions an Account requires/allows (spec section 27), kept
+/// effective-dated so a rule added later never invalidates historical
+/// entries (spec section 82).
+model AccountDimensionRule {
+  id                    String    @id @default(uuid())
+  accountId             String    @map("account_id")
+  dimensionDefinitionId String    @map("dimension_definition_id")
+  required              Boolean   @default(true)
+  sequence              Int       @default(0)
+  balanceTracking       Boolean   @default(true) @map("balance_tracking")
+  turnoverTracking      Boolean   @default(true) @map("turnover_tracking")
+  quantityTracking      Boolean   @default(false) @map("quantity_tracking")
+  validFrom             DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo               DateTime? @map("valid_to") @db.Date
+  active                Boolean   @default(true)
+
+  account   Account                       @relation(fields: [accountId], references: [id])
+  dimension AccountingDimensionDefinition @relation(fields: [dimensionDefinitionId], references: [id])
+
+  @@unique([accountId, dimensionDefinitionId, validFrom])
+  @@map("account_dimension_rules")
+}
+
+/// Semantic mapping key -> Account (spec sections 39-43). Business modules
+/// resolve e.g. "SALES_REVENUE" through here — never a literal account code
+/// in code. organizationId=null means a tenant-wide default; a matching
+/// organization-specific row takes precedence (see AccountingMappingService).
+model AccountingMapping {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String?   @map("organization_id")
+  mappingKey     String    @map("mapping_key")
+  accountId      String    @map("account_id")
+  validFrom      DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo        DateTime? @map("valid_to") @db.Date
+  priority       Int       @default(0)
+  active         Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  account      Account       @relation(fields: [accountId], references: [id])
+
+  @@index([tenantId, organizationId, mappingKey, validFrom])
+  @@map("accounting_mappings")
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  REVERSED
+}
+
+/// The accounting document/operation header (spec section 31). Status is
+/// never edited directly by API (section 31) — only through post/unpost/
+/// reverse commands on JournalEntryService / AccountingPostingEngine.
+model JournalEntry {
+  id                 String             @id @default(uuid())
+  tenantId           String             @map("tenant_id")
+  organizationId     String             @map("organization_id")
+  journalNumber      String             @map("journal_number")
+  businessDate       DateTime           @map("business_date") @db.Date
+  postingDate        DateTime           @map("posting_date") @db.Date
+  sourceDocumentType String?            @map("source_document_type")
+  sourceDocumentId   String?            @map("source_document_id")
+  operationType      String             @default("MANUAL") @map("operation_type") // MANUAL | OPENING_BALANCE | SYSTEM_DOCUMENT | REVERSAL | PERIOD_CLOSE
+  generatedBy        String             @default("MANUAL_OPERATION") @map("generated_by")
+  description        String?
+  status             JournalEntryStatus @default(DRAFT)
+  isManual           Boolean            @default(true) @map("is_manual")
+  isOpeningBalance   Boolean            @default(false) @map("is_opening_balance")
+  isReversal         Boolean            @default(false) @map("is_reversal")
+  reversalOfEntryId  String?            @map("reversal_of_entry_id")
+  generation         Int                @default(1)
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  createdBy  String?   @map("created_by")
+  postedAt   DateTime? @map("posted_at")
+  postedBy   String?   @map("posted_by")
+  reversedAt DateTime? @map("reversed_at")
+  reversedBy String?   @map("reversed_by")
+  version    Int       @default(1)
+
+  tenant            Tenant         @relation(fields: [tenantId], references: [id])
+  organization      Organization   @relation(fields: [organizationId], references: [id])
+  reversalOf        JournalEntry?  @relation("JournalEntryReversal", fields: [reversalOfEntryId], references: [id])
+  reversedByEntries JournalEntry[] @relation("JournalEntryReversal")
+
+  lines     JournalEntryLine[]
+  movements AccountingMovement[]
+
+  @@unique([tenantId, journalNumber])
+  @@index([tenantId, organizationId, businessDate])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@map("journal_entries")
+}
+
+enum EntrySide {
+  DEBIT
+  CREDIT
+}
+
+/// One debit-or-credit line of a JournalEntry (spec section 32) — a single
+/// `side` + one positive amount, never separate debit/credit columns
+/// (section 32 preference).
+model JournalEntryLine {
+  id                    String    @id @default(uuid())
+  journalEntryId        String    @map("journal_entry_id")
+  sequence              Int       @default(0)
+  accountId             String    @map("account_id")
+  side                  EntrySide
+  amountBase            Decimal   @map("amount_base") @db.Decimal(20, 4)
+  transactionCurrencyId String?   @map("transaction_currency_id")
+  amountTransaction     Decimal?  @map("amount_transaction") @db.Decimal(20, 4)
+  exchangeRate          Decimal?  @map("exchange_rate") @db.Decimal(20, 10)
+  quantity              Decimal?  @db.Decimal(20, 6)
+  quantityUnitId        String?   @map("quantity_unit_id")
+  description           String?
+  sourceDocumentLineId  String?   @map("source_document_line_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account        @relation(fields: [accountId], references: [id])
+  currency     Currency?      @relation(fields: [transactionCurrencyId], references: [id])
+  quantityUnit UnitOfMeasure? @relation(fields: [quantityUnitId], references: [id])
+
+  dimensions JournalLineDimension[]
+
+  @@index([journalEntryId, sequence])
+  @@index([accountId])
+  @@map("journal_entry_lines")
+}
+
+/// Dimension value attached to a (still-mutable, pre-posting) journal line
+/// (spec section 33). One dimension type per line, enforced by the unique
+/// constraint.
+model JournalLineDimension {
+  id                    String  @id @default(uuid())
+  journalLineId         String  @map("journal_line_id")
+  dimensionDefinitionId String  @map("dimension_definition_id")
+  referenceType         String  @map("reference_type")
+  referenceId           String  @map("reference_id")
+  scalarValue           String? @map("scalar_value")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  line      JournalEntryLine              @relation(fields: [journalLineId], references: [id], onDelete: Cascade)
+  dimension AccountingDimensionDefinition @relation(fields: [dimensionDefinitionId], references: [id])
+
+  @@unique([journalLineId, dimensionDefinitionId])
+  @@map("journal_line_dimensions")
+}
+
+/// Immutable posted register row (spec sections 34-36) — the single
+/// authoritative source for every balance/turnover query. Never UPDATEd
+/// once written; corrections only ever add new movements (reversal) or
+/// happen via unpost+repost while the period is open.
+model AccountingMovement {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  journalEntryId        String    @map("journal_entry_id")
+  journalLineId         String    @map("journal_line_id")
+  sourceDocumentType    String?   @map("source_document_type")
+  sourceDocumentId      String?   @map("source_document_id")
+  sourceDocumentLineId  String?   @map("source_document_line_id")
+  accountId             String    @map("account_id")
+  side                  EntrySide
+  businessDate          DateTime  @map("business_date") @db.Date
+  postingTimestamp      DateTime  @default(now()) @map("posting_timestamp")
+  // Native DB sequence (not app-computed) so deterministic ordering holds
+  // under concurrent posting without a hand-rolled counter (spec section 65).
+  postingSequence       BigInt    @default(autoincrement()) @map("posting_sequence")
+  amountBase            Decimal   @map("amount_base") @db.Decimal(20, 4)
+  transactionCurrencyId String?   @map("transaction_currency_id")
+  amountTransaction     Decimal?  @map("amount_transaction") @db.Decimal(20, 4)
+  exchangeRate          Decimal?  @map("exchange_rate") @db.Decimal(20, 10)
+  quantity              Decimal?  @db.Decimal(20, 6)
+  quantityUnitId        String?   @map("quantity_unit_id")
+  reversalOfMovementId  String?   @map("reversal_of_movement_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  organization        Organization         @relation(fields: [organizationId], references: [id])
+  journalEntry        JournalEntry         @relation(fields: [journalEntryId], references: [id])
+  account             Account              @relation(fields: [accountId], references: [id])
+  currency            Currency?            @relation(fields: [transactionCurrencyId], references: [id])
+  quantityUnit        UnitOfMeasure?       @relation(fields: [quantityUnitId], references: [id])
+  reversalOf          AccountingMovement?  @relation("MovementReversal", fields: [reversalOfMovementId], references: [id])
+  reversedByMovements AccountingMovement[] @relation("MovementReversal")
+
+  dimensions AccountingMovementDimension[]
+
+  @@index([tenantId, organizationId, businessDate])
+  @@index([organizationId, accountId, businessDate])
+  @@index([journalEntryId])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([accountId, businessDate])
+  @@map("accounting_movements")
+}
+
+/// Dimension value frozen onto a posted movement at posting time (spec
+/// section 35) — deliberately separate from JournalLineDimension so the
+/// posted register stays historically reproducible even if the (still
+/// mutable, pre-posting) journal line dimensions were later changed via
+/// unpost/repost.
+model AccountingMovementDimension {
+  id                    String  @id @default(uuid())
+  accountingMovementId  String  @map("accounting_movement_id")
+  dimensionDefinitionId String  @map("dimension_definition_id")
+  referenceType         String  @map("reference_type")
+  referenceId           String  @map("reference_id")
+  scalarValue           String? @map("scalar_value")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  movement  AccountingMovement            @relation(fields: [accountingMovementId], references: [id], onDelete: Cascade)
+  dimension AccountingDimensionDefinition @relation(fields: [dimensionDefinitionId], references: [id])
+
+  @@unique([accountingMovementId, dimensionDefinitionId])
+  @@index([dimensionDefinitionId, referenceId])
+  @@map("accounting_movement_dimensions")
+}
+
+/// Posting-generation history (spec section 92) — one row per post/repost
+/// attempt for a source document, independent of the generic AuditEvent
+/// stream so "what posting generations exist for this document" is a
+/// direct query rather than an AuditEvent scan.
+model PostingRun {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  sourceDocumentType String    @map("source_document_type")
+  sourceDocumentId   String    @map("source_document_id")
+  generation         Int
+  startedAt          DateTime  @default(now()) @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  status             String    @default("RUNNING") // RUNNING | SUCCEEDED | FAILED
+  actor              String?
+  correlationId      String?   @map("correlation_id")
+  failureCode        String?   @map("failure_code")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([tenantId, sourceDocumentType, sourceDocumentId, generation])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@map("posting_runs")
 }
