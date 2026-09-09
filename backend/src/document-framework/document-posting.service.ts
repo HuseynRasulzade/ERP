@@ -3,6 +3,7 @@ import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service
 import { DocumentFrameworkRegistry } from './document-framework-registry.service';
 import { PeriodService } from '../period/period.service';
 import { AuditService } from '../audit/audit.service';
+import { AccountingPostingEngine } from '../accounting-core/accounting-posting-engine.service';
 import {
   ConcurrencyConflictError,
   DocumentAlreadyPostedError,
@@ -18,13 +19,21 @@ import {
  * Every step below runs inside ONE database transaction:
  *   lock+load document -> validate tenant/period/state -> run posting
  *   validation -> (repost: remove previous movements) -> build movements ->
- *   save movements -> mark posted -> write audit event -> COMMIT.
+ *   save movements -> (if the handler provides one) post the Accounting
+ *   Core consequence -> mark posted -> write audit event -> COMMIT.
  * Any failure at any step rolls back everything — a document is never left
- * `posted = true` with partially written movements (section 11, scenario B).
+ * `posted = true` with partially written movements (section 11, scenario B),
+ * and never posted with GL/Tax Register left half-written either (Accounting
+ * Core spec section 44, Tax Engine spec section 67) — it's the same
+ * transaction.
  *
  * This service never branches on document type: it only ever calls through
  * DocumentFrameworkRegistry, so a new document type never means editing
- * this file (section 12).
+ * this file (section 12). The one exception is the generic Accounting
+ * Core/Tax Register hookup below, which is itself type-agnostic — it only
+ * ever looks at `handler.buildAccountingBatch` (optional) and at rows
+ * keyed by `sourceDocumentType`/`sourceDocumentId`, never at a document
+ * type name.
  */
 @Injectable()
 export class DocumentPostingService {
@@ -35,6 +44,7 @@ export class DocumentPostingService {
     private readonly registry: DocumentFrameworkRegistry,
     private readonly periods: PeriodService,
     private readonly audit: AuditService,
+    private readonly accountingEngine: AccountingPostingEngine,
   ) {}
 
   async post(
@@ -93,6 +103,46 @@ export class DocumentPostingService {
               sequence,
             },
           });
+        }
+
+        if (handler.buildAccountingBatch) {
+          // Repost contract (Accounting Core spec section 46): a stale
+          // DRAFT Journal Entry left behind by a prior unpost of this same
+          // source must never linger once we're about to create a fresh
+          // one — delete it (it has no movements; unpost already removed
+          // those) before posting the new batch.
+          await tx.journalEntry.deleteMany({
+            where: { tenantId, sourceDocumentType: documentType, sourceDocumentId: documentId, status: 'DRAFT' },
+          });
+
+          const batch = await handler.buildAccountingBatch(tenantId, document, tx);
+          if (batch && batch.lines.length > 0) {
+            const postedEntry = await this.accountingEngine.postBatch(
+              tenantId,
+              userId,
+              {
+                organizationId: document.organizationId!,
+                businessDate,
+                postingDate: businessDate,
+                description: batch.description,
+                operationType: batch.operationType,
+                sourceDocumentType: documentType,
+                sourceDocumentId: documentId,
+                lines: batch.lines,
+              },
+              tx,
+            );
+            // Drilldown linkage (Tax Engine spec section 108): a handler
+            // that also called TaxRegisterService.registerTaxable left its
+            // TaxMovement rows with journalEntryId still null — backfill it
+            // generically here rather than every handler repeating this.
+            if (postedEntry) {
+              await tx.taxMovement.updateMany({
+                where: { tenantId, sourceDocumentType: documentType, sourceDocumentId: documentId, journalEntryId: null },
+                data: { journalEntryId: postedEntry.id },
+              });
+            }
+          }
         }
 
         const result = await repository.applyStatusPatch(
@@ -154,6 +204,22 @@ export class DocumentPostingService {
 
       const deleted = await tx.registerMovement.deleteMany({
         where: { tenantId, recorderDocumentType: documentType, recorderDocumentId: documentId },
+      });
+
+      // Generic Accounting Core / Tax Register cleanup (type-agnostic: it
+      // only ever looks at rows keyed by sourceDocumentType/Id, never at
+      // handler.buildAccountingBatch — a document type that never posted
+      // one simply has nothing to find here). Mirrors unpost's own
+      // semantics on the accounting side: transactional removal, not a
+      // reversal (spec section 47 vs 48).
+      const activeEntry = await tx.journalEntry.findFirst({
+        where: { tenantId, sourceDocumentType: documentType, sourceDocumentId: documentId, status: 'POSTED' },
+      });
+      if (activeEntry) {
+        await this.accountingEngine.unpost(tenantId, activeEntry.id, userId, activeEntry.version, tx);
+      }
+      await tx.taxMovement.deleteMany({
+        where: { tenantId, sourceDocumentType: documentType, sourceDocumentId: documentId, reversalOfMovementId: null },
       });
 
       const result = await repository.applyStatusPatch(

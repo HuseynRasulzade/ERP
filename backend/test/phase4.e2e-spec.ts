@@ -13,11 +13,15 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { AppModule } from '../src/app.module';
 import { SALES_ORDER_TYPE } from '../src/sales-documents/sales-order.repository';
 import { SALES_INVOICE_TYPE } from '../src/sales-documents/sales-invoice.repository';
+import { ChartOfAccountsService } from '../src/accounting-core/chart-of-accounts.service';
+import { AzTaxLocalizationService } from '../src/tax-engine/az-tax-localization.service';
 import * as request from 'supertest';
 
 describe('Phase 4 — Sales documents (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let charts: ChartOfAccountsService;
+  let localization: AzTaxLocalizationService;
   const run = Date.now();
   let token1: string;
   let token2: string;
@@ -46,6 +50,8 @@ describe('Phase 4 — Sales documents (e2e)', () => {
     );
     await app.init();
     prisma = app.get(PrismaService);
+    charts = app.get(ChartOfAccountsService);
+    localization = app.get(AzTaxLocalizationService);
   });
 
   afterAll(async () => {
@@ -104,6 +110,14 @@ describe('Phase 4 — Sales documents (e2e)', () => {
       token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
       const s2 = await setupTenant(`p4b-${run}@e2e.test`, `p4-t2-${run}`, 'P4O2');
       token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
+
+      // Accounting Core + Tax Engine reconciliation: posting a Sales
+      // Invoice now resolves real accounting mappings (CUSTOMER_RECEIVABLE,
+      // SALES_REVENUE, VAT_OUTPUT_PAYABLE), which requires the tenant to
+      // have adopted the AZ chart and the shared VAT rules to be seeded —
+      // same prerequisite as accounting-core.e2e-spec.ts / tax-engine.e2e-spec.ts.
+      await charts.ensureAdopted(tenant1Id);
+      await localization.ensureSeeded();
 
       const u = await auth1(request(app.getHttpServer()).post('/units-of-measure'))
         .send({ code: 'PCS4', name: 'Piece', symbol: 'pcs', unitType: 'QUANTITY' })
@@ -407,6 +421,68 @@ describe('Phase 4 — Sales documents (e2e)', () => {
       });
       expect(movements).toHaveLength(1);
       expect(movements[0].movementType).toBe('RECEIVABLE_ACCRUAL');
+
+      // Accounting Core + Tax Engine reconciliation: posting also creates a
+      // real, balanced Journal Entry (Dr Receivable / Cr Revenue / Cr VAT
+      // Output Payable) and a Tax Register movement — using the Tax
+      // Engine's resolved 18% standard rate, not the line's own taxRate:20
+      // input (see sales-invoice.posting-handler.ts's documented scope).
+      const entry = await prisma.journalEntry.findFirst({
+        where: { tenantId: tenant1Id, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: invoice.id },
+        include: { lines: true },
+      });
+      expect(entry?.status).toBe('POSTED');
+      expect(entry!.lines).toHaveLength(3); // receivable, revenue, VAT output payable
+      const glDebit = entry!.lines.filter((l) => l.side === 'DEBIT').reduce((s, l) => s + Number(l.amountBase), 0);
+      const glCredit = entry!.lines.filter((l) => l.side === 'CREDIT').reduce((s, l) => s + Number(l.amountBase), 0);
+      expect(glDebit).toBeCloseTo(glCredit, 2);
+      expect(glDebit).toBeCloseTo(236, 2); // 200 net * 1.18 standard VAT
+
+      const taxMovements = await prisma.taxMovement.findMany({
+        where: { tenantId: tenant1Id, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: invoice.id },
+      });
+      expect(taxMovements).toHaveLength(1);
+      expect(Number(taxMovements[0].taxAmount)).toBeCloseTo(36, 2); // 200 * 18%
+      expect(taxMovements[0].journalEntryId).toBe(entry!.id);
+
+      // Unposting generically cleans up the linked Journal Entry (back to
+      // DRAFT, its movements removed) and the Tax Register rows for this
+      // source — DocumentPostingService.unpost's new Accounting Core/Tax
+      // Register hookup, exercised here for the first time.
+      const unposted = await auth1(
+        request(app.getHttpServer()).post(`/documents/${SALES_INVOICE_TYPE}/${invoice.id}/unpost`),
+      )
+        .send({ expectedVersion: posted.body.version })
+        .expect(201);
+      expect(unposted.body.postingStatus).toBe('NOT_POSTED');
+
+      const entryAfterUnpost = await prisma.journalEntry.findUnique({ where: { id: entry!.id } });
+      expect(entryAfterUnpost?.status).toBe('DRAFT');
+      const glMovementsAfterUnpost = await prisma.accountingMovement.findMany({ where: { journalEntryId: entry!.id } });
+      expect(glMovementsAfterUnpost).toHaveLength(0);
+      const taxMovementsAfterUnpost = await prisma.taxMovement.findMany({
+        where: { tenantId: tenant1Id, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: invoice.id },
+      });
+      expect(taxMovementsAfterUnpost).toHaveLength(0);
+
+      // Re-posting creates a fresh Journal Entry generation rather than
+      // leaving the stale DRAFT one behind (spec section 46's repost
+      // contract, applied generically in DocumentPostingService.post).
+      const current = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/sales-invoices/${invoice.id}`),
+      ).expect(200);
+      const reposted = await auth1(
+        request(app.getHttpServer()).post(`/documents/${SALES_INVOICE_TYPE}/${invoice.id}/post`),
+      )
+        .send({ expectedVersion: current.body.version })
+        .expect(201);
+      expect(reposted.body.postingStatus).toBe('POSTED');
+
+      const entriesForSource = await prisma.journalEntry.findMany({
+        where: { tenantId: tenant1Id, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: invoice.id },
+      });
+      expect(entriesForSource).toHaveLength(1); // the stale DRAFT was deleted, not left orphaned
+      expect(entriesForSource[0].status).toBe('POSTED');
     });
 
     it('should refuse to post a zero-total invoice', async () => {

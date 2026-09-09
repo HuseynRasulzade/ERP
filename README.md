@@ -5,9 +5,18 @@ A multi-tenant ERP/accounting platform, built phase by phase from a
 (system architecture & foundation core), **Phase 1** (organization &
 business structure), **Phase 2** (product/nomenclature master data),
 **Phase 3** (counterparty master data + pricing), and **Phase 4** (sales
-orders + invoices — the first real business documents), each with a
-working backend, frontend, and automated test suite — not
-scaffolding, a running system.
+orders + invoices — the first real business documents) in this repo's own
+numbering, plus — named by content rather than phase number, since they
+sit outside that numbering — an **Accounting Core** (Azerbaijan Chart of
+Accounts + double-entry posting engine, see
+[backend/docs/ACCOUNTING_CORE.md](backend/docs/ACCOUNTING_CORE.md)) and a
+**Tax Engine** (version-aware, effective-dated VAT rules, see
+[backend/docs/TAX_ENGINE.md](backend/docs/TAX_ENGINE.md)). Posting a Sales
+Invoice now creates a real, balanced Journal Entry and Tax Register
+movement through both — see
+[backend/docs/SALES_RECONCILIATION.md](backend/docs/SALES_RECONCILIATION.md).
+Each piece has a working backend, frontend (where applicable), and
+automated test suite — not scaffolding, a running system.
 
 ```
 ERP/
@@ -33,10 +42,13 @@ npm run dev                   # http://localhost:5173
 ```
 
 Register a user, create a tenant (you become its Tenant Administrator),
-and you're in.
+and you're in. Before posting anything with an accounting/tax
+consequence (a Sales Invoice, a Manual Operation), adopt the chart and
+seed VAT localization once per tenant:
+`POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 53 tests, all
-passing (3 unit + 50 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 133 tests, all
+passing (3 unit + 130 e2e against a real Postgres instance).
 
 ---
 
@@ -152,6 +164,44 @@ based on" (header-only draft + link, lines added before posting).
 
 Full write-up: [`backend/docs/PHASE4.md`](backend/docs/PHASE4.md).
 
+### Accounting Core — Chart of Accounts + double-entry posting engine
+
+The Azerbaijan standard Chart of Accounts (9 statement sections, ~150
+accounts, real subaccount hierarchy) seeded once as a shared template and
+adopted per-tenant idempotently. `AccountingPostingEngine` is the single
+gateway for balanced double-entry posting: Manual Operations
+(draft → post → unpost → reverse), semantic account mappings (never a
+literal account number in code), required-dimension enforcement, the
+shared Period Guard, and Trial Balance/General Ledger/Account Card
+queries reading only from the immutable posted movement register.
+
+Full write-up: [`backend/docs/ACCOUNTING_CORE.md`](backend/docs/ACCOUNTING_CORE.md).
+
+### Tax Engine — version-aware, effective-dated VAT rules
+
+A deterministic `TaxRuleResolver` picks the applicable rule by tax-point
+date (never "now", never `created_at`) with explicit ambiguous/missing-
+rule errors. Standard-rated, zero-rated, exempt, and out-of-scope
+treatments are distinct first-class outcomes, not all collapsed to
+`rate = 0`. `TaxRegisterService` writes the Tax Register and hands back
+account-resolved GL lines for a caller to post atomically alongside its
+own — proven by the Sales Invoice integration below.
+
+Full write-up: [`backend/docs/TAX_ENGINE.md`](backend/docs/TAX_ENGINE.md).
+
+### Sales ⇄ Accounting Core/Tax Engine reconciliation
+
+Posting a Sales Invoice now creates a real, balanced Journal Entry (Dr
+Customer Receivable / Cr Sales Revenue / Cr VAT Output Payable, using the
+Tax Engine's resolved rate — not the invoice's earlier placeholder
+per-line math) and a linked Tax Register movement, atomically with the
+existing register movement and posting-status flip. Unposting reverses
+the cleanup symmetrically; reposting never leaves an orphaned draft
+behind. Sales Orders remain accounting-inert by design (an order is a
+commitment, not a revenue event).
+
+Full write-up: [`backend/docs/SALES_RECONCILIATION.md`](backend/docs/SALES_RECONCILIATION.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -172,7 +222,9 @@ Policy, Tax Profile, Access).
 | `backend/test/phase1.e2e-spec.ts` | 19 | Organization/branch/department/warehouse/cashbox/bank-account/policy invariants, organization access isolation, default-reference validation |
 | `backend/test/phase2.e2e-spec.ts` | 19 | Unit of measure CRUD, product category hierarchy/cycle detection, product CRUD with SKU/barcode uniqueness, organization access isolation, deactivation guards |
 | `backend/test/phase3.e2e-spec.ts` | 15 | Unit conversions, counterparty CRUD/addresses/contacts, price lists/prices, price resolution, isolation |
-| `backend/test/phase4.e2e-spec.ts` | 17 | Price snapshotting, explicit-price override, customer-only guard, isolation/concurrency, post/unpost/cancel with movements, closed-period block, invoice flow, order ⇒ invoice CreateBasedOn |
+| `backend/test/phase4.e2e-spec.ts` | 17 | Price snapshotting, explicit-price override, customer-only guard, isolation/concurrency, post/unpost/cancel with movements, closed-period block, invoice flow with real GL/Tax Register posting + unpost/repost, order ⇒ invoice CreateBasedOn |
+| `backend/test/accounting-core.e2e-spec.ts` | 18 | Idempotent chart adoption, account hierarchy, non-postable reporting nodes, mapping resolution + override, balance/dimension validation, manual operation lifecycle incl. reversal, closed-period block, Trial Balance/GL/Account Card, tenant isolation |
+| `backend/test/tax-engine.e2e-spec.ts` | 18 | Idempotent VAT localization seed, exclusive/inclusive calculation, zero-rated/exempt/out-of-scope distinction, missing/ambiguous rule detection, legal rule versioning + repealed-rule exclusion, recoverability split, atomic Tax+GL posting, duplicate prevention, reversal, shared Period Guard, tax registrations, tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -185,7 +237,15 @@ All run against a real PostgreSQL instance — no mocked database.
 - **Phase 4** — ✅ done (backend + tests + docs; run `npx prisma migrate
   deploy` + `npm run prisma:seed` to pick up the sales tables and the 6
   new permission codes), frontend sales workspace included.
-- **Phase 5+** — not started. No purchase documents, payments, inventory
-  movements, or further transactional business modules (Purchase,
-  Inventory, Payroll, Tax, Banking, Fixed Assets, ...) exist yet — those
-  are later phases building on this foundation.
+- **Accounting Core** — ✅ done, tested, documented. No frontend UI yet
+  (API only) — see docs for disclosed deferrals (reposting-as-generation,
+  opening-balance endpoint, currency/quantity requiredness).
+- **Tax Engine** — ✅ done, tested, documented. VAT implemented deeply;
+  other tax types (corporate income, withholding, ...) exist as concepts
+  only, per the spec's own scoping. No frontend UI yet.
+- **Sales ⇄ Accounting/Tax reconciliation** — ✅ done for Sales Invoice
+  (real GL + Tax Register posting, atomically). Sales Order intentionally
+  untouched (no revenue event at order stage). COGS/Inventory posting
+  deferred — needs an inventory costing engine that doesn't exist yet.
+- **Purchase, Inventory, Payroll, Banking, Fixed Assets, ...** — not
+  started. Later phases building on this foundation.

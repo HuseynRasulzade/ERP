@@ -1,5 +1,6 @@
 import { PrismaTransactionClient } from '../prisma/prisma.service';
 import { BaseDocumentFields } from './base-document';
+import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 
 export interface RegisterMovementInput {
   registerCode: string;
@@ -8,6 +9,21 @@ export interface RegisterMovementInput {
   movementType?: string;
   dimensions?: Record<string, unknown>;
   resources?: Record<string, unknown>;
+}
+
+/** Optional accounting consequence of posting a document (Accounting Core
+ * spec sections 37-38, 44) — `organizationId`/`businessDate`/
+ * `sourceDocumentType`/`sourceDocumentId` are filled in generically by
+ * DocumentPostingService from the document itself; the handler only
+ * supplies the semantic lines (and, via TaxRegisterService, is free to
+ * have already written Tax Register rows and folded their resulting VAT
+ * lines in here — see sales-documents' handlers for the reference
+ * implementation). Returning `null`/omitting the method means "this
+ * document type has no accounting consequence yet". */
+export interface AccountingBatchResult {
+  description?: string;
+  operationType?: string;
+  lines: AccountingPostingLineInput[];
 }
 
 /**
@@ -32,4 +48,18 @@ export interface DocumentPostingHandler<TDocument extends BaseDocumentFields = B
     document: TDocument,
     tx: PrismaTransactionClient,
   ): Promise<RegisterMovementInput[]>;
+
+  /** Optional: the Accounting Core (+ Tax Engine, if applicable) posting
+   * consequence of this document, computed/registered inside the SAME
+   * transaction DocumentPostingService is already running (spec section
+   * 44: "Accounting posting must happen inside the parent document
+   * transaction"). Unlike `buildMovements`, this method MAY have side
+   * effects (writing TaxMovement rows) — it must not, however, write
+   * AccountingMovement rows itself; DocumentPostingService does that by
+   * handing the returned lines to AccountingPostingEngine.postBatch. */
+  buildAccountingBatch?(
+    tenantId: string,
+    document: TDocument,
+    tx: PrismaTransactionClient,
+  ): Promise<AccountingBatchResult | null>;
 }

@@ -288,11 +288,19 @@ export function sectionCodeFor(groupCode: string): string {
 /** Default dimension-rule configuration (spec section 28) — accountCode ->
  * dimension codes it requires. Kept intentionally small/pragmatic (the
  * spec explicitly says "do not treat this as immutable legislation"). */
+// AGREEMENT is deliberately absent from every rule below: the spec's own
+// example dimension list for 211/531 etc includes it, but no Agreement
+// entity exists anywhere in this codebase (Phase 3 stops at Counterparty/
+// PriceList — no Contract/Agreement model was built). Requiring a
+// dimension with nothing real to reference it would force every caller
+// to invent a fake value, which is worse than omitting it — see the
+// per-account rationale in docs/ACCOUNTING_CORE.md and
+// docs/SALES_RECONCILIATION.md.
 export const AZ_DEFAULT_DIMENSION_RULES: Record<string, string[]> = {
-  '171': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
-  '211': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
-  '192': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'CURRENCY'],
-  '243': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'CURRENCY'],
+  '171': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
+  '211': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
+  '192': ['PARTNER', 'COUNTERPARTY', 'CURRENCY'],
+  '243': ['PARTNER', 'COUNTERPARTY', 'CURRENCY'],
   '201': ['PRODUCT', 'WAREHOUSE'],
   '204': ['PRODUCT', 'WAREHOUSE'],
   '205': ['PRODUCT', 'WAREHOUSE'],
@@ -300,10 +308,10 @@ export const AZ_DEFAULT_DIMENSION_RULES: Record<string, string[]> = {
   '221': ['CASHBOX', 'CURRENCY'],
   '223': ['BANK_ACCOUNT', 'CURRENCY'],
   '224': ['BANK_ACCOUNT', 'CURRENCY'],
-  '431': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
-  '531': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
-  '443': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'CURRENCY'],
-  '543': ['PARTNER', 'COUNTERPARTY', 'AGREEMENT', 'CURRENCY'],
+  '431': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
+  '531': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
+  '443': ['PARTNER', 'COUNTERPARTY', 'CURRENCY'],
+  '543': ['PARTNER', 'COUNTERPARTY', 'CURRENCY'],
   '601': ['PRODUCT'],
   '701': ['PRODUCT', 'WAREHOUSE'],
 };

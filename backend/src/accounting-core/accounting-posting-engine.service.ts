@@ -125,8 +125,14 @@ export class AccountingPostingEngine {
     });
   }
 
-  async postDraft(tenantId: string, entryId: string, userId: string, expectedVersion: number) {
-    return this.prisma.runInTransaction(async (tx) => {
+  async postDraft(
+    tenantId: string,
+    entryId: string,
+    userId: string,
+    expectedVersion: number,
+    tx?: PrismaTransactionClient,
+  ) {
+    const run = async (tx: PrismaTransactionClient) => {
       const entry = await tx.journalEntry.findFirst({
         where: { id: entryId, tenantId },
         include: { lines: { include: { dimensions: true } } },
@@ -170,7 +176,8 @@ export class AccountingPostingEngine {
       );
 
       return this.loadEntry(tx, tenantId, updated.id);
-    });
+    };
+    return tx ? run(tx) : this.prisma.runInTransaction(run);
   }
 
   /**
@@ -179,8 +186,14 @@ export class AccountingPostingEngine {
    * generated movements and returns the entry to DRAFT. Never simply flips
    * a `posted` flag.
    */
-  async unpost(tenantId: string, entryId: string, userId: string, expectedVersion: number) {
-    return this.prisma.runInTransaction(async (tx) => {
+  async unpost(
+    tenantId: string,
+    entryId: string,
+    userId: string,
+    expectedVersion: number,
+    tx?: PrismaTransactionClient,
+  ) {
+    const run = async (tx: PrismaTransactionClient) => {
       const entry = await tx.journalEntry.findFirst({ where: { id: entryId, tenantId } });
       if (!entry) throw new NotFoundAppError('JournalEntry', entryId);
       if (entry.version !== expectedVersion) throw new ConcurrencyConflictError();
@@ -209,7 +222,8 @@ export class AccountingPostingEngine {
       );
 
       return this.loadEntry(tx, tenantId, updated.id);
-    });
+    };
+    return tx ? run(tx) : this.prisma.runInTransaction(run);
   }
 
   /**
@@ -225,8 +239,9 @@ export class AccountingPostingEngine {
     userId: string,
     expectedVersion: number,
     reversalBusinessDate?: Date,
+    tx?: PrismaTransactionClient,
   ) {
-    return this.prisma.runInTransaction(async (tx) => {
+    const run = async (tx: PrismaTransactionClient) => {
       const original = await tx.journalEntry.findFirst({
         where: { id: entryId, tenantId },
         include: { lines: { include: { dimensions: true } } },
@@ -335,7 +350,8 @@ export class AccountingPostingEngine {
       );
 
       return this.loadEntry(tx, tenantId, reversal.id);
-    });
+    };
+    return tx ? run(tx) : this.prisma.runInTransaction(run);
   }
 
   // ---------------------------------------------------------------------

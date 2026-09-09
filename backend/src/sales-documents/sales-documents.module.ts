@@ -5,6 +5,8 @@ import { NumberingModule } from '../numbering/numbering.module';
 import { AuditModule } from '../audit/audit.module';
 import { OrgStructureModule } from '../org-structure/org-structure.module';
 import { CounterpartyPricingModule } from '../counterparty-pricing/counterparty-pricing.module';
+import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
+import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { SalesOrderService } from './sales-order.service';
 import { SalesInvoiceService } from './sales-invoice.service';
 import { SalesOrderController } from './sales-order.controller';
@@ -30,6 +32,8 @@ import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper'
     AuditModule,
     OrgStructureModule,
     CounterpartyPricingModule,
+    AccountingCoreModule,
+    TaxEngineModule,
   ],
   controllers: [SalesOrderController, SalesInvoiceController],
   providers: [
