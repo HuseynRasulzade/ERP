@@ -28,6 +28,7 @@ import { ProductCatalogModule } from './product-catalog/product-catalog.module';
 import { CounterpartyPricingModule } from './counterparty-pricing/counterparty-pricing.module';
 import { SalesDocumentsModule } from './sales-documents/sales-documents.module';
 import { AccountingCoreModule } from './accounting-core/accounting-core.module';
+import { TaxEngineModule } from './tax-engine/tax-engine.module';
 
 @Module({
   imports: [
@@ -64,6 +65,10 @@ import { AccountingCoreModule } from './accounting-core/accounting-core.module';
     // posting engine). Named by content, not phase number, since this
     // repo's own "Phase 4" already means Sales documents above.
     AccountingCoreModule,
+
+    // Tax Engine (docx spec Phase 5 — VAT rules engine, Azerbaijan
+    // localization, Tax Register). Depends on AccountingCoreModule.
+    TaxEngineModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

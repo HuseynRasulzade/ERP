@@ -328,7 +328,16 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   OTHER_OPERATING_INCOME: '611',
   OTHER_OPERATING_EXPENSE: '731',
   CURRENT_INCOME_TAX_EXPENSE: '901',
-  // VAT_RECOVERABLE / VAT_PAYABLE deliberately left unmapped here — the
-  // spec assigns them to the Tax Engine build (docx Phase 5), which will
-  // seed/override these two keys against 241/226/521 per its own rules.
+  // Tax Engine build (docx spec Phase 5, sections 38-39, 61-63): default AZ
+  // VAT account assignments. Configurable per-organization via
+  // AccountingMappingService.upsert like any other mapping key — nothing
+  // in the Tax Engine hardcodes these account numbers.
+  VAT_INPUT_RECOVERABLE: '241', // Əvəzləşdirilən vergilər
+  VAT_INPUT_PENDING: '226', // ƏDV sub-uçot hesabı
+  VAT_INPUT_NONRECOVERABLE: '241',
+  VAT_OUTPUT_PAYABLE: '521', // Vergi öhdəlikləri
+  VAT_DEPOSIT_ACCOUNT: '226',
+  VAT_SETTLEMENT: '226',
+  VAT_ROUNDING: '731', // Sair əməliyyat xərcləri
+  VAT_ADJUSTMENT: '731',
 };

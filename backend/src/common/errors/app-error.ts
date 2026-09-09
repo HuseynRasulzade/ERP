@@ -38,6 +38,22 @@ export const ErrorCode = {
   POSTING_DUPLICATE: 'POSTING_DUPLICATE',
   REVERSAL_NOT_ALLOWED: 'REVERSAL_NOT_ALLOWED',
   INVALID_ACCOUNT_HIERARCHY: 'INVALID_ACCOUNT_HIERARCHY',
+
+  // Tax Engine (docx spec Phase 5, section 135)
+  TAX_RULE_NOT_FOUND: 'TAX_RULE_NOT_FOUND',
+  TAX_RULE_AMBIGUOUS: 'TAX_RULE_AMBIGUOUS',
+  TAX_RULE_NOT_EFFECTIVE: 'TAX_RULE_NOT_EFFECTIVE',
+  TAX_RULE_REPEALED: 'TAX_RULE_REPEALED',
+  TAX_RATE_NOT_FOUND: 'TAX_RATE_NOT_FOUND',
+  TAX_REGISTRATION_REQUIRED: 'TAX_REGISTRATION_REQUIRED',
+  TAX_CATEGORY_NOT_CONFIGURED: 'TAX_CATEGORY_NOT_CONFIGURED',
+  TAX_MAPPING_NOT_FOUND: 'TAX_MAPPING_NOT_FOUND',
+  TAX_CALCULATION_ERROR: 'TAX_CALCULATION_ERROR',
+  TAX_ROUNDING_ERROR: 'TAX_ROUNDING_ERROR',
+  TAX_OVERRIDE_NOT_ALLOWED: 'TAX_OVERRIDE_NOT_ALLOWED',
+  TAX_PERIOD_LOCKED: 'TAX_PERIOD_LOCKED',
+  TAX_POSTING_DUPLICATE: 'TAX_POSTING_DUPLICATE',
+  TAX_LEGAL_SOURCE_INVALID: 'TAX_LEGAL_SOURCE_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -239,5 +255,47 @@ export class PostingDuplicateError extends AppError {
 export class ReversalNotAllowedError extends AppError {
   constructor(reason: string) {
     super(ErrorCode.REVERSAL_NOT_ALLOWED, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class TaxRuleNotFoundError extends AppError {
+  constructor(details: string) {
+    super(ErrorCode.TAX_RULE_NOT_FOUND, `No applicable tax rule found: ${details}`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class TaxRuleAmbiguousError extends AppError {
+  constructor(details: string) {
+    super(
+      ErrorCode.TAX_RULE_AMBIGUOUS,
+      `More than one equal-priority tax rule matches: ${details}`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class TaxCategoryNotConfiguredError extends AppError {
+  constructor(productId: string) {
+    super(
+      ErrorCode.TAX_CATEGORY_NOT_CONFIGURED,
+      `Product ${productId} has no tax category configured for this date`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class TaxPostingDuplicateError extends AppError {
+  constructor(sourceDocumentType: string, sourceDocumentId: string) {
+    super(
+      ErrorCode.TAX_POSTING_DUPLICATE,
+      `${sourceDocumentType} ${sourceDocumentId} already has an active tax posting generation`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class TaxOverrideNotAllowedError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.TAX_OVERRIDE_NOT_ALLOWED, reason, HttpStatus.FORBIDDEN);
   }
 }

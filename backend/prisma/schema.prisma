@@ -83,6 +83,11 @@ model Tenant {
   journalEntries                 JournalEntry[]
   accountingMovements            AccountingMovement[]
   postingRuns                    PostingRun[]
+  taxRules                       TaxRule[]
+  taxRegistrations               TaxRegistration[]
+  productTaxProfiles             ProductTaxProfile[]
+  counterpartyTaxProfiles        CounterpartyTaxProfile[]
+  taxMovements                   TaxMovement[]
 
   @@map("tenants")
 }
@@ -155,6 +160,9 @@ model Organization {
   journalEntries      JournalEntry[]
   accountingMovements AccountingMovement[]
   postingRuns         PostingRun[]
+  taxRegistrations    TaxRegistration[]
+  productTaxProfiles  ProductTaxProfile[]
+  taxMovements        TaxMovement[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1040,13 +1048,14 @@ model Product {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id])
-  organization      Organization       @relation(fields: [organizationId], references: [id])
-  category          ProductCategory?   @relation(fields: [categoryId], references: [id])
-  baseUnit          UnitOfMeasure      @relation(fields: [baseUnitId], references: [id])
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  organization      Organization        @relation(fields: [organizationId], references: [id])
+  category          ProductCategory?    @relation(fields: [categoryId], references: [id])
+  baseUnit          UnitOfMeasure       @relation(fields: [baseUnitId], references: [id])
   prices            ProductPrice[]
   salesOrderLines   SalesOrderLine[]
   salesInvoiceLines SalesInvoiceLine[]
+  taxProfiles       ProductTaxProfile[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1127,14 +1136,15 @@ model Counterparty {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant        Tenant                @relation(fields: [tenantId], references: [id])
-  organization  Organization          @relation(fields: [organizationId], references: [id])
-  currency      Currency?             @relation(fields: [currencyId], references: [id])
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  organization  Organization            @relation(fields: [organizationId], references: [id])
+  currency      Currency?               @relation(fields: [currencyId], references: [id])
   addresses     CounterpartyAddress[]
   contacts      CounterpartyContact[]
   priceLists    PriceList[]
   salesOrders   SalesOrder[]
   salesInvoices SalesInvoice[]
+  taxProfile    CounterpartyTaxProfile?
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1883,4 +1893,330 @@ model PostingRun {
   @@unique([tenantId, sourceDocumentType, sourceDocumentId, generation])
   @@index([tenantId, sourceDocumentType, sourceDocumentId])
   @@map("posting_runs")
+}
+
+// ============================================================================
+// TAX ENGINE — VERSION-AWARE, EFFECTIVE-DATED TAX RULES ENGINE
+// (docx spec "Phase 5 — Tax Engine & Azerbaijan Localization Engine".)
+//
+// Architecture: TaxContext -> TaxRuleResolver -> TaxCalculationResult ->
+// TaxRegisterService (writes TaxMovement) -> caller merges the returned
+// AccountingPostingLine[] into its own AccountingPostingEngine.postBatch
+// call so Tax Register + GL post atomically in ONE transaction (spec
+// section 5/67) — the Tax Engine itself never writes AccountingMovement.
+//
+// TaxType/TaxRate/TaxRule/TaxCategory/TaxCode/TaxExemption/TaxLegalSource
+// are modeled as SHARED system rows (tenantId=null) rather than per-tenant
+// clones, unlike Accounting Core's Account — this is genuinely universal
+// Azerbaijan tax law, not tenant-customizable data (spec section 146:
+// "legal standard VAT rate may be system-defined"). Only TaxRegistration,
+// ProductTaxProfile, CounterpartyTaxProfile and TaxMovement are
+// tenant/organization data.
+// ============================================================================
+
+model TaxLegalSource {
+  id              String    @id @default(uuid())
+  jurisdiction    String    @default("AZ")
+  sourceType      String // TAX_CODE | AMENDING_LAW | PRESIDENTIAL_DECREE | CABINET_RULE | TAX_AUTHORITY_GUIDANCE
+  title           String
+  sourceUrl       String    @map("source_url")
+  lawNumber       String?   @map("law_number")
+  adoptionDate    DateTime? @map("adoption_date") @db.Date
+  publicationDate DateTime? @map("publication_date") @db.Date
+  effectiveFrom   DateTime? @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  sourceVersion   String    @default("1.0") @map("source_version")
+  status          String    @default("ACTIVE") // ACTIVE | REPEALED | SUPERSEDED | DRAFT
+  notes           String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  taxRates TaxRate[]
+  taxRules TaxRule[]
+
+  @@map("tax_legal_sources")
+}
+
+model TaxType {
+  id          String  @id @default(uuid())
+  code        String  @unique // VAT | CORPORATE_INCOME_TAX | ... (spec section 12)
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  taxRates      TaxRate[]
+  taxRules      TaxRule[]
+  taxCodes      TaxCode[]
+  taxExemptions TaxExemption[]
+
+  @@map("tax_types")
+}
+
+/// Distinct from TaxCode (spec section 90): a classification products/
+/// transactions are tagged with; TaxRule + business date resolves the
+/// actual treatment/rate for a given category.
+model TaxCategory {
+  id          String  @id @default(uuid())
+  code        String  @unique // STANDARD_VAT | ZERO_RATED_EXPORT | VAT_EXEMPT | OUT_OF_SCOPE | ...
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  productProfiles ProductTaxProfile[]
+
+  @@map("tax_categories")
+}
+
+/// Reporting/classification code, separate from TaxCategory (spec section 90).
+model TaxCode {
+  id          String    @id @default(uuid())
+  taxTypeId   String    @map("tax_type_id")
+  code        String
+  name        String
+  description String?
+  validFrom   DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo     DateTime? @map("valid_to") @db.Date
+  active      Boolean   @default(true)
+
+  taxType TaxType @relation(fields: [taxTypeId], references: [id])
+
+  @@unique([taxTypeId, code])
+  @@map("tax_codes")
+}
+
+enum TaxRateType {
+  STANDARD
+  ZERO
+  EXEMPT
+  OUT_OF_SCOPE
+  SPECIAL
+}
+
+model TaxRate {
+  id                    String      @id @default(uuid())
+  taxTypeId             String      @map("tax_type_id")
+  jurisdiction          String      @default("AZ")
+  code                  String
+  rate                  Decimal     @db.Decimal(9, 4) // percentage, e.g. 18.0000
+  rateType              TaxRateType @map("rate_type")
+  effectiveFrom         DateTime    @map("effective_from") @db.Date
+  effectiveTo           DateTime?   @map("effective_to") @db.Date
+  legalSourceId         String?     @map("legal_source_id")
+  legalArticleReference String?     @map("legal_article_reference")
+  status                String      @default("ACTIVE") // ACTIVE | FUTURE_EFFECTIVE | EXPIRED | REPEALED | SUPERSEDED
+  systemDefined         Boolean     @default(true) @map("system_defined")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  version   Int      @default(1)
+
+  taxType     TaxType         @relation(fields: [taxTypeId], references: [id])
+  legalSource TaxLegalSource? @relation(fields: [legalSourceId], references: [id])
+  taxRules    TaxRule[]
+
+  @@unique([taxTypeId, jurisdiction, code, effectiveFrom])
+  @@index([taxTypeId, jurisdiction, effectiveFrom])
+  @@map("tax_rates")
+}
+
+enum TaxTreatment {
+  STANDARD_RATE
+  ZERO_RATED
+  EXEMPT
+  OUT_OF_SCOPE
+  REVERSE_CHARGE
+  SPECIAL_RATE
+}
+
+enum TaxRuleStatus {
+  DRAFT
+  REVIEWED
+  APPROVED
+  ACTIVE
+  FUTURE_EFFECTIVE
+  EXPIRED
+  REPEALED
+  SUPERSEDED
+  INACTIVE
+}
+
+/// The first-class legal rule (spec section 6-9). Never destructively
+/// edited when law changes — a new law-effective period always means a
+/// NEW row, never mutating an existing one's dates/treatment in place
+/// (spec section 8).
+model TaxRule {
+  id                       String        @id @default(uuid())
+  tenantId                 String?       @map("tenant_id") // null = system localization rule
+  localizationCode         String        @default("AZ_TAX") @map("localization_code")
+  taxTypeId                String        @map("tax_type_id")
+  code                     String
+  name                     String
+  description              String?
+  ruleCategory             String        @map("rule_category") // STANDARD | ZERO_RATE | EXEMPT | OUT_OF_SCOPE | REVERSE_CHARGE
+  effectiveFrom            DateTime      @map("effective_from") @db.Date
+  effectiveTo              DateTime?     @map("effective_to") @db.Date
+  status                   TaxRuleStatus @default(ACTIVE)
+  priority                 Int           @default(0)
+  legalSourceId            String?       @map("legal_source_id")
+  legalArticleReference    String?       @map("legal_article_reference")
+  legalSubarticleReference String?       @map("legal_subarticle_reference")
+  calculationMethod        String        @default("PERCENTAGE_OF_BASE") @map("calculation_method")
+  rateId                   String?       @map("rate_id")
+  treatment                TaxTreatment
+  exemptionCode            String?       @map("exemption_code")
+  // Structured condition predicates (spec section 91 — never free-form
+  // executable code): all populated fields must match the TaxContext for
+  // this rule to be a candidate. Null/omitted means "matches any".
+  conditionOperationType   String?       @map("condition_operation_type") // SALE | PURCHASE | null=any
+  conditionTaxCategoryCode String?       @map("condition_tax_category_code")
+  conditionTaxpayerSide    String?       @map("condition_taxpayer_side") // SELLER | BUYER | SELF_ASSESSED
+  systemDefined            Boolean       @default(true) @map("system_defined")
+  active                   Boolean       @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant      Tenant?         @relation(fields: [tenantId], references: [id])
+  taxType     TaxType         @relation(fields: [taxTypeId], references: [id])
+  rate        TaxRate?        @relation(fields: [rateId], references: [id])
+  legalSource TaxLegalSource? @relation(fields: [legalSourceId], references: [id])
+
+  @@index([taxTypeId, localizationCode, effectiveFrom])
+  @@index([tenantId])
+  @@map("tax_rules")
+}
+
+model TaxExemption {
+  id               String    @id @default(uuid())
+  taxTypeId        String    @map("tax_type_id")
+  code             String
+  name             String
+  description      String?
+  legalSourceId    String?   @map("legal_source_id")
+  articleReference String?   @map("article_reference")
+  validFrom        DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  status           String    @default("ACTIVE")
+
+  taxType TaxType @relation(fields: [taxTypeId], references: [id])
+
+  @@unique([taxTypeId, code])
+  @@map("tax_exemptions")
+}
+
+/// Organization tax registration (spec sections 21-23) — effective-dated,
+/// never a single boolean flag.
+model TaxRegistration {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  taxType            String    @map("tax_type") // TaxType.code
+  registrationNumber String?   @map("registration_number")
+  jurisdiction       String    @default("AZ")
+  validFrom          DateTime  @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to") @db.Date
+  status             String    @default("REGISTERED") // REGISTERED | NOT_REGISTERED | SUSPENDED
+  legalBasis         String?   @map("legal_basis")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([tenantId, organizationId, taxType, validFrom])
+  @@map("tax_registrations")
+}
+
+/// Product tax classification (spec section 19) — effective-dated, never a
+/// permanent single category on Product itself.
+model ProductTaxProfile {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  productId      String    @map("product_id")
+  organizationId String?   @map("organization_id")
+  taxCategoryId  String    @map("tax_category_id")
+  jurisdiction   String    @default("AZ")
+  validFrom      DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo        DateTime? @map("valid_to") @db.Date
+  active         Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  product      Product       @relation(fields: [productId], references: [id])
+  taxCategory  TaxCategory   @relation(fields: [taxCategoryId], references: [id])
+  Organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([productId, validFrom])
+  @@map("product_tax_profiles")
+}
+
+/// Counterparty tax context (spec section 20) — deliberately minimal,
+/// referencing Counterparty rather than duplicating its legal-identity
+/// fields (taxId already lives on Counterparty from Phase 3).
+model CounterpartyTaxProfile {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  counterpartyId    String    @unique @map("counterparty_id")
+  residency         String    @default("RESIDENT") // RESIDENT | NON_RESIDENT
+  vatRegistered     Boolean   @default(false) @map("vat_registered")
+  vatRegisteredFrom DateTime? @map("vat_registered_from") @db.Date
+  specialTaxStatus  String?   @map("special_tax_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+
+  @@map("counterparty_tax_profiles")
+}
+
+enum TaxMovementDirection {
+  OUTPUT
+  INPUT
+}
+
+/// The Tax Register (spec sections 64-66) — an operational register
+/// distinct from the GL, immutable once posted. `journalEntryId` gives the
+/// mandatory drilldown (spec section 108): summary -> TaxMovement ->
+/// source document -> Journal Entry.
+model TaxMovement {
+  id                   String               @id @default(uuid())
+  tenantId             String               @map("tenant_id")
+  organizationId       String               @map("organization_id")
+  taxType              String               @map("tax_type")
+  taxCode              String?              @map("tax_code")
+  taxTreatment         TaxTreatment         @map("tax_treatment")
+  sourceDocumentType   String?              @map("source_document_type")
+  sourceDocumentId     String?              @map("source_document_id")
+  sourceLineId         String?              @map("source_line_id")
+  taxPointDate         DateTime             @map("tax_point_date") @db.Date
+  reportingPeriod      String               @map("reporting_period") // "YYYY-MM"
+  taxableBase          Decimal              @map("taxable_base") @db.Decimal(20, 4)
+  taxAmount            Decimal              @map("tax_amount") @db.Decimal(20, 4)
+  recoverableAmount    Decimal              @default(0) @map("recoverable_amount") @db.Decimal(20, 4)
+  nonrecoverableAmount Decimal              @default(0) @map("nonrecoverable_amount") @db.Decimal(20, 4)
+  currencyId           String?              @map("currency_id")
+  baseCurrencyAmount   Decimal?             @map("base_currency_amount") @db.Decimal(20, 4)
+  direction            TaxMovementDirection
+  taxRuleId            String               @map("tax_rule_id")
+  taxRateId            String?              @map("tax_rate_id")
+  postingGeneration    Int                  @default(1) @map("posting_generation")
+  journalEntryId       String?              @map("journal_entry_id")
+  reversalOfMovementId String?              @map("reversal_of_movement_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([tenantId, organizationId, taxPointDate])
+  @@index([organizationId, taxType, reportingPeriod])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([taxRuleId])
+  @@map("tax_movements")
 }
