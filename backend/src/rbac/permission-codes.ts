@@ -70,6 +70,50 @@ export const PermissionCodes = {
   TAX_PROFILE_MANAGE: 'tax_profile.manage',
 
   ORGANIZATION_ACCESS_MANAGE: 'organization_access.manage',
+
+  // Phase 2 — Product/Nomenclature master data
+  UNIT_OF_MEASURE_VIEW: 'unit_of_measure.view',
+  UNIT_OF_MEASURE_CREATE: 'unit_of_measure.create',
+  UNIT_OF_MEASURE_EDIT: 'unit_of_measure.edit',
+  UNIT_OF_MEASURE_DEACTIVATE: 'unit_of_measure.deactivate',
+
+  PRODUCT_CATEGORY_VIEW: 'product_category.view',
+  PRODUCT_CATEGORY_CREATE: 'product_category.create',
+  PRODUCT_CATEGORY_EDIT: 'product_category.edit',
+  PRODUCT_CATEGORY_DEACTIVATE: 'product_category.deactivate',
+
+  PRODUCT_VIEW: 'product.view',
+  PRODUCT_CREATE: 'product.create',
+  PRODUCT_EDIT: 'product.edit',
+  PRODUCT_DEACTIVATE: 'product.deactivate',
+
+  // Phase 3 — Counterparty Master Data + Pricing
+  UNIT_CONVERSION_VIEW: 'unit_conversion.view',
+  UNIT_CONVERSION_CREATE: 'unit_conversion.create',
+  UNIT_CONVERSION_EDIT: 'unit_conversion.edit',
+  UNIT_CONVERSION_DEACTIVATE: 'unit_conversion.deactivate',
+
+  COUNTERPARTY_VIEW: 'counterparty.view',
+  COUNTERPARTY_CREATE: 'counterparty.create',
+  COUNTERPARTY_EDIT: 'counterparty.edit',
+  COUNTERPARTY_DEACTIVATE: 'counterparty.deactivate',
+
+  PRICE_LIST_VIEW: 'price_list.view',
+  PRICE_LIST_CREATE: 'price_list.create',
+  PRICE_LIST_EDIT: 'price_list.edit',
+  PRICE_LIST_DEACTIVATE: 'price_list.deactivate',
+
+  PRODUCT_PRICE_VIEW: 'product_price.view',
+  PRODUCT_PRICE_MANAGE: 'product_price.manage',
+
+  // Phase 4 — Sales documents (orders + invoices)
+  SALES_ORDER_VIEW: 'sales_order.view',
+  SALES_ORDER_CREATE: 'sales_order.create',
+  SALES_ORDER_EDIT: 'sales_order.edit',
+
+  SALES_INVOICE_VIEW: 'sales_invoice.view',
+  SALES_INVOICE_CREATE: 'sales_invoice.create',
+  SALES_INVOICE_EDIT: 'sales_invoice.edit',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -138,4 +182,45 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.TAX_PROFILE_MANAGE, module: 'tax_profile', description: 'Manage tax profiles' },
 
   { code: PermissionCodes.ORGANIZATION_ACCESS_MANAGE, module: 'organization_access', description: 'Grant/revoke organization access' },
+
+  { code: PermissionCodes.UNIT_OF_MEASURE_VIEW, module: 'unit_of_measure', description: 'View units of measure' },
+  { code: PermissionCodes.UNIT_OF_MEASURE_CREATE, module: 'unit_of_measure', description: 'Create units of measure' },
+  { code: PermissionCodes.UNIT_OF_MEASURE_EDIT, module: 'unit_of_measure', description: 'Edit units of measure' },
+  { code: PermissionCodes.UNIT_OF_MEASURE_DEACTIVATE, module: 'unit_of_measure', description: 'Deactivate units of measure' },
+
+  { code: PermissionCodes.PRODUCT_CATEGORY_VIEW, module: 'product_category', description: 'View product categories' },
+  { code: PermissionCodes.PRODUCT_CATEGORY_CREATE, module: 'product_category', description: 'Create product categories' },
+  { code: PermissionCodes.PRODUCT_CATEGORY_EDIT, module: 'product_category', description: 'Edit product categories' },
+  { code: PermissionCodes.PRODUCT_CATEGORY_DEACTIVATE, module: 'product_category', description: 'Deactivate product categories' },
+
+  { code: PermissionCodes.PRODUCT_VIEW, module: 'product', description: 'View products' },
+  { code: PermissionCodes.PRODUCT_CREATE, module: 'product', description: 'Create products' },
+  { code: PermissionCodes.PRODUCT_EDIT, module: 'product', description: 'Edit products' },
+  { code: PermissionCodes.PRODUCT_DEACTIVATE, module: 'product', description: 'Deactivate products' },
+
+  { code: PermissionCodes.UNIT_CONVERSION_VIEW, module: 'unit_conversion', description: 'View unit conversions' },
+  { code: PermissionCodes.UNIT_CONVERSION_CREATE, module: 'unit_conversion', description: 'Create unit conversions' },
+  { code: PermissionCodes.UNIT_CONVERSION_EDIT, module: 'unit_conversion', description: 'Edit unit conversions' },
+  { code: PermissionCodes.UNIT_CONVERSION_DEACTIVATE, module: 'unit_conversion', description: 'Deactivate unit conversions' },
+
+  { code: PermissionCodes.COUNTERPARTY_VIEW, module: 'counterparty', description: 'View counterparties' },
+  { code: PermissionCodes.COUNTERPARTY_CREATE, module: 'counterparty', description: 'Create counterparties' },
+  { code: PermissionCodes.COUNTERPARTY_EDIT, module: 'counterparty', description: 'Edit counterparties' },
+  { code: PermissionCodes.COUNTERPARTY_DEACTIVATE, module: 'counterparty', description: 'Deactivate counterparties' },
+
+  { code: PermissionCodes.PRICE_LIST_VIEW, module: 'price_list', description: 'View price lists' },
+  { code: PermissionCodes.PRICE_LIST_CREATE, module: 'price_list', description: 'Create price lists' },
+  { code: PermissionCodes.PRICE_LIST_EDIT, module: 'price_list', description: 'Edit price lists' },
+  { code: PermissionCodes.PRICE_LIST_DEACTIVATE, module: 'price_list', description: 'Deactivate price lists' },
+
+  { code: PermissionCodes.PRODUCT_PRICE_VIEW, module: 'product_price', description: 'View product prices' },
+  { code: PermissionCodes.PRODUCT_PRICE_MANAGE, module: 'product_price', description: 'Manage product prices' },
+
+  { code: PermissionCodes.SALES_ORDER_VIEW, module: 'sales_order', description: 'View sales orders' },
+  { code: PermissionCodes.SALES_ORDER_CREATE, module: 'sales_order', description: 'Create sales orders' },
+  { code: PermissionCodes.SALES_ORDER_EDIT, module: 'sales_order', description: 'Edit sales orders' },
+
+  { code: PermissionCodes.SALES_INVOICE_VIEW, module: 'sales_invoice', description: 'View sales invoices' },
+  { code: PermissionCodes.SALES_INVOICE_CREATE, module: 'sales_invoice', description: 'Create sales invoices' },
+  { code: PermissionCodes.SALES_INVOICE_EDIT, module: 'sales_invoice', description: 'Edit sales invoices' },
 ];

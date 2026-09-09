@@ -73,4 +73,35 @@ export const SEED_ENUM_TYPES: Record<string, { code: string; labels: { en: strin
     { code: 'FULL', labels: { en: 'Full access', az: 'Tam giriş' } },
     { code: 'READ', labels: { en: 'Read only', az: 'Yalnız oxumaq' } },
   ],
+  // Phase 2 — Product/Nomenclature master data
+  UNIT_TYPE: [
+    { code: 'QUANTITY', labels: { en: 'Quantity', az: 'Miqdar' } },
+    { code: 'WEIGHT', labels: { en: 'Weight', az: 'Çəki' } },
+    { code: 'VOLUME', labels: { en: 'Volume', az: 'Həcm' } },
+    { code: 'LENGTH', labels: { en: 'Length', az: 'Uzunluq' } },
+    { code: 'AREA', labels: { en: 'Area', az: 'Sahə' } },
+    { code: 'TIME', labels: { en: 'Time', az: 'Vaxt' } },
+  ],
+  PRODUCT_TYPE: [
+    { code: 'GOODS', labels: { en: 'Goods', az: 'Mallar' } },
+    { code: 'SERVICE', labels: { en: 'Service', az: 'Xidmət' } },
+    { code: 'WORK', labels: { en: 'Work', az: 'İş' } },
+    { code: 'SET', labels: { en: 'Set', az: 'Dəst' } },
+  ],
+  // Phase 3 — Counterparty Master Data + Pricing
+  COUNTERPARTY_TYPE: [
+    { code: 'CUSTOMER', labels: { en: 'Customer', az: 'Müştəri' } },
+    { code: 'SUPPLIER', labels: { en: 'Supplier', az: 'Təchizatçı' } },
+    { code: 'BOTH', labels: { en: 'Customer & Supplier', az: 'Müştəri və Təchizatçı' } },
+  ],
+  COUNTERPARTY_ADDRESS_TYPE: [
+    { code: 'LEGAL', labels: { en: 'Legal', az: 'Hüquqi' } },
+    { code: 'SHIPPING', labels: { en: 'Shipping', az: 'Çatdırılma' } },
+    { code: 'BILLING', labels: { en: 'Billing', az: 'Ödəniş' } },
+    { code: 'OTHER', labels: { en: 'Other', az: 'Digər' } },
+  ],
+  PRICE_LIST_TYPE: [
+    { code: 'SALE', labels: { en: 'Sale', az: 'Satış' } },
+    { code: 'PURCHASE', labels: { en: 'Purchase', az: 'Alış' } },
+  ],
 };

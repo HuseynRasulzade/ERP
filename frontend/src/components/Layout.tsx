@@ -14,7 +14,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">ERP Platform · Phase 0</div>
+        <div className="brand">ERP Platform</div>
 
         <div className="tenant-selector">
           <select
@@ -47,6 +47,8 @@ export function Layout() {
       <div className="app-body">
         <nav className="sidenav">
           <NavLink to="/documents">Documents</NavLink>
+          {hasPermission('sales_order.view') && <NavLink to="/sales-orders">Sales Orders</NavLink>}
+          {hasPermission('sales_invoice.view') && <NavLink to="/sales-invoices">Sales Invoices</NavLink>}
           {hasPermission('organization.view') && <NavLink to="/organizations">Organizations</NavLink>}
           {hasPermission('periods.view') && <NavLink to="/periods">Periods</NavLink>}
           {hasPermission('core.roles.view') && <NavLink to="/roles">Roles &amp; Permissions</NavLink>}

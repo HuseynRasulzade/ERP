@@ -15,6 +15,8 @@ import { AuditPage } from './pages/AuditPage';
 import { MembersPage } from './pages/MembersPage';
 import { OrganizationsPage } from './pages/org/OrganizationsPage';
 import { OrganizationDetailPage } from './pages/org/OrganizationDetailPage';
+import { SalesDocumentListPage } from './pages/sales/SalesDocumentListPage';
+import { SalesDocumentDetailPage } from './pages/sales/SalesDocumentDetailPage';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -45,6 +47,10 @@ function AppRoutes() {
       >
         <Route path="/documents" element={<DocumentsListPage />} />
         <Route path="/documents/:id" element={<DocumentDetailPage />} />
+        <Route path="/sales-orders" element={<SalesDocumentListPage kind="order" />} />
+        <Route path="/sales-orders/:id" element={<SalesDocumentDetailPage kind="order" />} />
+        <Route path="/sales-invoices" element={<SalesDocumentListPage kind="invoice" />} />
+        <Route path="/sales-invoices/:id" element={<SalesDocumentDetailPage kind="invoice" />} />
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />
         <Route path="/periods" element={<PeriodsPage />} />

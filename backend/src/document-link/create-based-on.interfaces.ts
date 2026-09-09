@@ -15,6 +15,11 @@ export interface CreateBasedOnMapper<TSource = unknown, TTargetInput = unknown> 
   readonly sourceDocumentType: string;
   readonly targetDocumentType: string;
 
-  /** Builds the input needed to create the target document from the source. */
-  mapHeader(source: TSource): TTargetInput;
+  /**
+   * Builds the input needed to create the target document from the source.
+   * Runs inside the create-based-on transaction; `tx` lets mappers copy
+   * source lines or allocate numbers atomically with the link creation.
+   * May be sync (header-only, like the demo self mapper) or async.
+   */
+  mapHeader(source: TSource, tx?: unknown): TTargetInput | Promise<TTargetInput>;
 }

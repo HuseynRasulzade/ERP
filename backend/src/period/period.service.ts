@@ -65,13 +65,23 @@ export class PeriodService {
    * explicit, audited period reopen can lift it (section 21, scenario C).
    */
   async assertDateIsOpen(tenantId: string, businessDate: Date, organizationId?: string) {
+    // An organization-scoped document is governed by its own organization's
+    // period when one exists for the date, but a tenant-wide period
+    // (organizationId = null) still applies to every organization that has
+    // no more specific period configured — it must not be invisible just
+    // because the document itself belongs to an organization.
     const period = await this.prisma.accountingPeriod.findFirst({
       where: {
         tenantId,
-        organizationId: organizationId ?? null,
+        OR: organizationId ? [{ organizationId }, { organizationId: null }] : [{ organizationId: null }],
         startDate: { lte: businessDate },
         endDate: { gte: businessDate },
       },
+      // Prefer the more specific (organization-scoped) period over the
+      // tenant-wide one when both happen to cover the same date: Postgres
+      // sorts NULLs last on ASC by default, so the org-specific row (if
+      // any) is returned by findFirst before the tenant-wide fallback.
+      orderBy: [{ organizationId: 'asc' }],
     });
 
     // No period configured at all is treated as open (Phase 0 does not

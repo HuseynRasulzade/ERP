@@ -257,3 +257,85 @@ export interface OrganizationAccessGrant {
   accessLevel: string;
   membership?: { user: { email: string; displayName: string } };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Sales documents (orders + invoices)
+// ---------------------------------------------------------------------------
+
+export interface SalesDocumentLine {
+  id: string;
+  tenantId: string;
+  salesOrderId?: string;
+  salesInvoiceId?: string;
+  position: number;
+  productId: string;
+  unitId: string;
+  quantity: string;
+  price: string;
+  lineTotal: string;
+  taxRate: string;
+  taxAmount: string;
+  lineTotalWithTax: string;
+  priceListId: string | null;
+  productPriceId: string | null;
+  sourceOrderLineId?: string | null;
+  description: string | null;
+}
+
+export interface SalesOrder {
+  id: string;
+  tenantId: string;
+  organizationId: string;
+  counterpartyId: string;
+  documentType: string;
+  number: string | null;
+  documentDate: string;
+  postingDate: string | null;
+  status: DocumentStatus;
+  postingStatus: PostingStatus;
+  currencyId: string | null;
+  exchangeRate: string;
+  subtotal: string;
+  taxTotal: string;
+  grandTotal: string;
+  priceIncludesTax: boolean;
+  description: string | null;
+  createdAt: string;
+  postedAt: string | null;
+  version: number;
+  lines?: SalesDocumentLine[];
+}
+
+export type SalesInvoice = SalesOrder;
+
+// Minimal reference shapes for sales dropdowns (full master-data screens
+// are out of scope — only id/code/name (+ base unit / type) are needed here).
+export interface SalesProductRef {
+  id: string;
+  code: string;
+  name: string;
+  baseUnitId: string;
+}
+
+export interface SalesCounterpartyRef {
+  id: string;
+  code: string;
+  name: string;
+  counterpartyType: string;
+}
+
+export interface SalesUnitRef {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string | null;
+}
+
+export interface SalesLineDraft {
+  productId: string;
+  unitId: string;
+  quantity: string;
+  price: string;
+  taxRate: string;
+  description: string;
+}

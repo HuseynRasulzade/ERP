@@ -91,6 +91,28 @@ The ONE concrete document table in Phase 0 (demo/reference only — never a prod
 - FK: `tenantId -> tenants.id`.
 - Unique: `(tenantId, number)`. Index: `(tenantId, documentDate)`, `(tenantId, status)`.
 
+## sales_orders / sales_order_lines (Phase 4)
+First real business document: customer order header + lines with
+snapshotted prices/totals (`priceIncludesTax` controls the tax math).
+- FK: `tenantId -> tenants.id`, `organizationId -> organizations.id`,
+  `counterpartyId -> counterparties.id` (RESTRICT),
+  `currencyId -> currencies.id` (SET NULL, nullable),
+  lines `productId -> products.id`, `unitId -> units_of_measure.id`
+  (RESTRICT), `salesOrderId -> sales_orders.id` (CASCADE).
+- `priceListId`/`productPriceId` are provenance columns only (no FK —
+  the snapshot survives later price-list edits).
+- Unique: `(tenantId, number)`. Index: `(tenantId, documentDate)`,
+  `(tenantId, status)`, `(organizationId, counterpartyId)` on the
+  header; `(salesOrderId, position)`, `(tenantId, productId)` on lines.
+
+## sales_invoices / sales_invoice_lines (Phase 4)
+Billing document, standalone or drafted from an order
+(`SALES_ORDER => SALES_INVOICE` CreateBasedOn). Same shape as the
+order plus `sourceOrderLineId` (provenance, reserved for future
+line-level fulfilment linkage — no FK).
+- Same FK/delete rules, uniques, and indexes as the order tables
+  (with `salesInvoiceId` in place of `salesOrderId`).
+
 ---
 
 **Indexing rationale** (section 46): every tenant-owned table is indexed on

@@ -23,6 +23,9 @@ import { DocumentFrameworkModule } from './document-framework/document-framework
 import { DocumentLinkModule } from './document-link/document-link.module';
 import { FoundationTestDocumentModule } from './foundation-test-document/foundation-test-document.module';
 import { OrgStructureModule } from './org-structure/org-structure.module';
+import { ProductCatalogModule } from './product-catalog/product-catalog.module';
+import { CounterpartyPricingModule } from './counterparty-pricing/counterparty-pricing.module';
+import { SalesDocumentsModule } from './sales-documents/sales-documents.module';
 
 @Module({
   imports: [
@@ -45,6 +48,15 @@ import { OrgStructureModule } from './org-structure/org-structure.module';
 
     // Phase 1 — Organization & Business Structure
     OrgStructureModule,
+
+    // Phase 2 — Product/Nomenclature master data
+    ProductCatalogModule,
+
+    // Phase 3 — Counterparty Master Data + Pricing
+    CounterpartyPricingModule,
+
+    // Phase 4 — Sales documents (orders + invoices)
+    SalesDocumentsModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

@@ -50,7 +50,7 @@ export class CreateBasedOnService {
       const source = await sourceRepository.findById(tenantId, sourceDocumentId, tx);
       if (!source) throw new NotFoundAppError(sourceDocumentType, sourceDocumentId);
 
-      const targetInput = mapper.mapHeader(source) as Record<string, unknown>;
+      const targetInput = (await mapper.mapHeader(source, tx)) as Record<string, unknown>;
       const target = await targetRepository.create(tenantId, targetInput, userId, tx);
 
       await this.documentLinks.createLink(

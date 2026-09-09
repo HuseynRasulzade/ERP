@@ -2,9 +2,12 @@
 
 A multi-tenant ERP/accounting platform, built phase by phase from a
 1C-inspired architectural spec. This repo currently contains **Phase 0**
-(system architecture & foundation core) and **Phase 1** (organization &
-business structure), each with a working backend, frontend, and automated
-test suite — not scaffolding, a running system.
+(system architecture & foundation core), **Phase 1** (organization &
+business structure), **Phase 2** (product/nomenclature master data),
+**Phase 3** (counterparty master data + pricing), and **Phase 4** (sales
+orders + invoices — the first real business documents), each with a
+working backend, frontend, and automated test suite — not
+scaffolding, a running system.
 
 ```
 ERP/
@@ -32,8 +35,8 @@ npm run dev                   # http://localhost:5173
 Register a user, create a tenant (you become its Tenant Administrator),
 and you're in.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 34 tests, all
-passing (3 unit + 31 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 53 tests, all
+passing (3 unit + 50 e2e against a real Postgres instance).
 
 ---
 
@@ -102,14 +105,63 @@ transaction can reference it.
 
 Full write-up: [`backend/docs/PHASE1.md`](backend/docs/PHASE1.md).
 
+### Phase 2 — Product/Nomenclature master data
+
+The product catalog foundation every transactional module (Sales, Purchase,
+Inventory, Manufacturing) will reference.
+
+- **Unit of Measure** (tenant-level) → measurement units (kg, piece, liter,
+  meter) that products reference. Type classification (QUANTITY, WEIGHT,
+  VOLUME, LENGTH, AREA, TIME) with validation. No conversion factors yet
+  (Phase 3+).
+- **Product Category** (organization-scoped) → hierarchical product
+  classification with cycle detection (same pattern as Department hierarchy).
+  Validated server-side: a category cannot be its own parent, and
+  re-parenting into a descendant is rejected.
+- **Product** (organization-scoped) → product master data: code, name, type
+  (GOODS/SERVICE/WORK/SET), base unit, category, physical properties
+  (weight/volume), SKU, barcode. Master data only — no pricing, no inventory
+  balances, no supplier/customer links yet (Phase 3+).
+- **Validation & uniqueness** — product codes unique per organization,
+  SKU/barcode unique per tenant (indexed), units unique per tenant.
+  Deactivation guards prevent removing a unit/category still referenced by
+  active products.
+- **Organization-scoped access** — products and categories follow Phase 1's
+  organization access model: `OrganizationAccessService.assertAccess` gates
+  every operation.
+
+Full write-up: [`backend/docs/PHASE2.md`](backend/docs/PHASE2.md).
+
+### Phase 3 — Counterparty master data + pricing
+
+Customer/supplier master data with addresses and contacts, plus
+effective-dated price lists with quantity breaks and a
+`resolvePrice(org, type, product, date, qty, counterparty?)` engine —
+the price source every sales/purchase document snapshots at save time.
+
+Full write-up: [`backend/docs/PHASE3.md`](backend/docs/PHASE3.md).
+
+### Phase 4 — Sales orders + invoices
+
+The first real business documents on the document framework. Orders and
+invoices snapshot SALE prices + totals at SAVE (posting never
+re-resolves), post one register movement per line
+(`SALES_ORDER_REGISTER` / `SALES_SETTLEMENT_REGISTER ·
+RECEIVABLE_ACCRUAL`), and support SALES_ORDER ⇒ SALES_INVOICE "create
+based on" (header-only draft + link, lines added before posting).
+
+Full write-up: [`backend/docs/PHASE4.md`](backend/docs/PHASE4.md).
+
 ### Frontend
 
-A dark-themed React SPA covering both phases: login/register, tenant
+A dark-themed React SPA covering all phases: login/register, tenant
 creation and switching, a documents workspace (create/post/unpost/cancel,
-audit trail, document links, "create based on"), roles & permissions
-management, accounting periods, and a full organization management area
-(tabbed: General, Branches, Departments-as-tree, Warehouses, Cashboxes,
-Bank Accounts, Accounting Policy, Tax Profile, Access).
+audit trail, document links, "create based on"), a sales workspace
+(orders + invoices with lines, price snapshots, order ⇒ invoice
+drafting), roles & permissions management, accounting periods, and a
+full organization management area (tabbed: General, Branches,
+Departments-as-tree, Warehouses, Cashboxes, Bank Accounts, Accounting
+Policy, Tax Profile, Access).
 
 ## Test coverage
 
@@ -118,6 +170,9 @@ Bank Accounts, Accounting Policy, Tax Profile, Access).
 | `backend/src/**/*.spec.ts` | 3 | Money/decimal precision (no float drift) |
 | `backend/test/phase0.e2e-spec.ts` | 12 | Tenant isolation, RBAC, numbering concurrency, optimistic concurrency, posting atomicity, period locking, Create Based On |
 | `backend/test/phase1.e2e-spec.ts` | 19 | Organization/branch/department/warehouse/cashbox/bank-account/policy invariants, organization access isolation, default-reference validation |
+| `backend/test/phase2.e2e-spec.ts` | 19 | Unit of measure CRUD, product category hierarchy/cycle detection, product CRUD with SKU/barcode uniqueness, organization access isolation, deactivation guards |
+| `backend/test/phase3.e2e-spec.ts` | 15 | Unit conversions, counterparty CRUD/addresses/contacts, price lists/prices, price resolution, isolation |
+| `backend/test/phase4.e2e-spec.ts` | 17 | Price snapshotting, explicit-price override, customer-only guard, isolation/concurrency, post/unpost/cancel with movements, closed-period block, invoice flow, order ⇒ invoice CreateBasedOn |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -125,6 +180,12 @@ All run against a real PostgreSQL instance — no mocked database.
 
 - **Phase 0** — ✅ done, tested, documented.
 - **Phase 1** — ✅ done, tested, documented.
-- **Phase 2+** — not started. No business modules (Sales, Purchase,
+- **Phase 2** — ✅ done, tested, documented.
+- **Phase 3** — ✅ done, tested, documented.
+- **Phase 4** — ✅ done (backend + tests + docs; run `npx prisma migrate
+  deploy` + `npm run prisma:seed` to pick up the sales tables and the 6
+  new permission codes), frontend sales workspace included.
+- **Phase 5+** — not started. No purchase documents, payments, inventory
+  movements, or further transactional business modules (Purchase,
   Inventory, Payroll, Tax, Banking, Fixed Assets, ...) exist yet — those
   are later phases building on this foundation.
