@@ -1421,7 +1421,7 @@ model SalesOrderLine {
 
   // Phase 6 additions (spec sections 15, 26-27, 40, 94)
   cancelledQuantity Decimal @default(0) @map("cancelled_quantity") @db.Decimal(18, 6)
-  reservationPolicy String  @default("NONE") @map("reservation_policy")
+  reservationPolicy String  @default("TRY_RESERVE") @map("reservation_policy")
   fulfillmentPolicy String  @default("ALLOW_PARTIAL") @map("fulfillment_policy")
   isService         Boolean @default(false) @map("is_service")
   warehouseId       String? @map("warehouse_id")
