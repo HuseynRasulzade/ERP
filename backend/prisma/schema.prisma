@@ -98,6 +98,11 @@ model Tenant {
   shipmentPlanLines              ShipmentPlanLine[]
   orderPaymentSchedules          OrderPaymentSchedule[]
   orderHolds                     OrderHold[]
+  shipments                      Shipment[]
+  shipmentLines                  ShipmentLine[]
+  settlementObligations          SettlementObligation[]
+  salesReturns                   SalesReturn[]
+  salesReturnLines               SalesReturnLine[]
 
   @@map("tenants")
 }
@@ -149,34 +154,37 @@ model Organization {
   defaultCashbox     Cashbox?     @relation("OrgDefaultCashbox", fields: [defaultCashboxId], references: [id])
   defaultBankAccount BankAccount? @relation("OrgDefaultBankAccount", fields: [defaultBankAccountId], references: [id])
 
-  periods             AccountingPeriod[]
-  branches            Branch[]             @relation("OrgBranches")
-  departments         Department[]         @relation("OrgDepartments")
-  warehouses          Warehouse[]          @relation("OrgWarehouses")
-  cashboxes           Cashbox[]            @relation("OrgCashboxes")
-  bankAccounts        BankAccount[]        @relation("OrgBankAccounts")
-  accountingPolicies  AccountingPolicy[]   @relation("OrgAccountingPolicies")
-  taxProfiles         TaxProfile[]         @relation("OrgTaxProfiles")
-  accessGrants        OrganizationAccess[]
-  productCategories   ProductCategory[]
-  products            Product[]
-  counterparties      Counterparty[]
-  priceLists          PriceList[]
-  salesOrders         SalesOrder[]
-  salesInvoices       SalesInvoice[]
-  chartsOfAccounts    ChartOfAccounts[]
-  accounts            Account[]
-  accountingMappings  AccountingMapping[]
-  journalEntries      JournalEntry[]
-  accountingMovements AccountingMovement[]
-  postingRuns         PostingRun[]
-  taxRegistrations    TaxRegistration[]
-  productTaxProfiles  ProductTaxProfile[]
-  taxMovements        TaxMovement[]
-  customerRequests    CustomerRequest[]
-  commercialOffers    CommercialOffer[]
-  stockReservations   StockReservation[]
-  shipmentPlans       ShipmentPlan[]
+  periods               AccountingPeriod[]
+  branches              Branch[]               @relation("OrgBranches")
+  departments           Department[]           @relation("OrgDepartments")
+  warehouses            Warehouse[]            @relation("OrgWarehouses")
+  cashboxes             Cashbox[]              @relation("OrgCashboxes")
+  bankAccounts          BankAccount[]          @relation("OrgBankAccounts")
+  accountingPolicies    AccountingPolicy[]     @relation("OrgAccountingPolicies")
+  taxProfiles           TaxProfile[]           @relation("OrgTaxProfiles")
+  accessGrants          OrganizationAccess[]
+  productCategories     ProductCategory[]
+  products              Product[]
+  counterparties        Counterparty[]
+  priceLists            PriceList[]
+  salesOrders           SalesOrder[]
+  salesInvoices         SalesInvoice[]
+  chartsOfAccounts      ChartOfAccounts[]
+  accounts              Account[]
+  accountingMappings    AccountingMapping[]
+  journalEntries        JournalEntry[]
+  accountingMovements   AccountingMovement[]
+  postingRuns           PostingRun[]
+  taxRegistrations      TaxRegistration[]
+  productTaxProfiles    ProductTaxProfile[]
+  taxMovements          TaxMovement[]
+  customerRequests      CustomerRequest[]
+  commercialOffers      CommercialOffer[]
+  stockReservations     StockReservation[]
+  shipmentPlans         ShipmentPlan[]
+  shipments             Shipment[]
+  settlementObligations SettlementObligation[]
+  salesReturns          SalesReturn[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -305,6 +313,8 @@ model Warehouse {
   salesOrders             SalesOrder[]
   stockReservations       StockReservation[]
   shipmentPlans           ShipmentPlan[]
+  shipments               Shipment[]
+  salesReturns            SalesReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -666,6 +676,8 @@ model Currency {
   customerRequests         CustomerRequest[]
   commercialOffers         CommercialOffer[]
   orderPaymentSchedules    OrderPaymentSchedule[]
+  settlementObligations    SettlementObligation[]
+  salesReturns             SalesReturn[]
 
   @@map("currencies")
 }
@@ -989,6 +1001,8 @@ model UnitOfMeasure {
   accountingMovements  AccountingMovement[]
   customerRequestLines CustomerRequestLine[] @relation("CustomerRequestLineUnit")
   commercialOfferLines CommercialOfferLine[] @relation("CommercialOfferLineUnit")
+  shipmentLines        ShipmentLine[]        @relation("ShipmentLineUnit")
+  salesReturnLines     SalesReturnLine[]     @relation("SalesReturnLineUnit")
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
@@ -1082,6 +1096,8 @@ model Product {
   customerRequestLines CustomerRequestLine[]
   commercialOfferLines CommercialOfferLine[]
   stockReservations    StockReservation[]
+  shipmentLines        ShipmentLine[]
+  salesReturnLines     SalesReturnLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1162,17 +1178,20 @@ model Counterparty {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant           Tenant                  @relation(fields: [tenantId], references: [id])
-  organization     Organization            @relation(fields: [organizationId], references: [id])
-  currency         Currency?               @relation(fields: [currencyId], references: [id])
-  addresses        CounterpartyAddress[]
-  contacts         CounterpartyContact[]
-  priceLists       PriceList[]
-  salesOrders      SalesOrder[]
-  salesInvoices    SalesInvoice[]
-  taxProfile       CounterpartyTaxProfile?
-  customerRequests CustomerRequest[]
-  commercialOffers CommercialOffer[]
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  organization          Organization            @relation(fields: [organizationId], references: [id])
+  currency              Currency?               @relation(fields: [currencyId], references: [id])
+  addresses             CounterpartyAddress[]
+  contacts              CounterpartyContact[]
+  priceLists            PriceList[]
+  salesOrders           SalesOrder[]
+  salesInvoices         SalesInvoice[]
+  taxProfile            CounterpartyTaxProfile?
+  customerRequests      CustomerRequest[]
+  commercialOffers      CommercialOffer[]
+  shipments             Shipment[]
+  settlementObligations SettlementObligation[]
+  salesReturns          SalesReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1391,6 +1410,7 @@ model SalesOrder {
   lines           SalesOrderLine[]
   holds           OrderHold[]
   paymentSchedule OrderPaymentSchedule[]
+  shipments       Shipment[]
   ShipmentPlan    ShipmentPlan[]
 
   @@unique([tenantId, number])
@@ -1464,6 +1484,12 @@ model SalesInvoice {
   priceIncludesTax Boolean        @default(false) @map("price_includes_tax")
   description      String?
 
+  // Phase 7 additions (spec sections 19-20, 40, 42)
+  taxPointDate     DateTime? @map("tax_point_date") @db.Date
+  sourceShipmentId String?   @map("source_shipment_id")
+  amountDue        Decimal   @default(0) @map("amount_due") @db.Decimal(18, 2)
+  settlementStatus String    @default("UNPAID") @map("settlement_status")
+
   createdAt    DateTime  @default(now()) @map("created_at")
   createdBy    String?   @map("created_by")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -1475,11 +1501,13 @@ model SalesInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant             @relation(fields: [tenantId], references: [id])
-  organization Organization       @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty       @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?          @relation(fields: [currencyId], references: [id])
-  lines        SalesInvoiceLine[]
+  tenant         Tenant             @relation(fields: [tenantId], references: [id])
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  counterparty   Counterparty       @relation(fields: [counterpartyId], references: [id])
+  currency       Currency?          @relation(fields: [currencyId], references: [id])
+  sourceShipment Shipment?          @relation(fields: [sourceShipmentId], references: [id])
+  lines          SalesInvoiceLine[]
+  returns        SalesReturn[]
 
   @@unique([tenantId, number])
   @@index([tenantId, documentDate])
@@ -1489,22 +1517,23 @@ model SalesInvoice {
 }
 
 model SalesInvoiceLine {
-  id                String  @id @default(uuid())
-  tenantId          String  @map("tenant_id")
-  salesInvoiceId    String  @map("sales_invoice_id")
-  position          Int     @default(0)
-  productId         String  @map("product_id")
-  unitId            String  @map("unit_id")
-  quantity          Decimal @db.Decimal(18, 6)
-  price             Decimal @db.Decimal(18, 6)
-  lineTotal         Decimal @map("line_total") @db.Decimal(18, 2)
-  taxRate           Decimal @default(0) @map("tax_rate") @db.Decimal(18, 2)
-  taxAmount         Decimal @default(0) @map("tax_amount") @db.Decimal(18, 2)
-  lineTotalWithTax  Decimal @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
-  priceListId       String? @map("price_list_id")
-  productPriceId    String? @map("product_price_id")
-  sourceOrderLineId String? @map("source_order_line_id")
-  description       String?
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  salesInvoiceId       String  @map("sales_invoice_id")
+  position             Int     @default(0)
+  productId            String  @map("product_id")
+  unitId               String  @map("unit_id")
+  quantity             Decimal @db.Decimal(18, 6)
+  price                Decimal @db.Decimal(18, 6)
+  lineTotal            Decimal @map("line_total") @db.Decimal(18, 2)
+  taxRate              Decimal @default(0) @map("tax_rate") @db.Decimal(18, 2)
+  taxAmount            Decimal @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  lineTotalWithTax     Decimal @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
+  priceListId          String? @map("price_list_id")
+  productPriceId       String? @map("product_price_id")
+  sourceOrderLineId    String? @map("source_order_line_id")
+  sourceShipmentLineId String? @map("source_shipment_line_id")
+  description          String?
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -2591,4 +2620,184 @@ model OrderHold {
 
   @@index([salesOrderId, status])
   @@map("order_holds")
+}
+
+// ============================================================================
+// SALES EXECUTION (docx spec Phase 7)
+//
+// Shipment (physical execution) is kept structurally distinct from
+// SalesInvoice (commercial/legal/accounting event) — spec section 2. Both
+// use DocumentLineLink (Phase 6) for line-level execution tracking:
+// ORDER_TO_SHIPMENT, SHIPMENT_TO_INVOICE, ORDER_TO_INVOICE. Inventory
+// movement reuses Phase 0's RegisterMovement (registerCode
+// 'INVENTORY_REGISTER') rather than a parallel stock ledger — a real,
+// quantity-only register (no valuation — that's Phase 11's job). See
+// docs/SALES_EXECUTION.md for the full disclosed simplifications
+// (Inventory/Costing/AR are stub-level interfaces, per the spec's own
+// explicit sanction for phases that don't exist yet).
+// ============================================================================
+
+model Shipment {
+  id                      String         @id @default(uuid())
+  tenantId                String         @map("tenant_id")
+  organizationId          String         @map("organization_id")
+  documentType            String         @default("SHIPMENT") @map("document_type")
+  number                  String?
+  documentDate            DateTime       @map("document_date") @db.Date
+  postingDate             DateTime?      @map("posting_date") @db.Date
+  customerOrderId         String?        @map("customer_order_id")
+  counterpartyId          String         @map("counterparty_id")
+  warehouseId             String         @map("warehouse_id")
+  deliveryAddressSnapshot String?        @map("delivery_address_snapshot")
+  deliveryMethod          String?        @map("delivery_method")
+  carrier                 String?
+  status                  DocumentStatus @default(DRAFT)
+  postingStatus           PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  description             String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  counterparty  Counterparty   @relation(fields: [counterpartyId], references: [id])
+  customerOrder SalesOrder?    @relation(fields: [customerOrderId], references: [id])
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
+  lines         ShipmentLine[]
+  SalesInvoice  SalesInvoice[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, documentDate])
+  @@index([organizationId, customerOrderId])
+  @@map("shipments")
+}
+
+model ShipmentLine {
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  shipmentId        String  @map("shipment_id")
+  position          Int     @default(0)
+  sourceOrderLineId String? @map("source_order_line_id")
+  productId         String  @map("product_id")
+  unitId            String  @map("unit_id")
+  quantity          Decimal @db.Decimal(18, 6)
+  warehouseId       String? @map("warehouse_id")
+  notes             String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  version   Int      @default(1)
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  shipment Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  product  Product       @relation(fields: [productId], references: [id])
+  unit     UnitOfMeasure @relation("ShipmentLineUnit", fields: [unitId], references: [id])
+
+  @@index([shipmentId, position])
+  @@map("shipment_lines")
+}
+
+/// AR contract for Phase 13 (spec sections 40-41, 71-72) — a clean
+/// receivable obligation, not a full AR register (no payment allocation,
+/// no aging). `status` stays NOT_PAID forever in this build (spec
+/// explicitly forbids fabricating PARTIALLY_PAID/PAID without a real
+/// settlement module).
+model SettlementObligation {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  counterpartyId     String    @map("counterparty_id")
+  sourceDocumentType String    @map("source_document_type")
+  sourceDocumentId   String    @map("source_document_id")
+  currencyId         String?   @map("currency_id")
+  amountDue          Decimal   @map("amount_due") @db.Decimal(18, 2)
+  dueDate            DateTime? @map("due_date") @db.Date
+  status             String    @default("NOT_PAID")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([organizationId, counterpartyId, status])
+  @@map("settlement_obligations")
+}
+
+model SalesReturn {
+  id                     String         @id @default(uuid())
+  tenantId               String         @map("tenant_id")
+  organizationId         String         @map("organization_id")
+  documentType           String         @default("SALES_RETURN") @map("document_type")
+  number                 String?
+  documentDate           DateTime       @map("document_date") @db.Date
+  postingDate            DateTime?      @map("posting_date") @db.Date
+  originalSalesInvoiceId String?        @map("original_sales_invoice_id")
+  counterpartyId         String         @map("counterparty_id")
+  warehouseId            String?        @map("warehouse_id")
+  currencyId             String?        @map("currency_id")
+  returnType             String         @default("PHYSICAL_RETURN") @map("return_type")
+  reasonCode             String?        @map("reason_code")
+  status                 DocumentStatus @default(DRAFT)
+  postingStatus          PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  subtotal               Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal               Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal             Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  description            String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  createdBy String?   @map("created_by")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  postedAt  DateTime? @map("posted_at")
+  postedBy  String?   @map("posted_by")
+  version   Int       @default(1)
+
+  tenant          Tenant            @relation(fields: [tenantId], references: [id])
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  counterparty    Counterparty      @relation(fields: [counterpartyId], references: [id])
+  currency        Currency?         @relation(fields: [currencyId], references: [id])
+  originalInvoice SalesInvoice?     @relation(fields: [originalSalesInvoiceId], references: [id])
+  lines           SalesReturnLine[]
+  Warehouse       Warehouse?        @relation(fields: [warehouseId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([tenantId, documentDate])
+  @@index([organizationId, originalSalesInvoiceId])
+  @@map("sales_returns")
+}
+
+model SalesReturnLine {
+  id                  String  @id @default(uuid())
+  tenantId            String  @map("tenant_id")
+  salesReturnId       String  @map("sales_return_id")
+  position            Int     @default(0)
+  sourceInvoiceLineId String? @map("source_invoice_line_id")
+  productId           String  @map("product_id")
+  unitId              String  @map("unit_id")
+  quantity            Decimal @db.Decimal(18, 6)
+  originalUnitPrice   Decimal @map("original_unit_price") @db.Decimal(18, 6)
+  returnNet           Decimal @default(0) @map("return_net") @db.Decimal(18, 2)
+  returnTax           Decimal @default(0) @map("return_tax") @db.Decimal(18, 2)
+  returnGross         Decimal @default(0) @map("return_gross") @db.Decimal(18, 2)
+  reason              String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  salesReturn SalesReturn   @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  product     Product       @relation(fields: [productId], references: [id])
+  unit        UnitOfMeasure @relation("SalesReturnLineUnit", fields: [unitId], references: [id])
+
+  @@index([salesReturnId, position])
+  @@map("sales_return_lines")
 }
