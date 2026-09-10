@@ -1,23 +1,37 @@
 import { Injectable } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import {
   DocumentPostingHandler,
   RegisterMovementInput,
 } from '../document-framework/document-posting-handler.interface';
 import { BaseDocumentFields } from '../document-framework/base-document';
-import { ValidationAppError } from '../common/errors/app-error';
+import { CreditCheckBlockedError, OrderOnHoldError, ValidationAppError } from '../common/errors/app-error';
 import { SALES_ORDER_TYPE } from './sales-order.repository';
+import { CreditCheckService } from '../sales-preorder/credit-check.service';
 
 /**
- * Posting handler for SalesOrder. Validates the order still has lines and an
- * active customer, then emits one SALES_ORDER_REGISTER movement per line.
- * Prices are never re-resolved here — lines carry the snapshot from save.
+ * Posting handler for SalesOrder. `post` IS `ConfirmCustomerOrder` (docx
+ * spec Phase 6, section 22): SalesOrder plays this spec's CustomerOrder
+ * role (see docs/SALES_PREORDER.md), and the generic document-framework
+ * post command is reused rather than inventing a parallel confirmation
+ * state machine — `postingStatus = POSTED` IS `CONFIRMED`.
+ *
+ * `validateForPosting` therefore carries the confirmation checks section
+ * 22 requires: active counterparty, no blocking hold, and a credit check
+ * that rejects a BLOCKED order outright (a WARNING is recorded but does
+ * not block, matching spec section 57's WARN policy). Still emits one
+ * SALES_ORDER_REGISTER movement per line — prices are never re-resolved
+ * here, and per spec section 102, still no accounting/tax consequence.
  */
 @Injectable()
 export class SalesOrderPostingHandler implements DocumentPostingHandler {
   readonly documentType = SALES_ORDER_TYPE;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly creditCheck: CreditCheckService,
+  ) {}
 
   async validateForPosting(
     tenantId: string,
@@ -40,6 +54,17 @@ export class SalesOrderPostingHandler implements DocumentPostingHandler {
     });
     if (!counterparty || !counterparty.active) {
       throw new ValidationAppError('Cannot post a sales order for a missing or inactive counterparty');
+    }
+
+    const activeHolds = await tx.orderHold.findMany({ where: { tenantId, salesOrderId: order.id, status: 'ACTIVE' } });
+    if (activeHolds.length > 0) {
+      throw new OrderOnHoldError(activeHolds.map((h) => h.holdType));
+    }
+
+    const creditResult = await this.creditCheck.check(tenantId, order.organizationId, order.counterpartyId, new Decimal(order.grandTotal.toString()));
+    await tx.salesOrder.update({ where: { id: order.id }, data: { creditStatus: creditResult.status } });
+    if (creditResult.actionPolicy === 'BLOCK') {
+      throw new CreditCheckBlockedError(creditResult.explanation);
     }
   }
 

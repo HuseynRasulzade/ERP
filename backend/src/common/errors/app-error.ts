@@ -54,6 +54,15 @@ export const ErrorCode = {
   TAX_PERIOD_LOCKED: 'TAX_PERIOD_LOCKED',
   TAX_POSTING_DUPLICATE: 'TAX_POSTING_DUPLICATE',
   TAX_LEGAL_SOURCE_INVALID: 'TAX_LEGAL_SOURCE_INVALID',
+
+  // Sales Pre-Order & Order Management (docx spec Phase 6)
+  ORDER_ON_HOLD: 'ORDER_ON_HOLD',
+  CREDIT_CHECK_BLOCKED: 'CREDIT_CHECK_BLOCKED',
+  OFFER_EXPIRED: 'OFFER_EXPIRED',
+  OFFER_NOT_ACCEPTED: 'OFFER_NOT_ACCEPTED',
+  RESERVATION_EXCEEDS_REMAINING: 'RESERVATION_EXCEEDS_REMAINING',
+  SHIPMENT_PLAN_EXCEEDS_REMAINING: 'SHIPMENT_PLAN_EXCEEDS_REMAINING',
+  PAYMENT_SCHEDULE_MISMATCH: 'PAYMENT_SCHEDULE_MISMATCH',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -297,5 +306,53 @@ export class TaxPostingDuplicateError extends AppError {
 export class TaxOverrideNotAllowedError extends AppError {
   constructor(reason: string) {
     super(ErrorCode.TAX_OVERRIDE_NOT_ALLOWED, reason, HttpStatus.FORBIDDEN);
+  }
+}
+
+export class OrderOnHoldError extends AppError {
+  constructor(holdTypes: string[]) {
+    super(ErrorCode.ORDER_ON_HOLD, `Order is on hold: ${holdTypes.join(', ')}`, HttpStatus.CONFLICT);
+  }
+}
+
+export class CreditCheckBlockedError extends AppError {
+  constructor(explanation: string) {
+    super(ErrorCode.CREDIT_CHECK_BLOCKED, `Credit check blocked confirmation: ${explanation}`, HttpStatus.CONFLICT);
+  }
+}
+
+export class OfferExpiredError extends AppError {
+  constructor(offerId: string) {
+    super(ErrorCode.OFFER_EXPIRED, `Commercial offer ${offerId} has expired`, HttpStatus.CONFLICT);
+  }
+}
+
+export class ReservationExceedsRemainingError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.RESERVATION_EXCEEDS_REMAINING,
+      `Requested reservation quantity ${requested} exceeds remaining orderable quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class ShipmentPlanExceedsRemainingError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.SHIPMENT_PLAN_EXCEEDS_REMAINING,
+      `Planned quantity ${requested} exceeds remaining fulfillable quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class PaymentScheduleMismatchError extends AppError {
+  constructor(expected: string, actual: string) {
+    super(
+      ErrorCode.PAYMENT_SCHEDULE_MISMATCH,
+      `Payment schedule totals ${actual}, does not match order total ${expected}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
   }
 }

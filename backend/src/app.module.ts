@@ -29,6 +29,7 @@ import { CounterpartyPricingModule } from './counterparty-pricing/counterparty-p
 import { SalesDocumentsModule } from './sales-documents/sales-documents.module';
 import { AccountingCoreModule } from './accounting-core/accounting-core.module';
 import { TaxEngineModule } from './tax-engine/tax-engine.module';
+import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
 
 @Module({
   imports: [
@@ -69,6 +70,11 @@ import { TaxEngineModule } from './tax-engine/tax-engine.module';
     // Tax Engine (docx spec Phase 5 — VAT rules engine, Azerbaijan
     // localization, Tax Register). Depends on AccountingCoreModule.
     TaxEngineModule,
+
+    // Sales Pre-Order & Order Management (docx spec Phase 6 — Customer
+    // Request, Commercial Offer, order confirmation/reservation/shipment
+    // planning/payment schedule/credit check; no accounting consequence).
+    SalesPreorderModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

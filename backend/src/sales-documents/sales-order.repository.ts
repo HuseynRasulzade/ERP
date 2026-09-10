@@ -67,10 +67,41 @@ export class SalesOrderRepository implements DocumentRepositoryAdapter {
         grandTotal: (input.grandTotal as any) ?? 0,
         priceIncludesTax: (input.priceIncludesTax as boolean) ?? false,
         description: input.description as string | undefined,
+        sourceOfferId: input.sourceOfferId as string | undefined,
         createdBy,
         updatedBy: createdBy,
       },
     });
+
+    // Phase 6 addition: unlike the header-only SALES_ORDER -> SALES_INVOICE
+    // mapper convention elsewhere in this module, COMMERCIAL_OFFER ->
+    // SALES_ORDER carries its lines through `input.lines` so the offer's
+    // exact price/discount/tax snapshot is preserved (spec sections 76-77)
+    // rather than silently re-resolved from the current price list.
+    const lines = input.lines as Array<Record<string, unknown>> | undefined;
+    if (lines?.length) {
+      for (const [index, line] of lines.entries()) {
+        await tx.salesOrderLine.create({
+          data: {
+            tenantId,
+            salesOrderId: row.id,
+            position: index,
+            productId: line.productId as string,
+            unitId: line.unitId as string,
+            quantity: line.quantity as any,
+            price: line.price as any,
+            lineTotal: line.lineTotal as any,
+            taxRate: line.taxRate as any,
+            taxAmount: line.taxAmount as any,
+            lineTotalWithTax: line.lineTotalWithTax as any,
+            priceListId: line.priceListId as string | undefined,
+            productPriceId: line.productPriceId as string | undefined,
+            description: line.description as string | undefined,
+          },
+        });
+      }
+    }
+
     return this.toBaseFields(row);
   }
 
