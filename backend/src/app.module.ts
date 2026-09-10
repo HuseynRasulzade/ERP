@@ -30,6 +30,7 @@ import { SalesDocumentsModule } from './sales-documents/sales-documents.module';
 import { AccountingCoreModule } from './accounting-core/accounting-core.module';
 import { TaxEngineModule } from './tax-engine/tax-engine.module';
 import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
+import { SalesExecutionModule } from './sales-execution/sales-execution.module';
 
 @Module({
   imports: [
@@ -75,6 +76,10 @@ import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
     // Request, Commercial Offer, order confirmation/reservation/shipment
     // planning/payment schedule/credit check; no accounting consequence).
     SalesPreorderModule,
+
+    // Sales Execution (docx spec Phase 7 — Shipment, extended Sales
+    // Invoice with real AR/COGS interfaces, Sales Return).
+    SalesExecutionModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

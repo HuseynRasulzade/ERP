@@ -24,6 +24,20 @@ export class SalesLineItemDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  /** Sales Execution (docx spec Phase 7, sections 21-25): links an
+   * invoice line back to the order/shipment line it executes, so
+   * SalesInvoicePostingHandler can enforce the remaining-invoiceable-
+   * quantity cap and write the ORDER_TO_INVOICE/SHIPMENT_TO_INVOICE
+   * DocumentLineLink. Ignored on a SalesOrder line (orders have no
+   * "source" of their own). */
+  @IsOptional()
+  @IsString()
+  sourceOrderLineId?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceShipmentLineId?: string;
 }
 
 export class CreateSalesOrderDto {

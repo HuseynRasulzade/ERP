@@ -6,17 +6,17 @@ import {
 } from '../document-framework/document-repository.interface';
 import { BaseDocumentFields } from '../document-framework/base-document';
 
-export const SALES_INVOICE_TYPE = 'SALES_INVOICE';
+export const SHIPMENT_TYPE = 'SHIPMENT';
 
 @Injectable()
-export class SalesInvoiceRepository implements DocumentRepositoryAdapter {
-  readonly documentType = SALES_INVOICE_TYPE;
+export class ShipmentRepository implements DocumentRepositoryAdapter {
+  readonly documentType = SHIPMENT_TYPE;
 
   constructor(private readonly prisma: PrismaService) {}
 
   async findById(tenantId: string, id: string, tx?: PrismaTransactionClient): Promise<BaseDocumentFields | null> {
     const client = tx ?? this.prisma;
-    const row = await client.salesInvoice.findFirst({ where: { id, tenantId } });
+    const row = await client.shipment.findFirst({ where: { id, tenantId } });
     return row ? this.toBaseFields(row) : null;
   }
 
@@ -27,7 +27,7 @@ export class SalesInvoiceRepository implements DocumentRepositoryAdapter {
     expectedVersion: number,
     tx: PrismaTransactionClient,
   ) {
-    const result = await tx.salesInvoice.updateMany({
+    const result = await tx.shipment.updateMany({
       where: { id, tenantId, version: expectedVersion },
       data: {
         ...(patch.status ? { status: patch.status } : {}),
@@ -39,52 +39,51 @@ export class SalesInvoiceRepository implements DocumentRepositoryAdapter {
         version: { increment: 1 },
       },
     });
-
     return { updatedCount: result.count, newVersion: expectedVersion + 1 };
   }
 
-  /**
-   * Materializes a target invoice for CreateBasedOnService. Accepts the
-   * pre-allocated header fields the SALES_ORDER => SALES_INVOICE mapper
-   * produces (number, documentDate, currency, tax flag, description) so the
-   * engine's single create is the only write — no duplicate headers.
-   * The draft starts with zero totals and no lines; lines are added via the
-   * invoice update endpoint before posting.
-   */
   async create(
     tenantId: string,
     input: Record<string, unknown>,
     createdBy: string,
     tx: PrismaTransactionClient,
   ): Promise<BaseDocumentFields> {
-    const row = await tx.salesInvoice.create({
+    const row = await tx.shipment.create({
       data: {
         tenantId,
         organizationId: input.organizationId as string,
         counterpartyId: input.counterpartyId as string,
+        warehouseId: input.warehouseId as string,
         number: input.number as string | undefined,
-        documentDate: this.coerceDate(input.documentDate),
-        currencyId: input.currencyId as string | undefined,
-        subtotal: (input.subtotal as any) ?? 0,
-        taxTotal: (input.taxTotal as any) ?? 0,
-        grandTotal: (input.grandTotal as any) ?? 0,
-        priceIncludesTax: (input.priceIncludesTax as boolean) ?? false,
+        documentDate: (input.documentDate as Date) ?? new Date(),
+        customerOrderId: input.customerOrderId as string | undefined,
+        deliveryAddressSnapshot: input.deliveryAddressSnapshot as string | undefined,
         description: input.description as string | undefined,
-        sourceShipmentId: input.sourceShipmentId as string | undefined,
         createdBy,
         updatedBy: createdBy,
       },
     });
-    return this.toBaseFields(row);
-  }
 
-  private coerceDate(value: unknown): Date {
-    if (value instanceof Date) return value;
-    if (typeof value === 'string' || typeof value === 'number') {
-      const parsed = new Date(value);
-      if (!Number.isNaN(parsed.getTime())) return parsed;
+    const lines = input.lines as Array<Record<string, unknown>> | undefined;
+    if (lines?.length) {
+      for (const [index, line] of lines.entries()) {
+        await tx.shipmentLine.create({
+          data: {
+            tenantId,
+            shipmentId: row.id,
+            position: index,
+            sourceOrderLineId: line.sourceOrderLineId as string | undefined,
+            productId: line.productId as string,
+            unitId: line.unitId as string,
+            quantity: line.quantity as any,
+            warehouseId: (line.warehouseId as string | undefined) ?? (input.warehouseId as string),
+            notes: line.notes as string | undefined,
+          },
+        });
+      }
     }
-    return new Date();
+
+    return this.toBaseFields(row);
   }
 
   private toBaseFields(row: any): BaseDocumentFields {
@@ -98,8 +97,8 @@ export class SalesInvoiceRepository implements DocumentRepositoryAdapter {
       postingDate: row.postingDate,
       status: row.status,
       postingStatus: row.postingStatus,
-      currencyId: row.currencyId,
-      exchangeRate: row.exchangeRate,
+      currencyId: undefined,
+      exchangeRate: undefined,
       description: row.description,
       createdAt: row.createdAt,
       createdBy: row.createdBy,

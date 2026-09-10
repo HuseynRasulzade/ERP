@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { OrderFulfillmentService } from './order-fulfillment.service';
@@ -134,5 +134,42 @@ export class ReservationService {
     await this.fulfillment.recomputeOrderStatuses(tenantId, reservation.sourceDocumentId);
 
     return this.prisma.stockReservation.findUnique({ where: { id: reservationId } });
+  }
+
+  /**
+   * Reservation consumption (Sales Execution spec section 15): called by
+   * `ShipmentPostingHandler` inside its own posting transaction when a
+   * Shipment line executes against a reserved order line. Reduces the
+   * oldest ACTIVE/PARTIALLY_RELEASED reservations first (FIFO) by the
+   * shipped quantity — never below zero, and never releases more than was
+   * actually reserved. Quantity actually consumed (which may be less than
+   * requested if the line wasn't fully reserved) is returned so the
+   * caller never assumes full consumption succeeded.
+   */
+  async consumeForLine(tenantId: string, salesOrderLineId: string, quantity: Decimal, tx: PrismaTransactionClient): Promise<Decimal> {
+    const active = await tx.stockReservation.findMany({
+      where: { tenantId, sourceLineId: salesOrderLineId, status: { in: ['ACTIVE', 'PARTIALLY_RELEASED'] } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let remaining = quantity;
+    let consumed = new Decimal(0);
+    for (const reservation of active) {
+      if (remaining.lte(0)) break;
+      const reservedQty = new Decimal(reservation.quantity.toString());
+      const take = Decimal.min(reservedQty, remaining);
+      const left = reservedQty.minus(take);
+
+      await tx.stockReservation.update({
+        where: { id: reservation.id },
+        data: left.gt(0)
+          ? { quantity: left.toString(), status: 'PARTIALLY_RELEASED' }
+          : { quantity: '0', status: 'CONSUMED' },
+      });
+
+      remaining = remaining.minus(take);
+      consumed = consumed.plus(take);
+    }
+    return consumed;
   }
 }

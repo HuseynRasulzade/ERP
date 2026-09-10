@@ -192,6 +192,7 @@ export class DocumentPostingService {
 
   async unpost(tenantId: string, documentType: string, documentId: string, expectedVersion: number, userId: string) {
     const repository = this.registry.getRepository(documentType);
+    const handler = this.registry.getHandler(documentType);
 
     return this.prisma.runInTransaction(async (tx) => {
       const document = await repository.findById(tenantId, documentId, tx);
@@ -205,6 +206,10 @@ export class DocumentPostingService {
       const deleted = await tx.registerMovement.deleteMany({
         where: { tenantId, recorderDocumentType: documentType, recorderDocumentId: documentId },
       });
+
+      if (handler.undoSideEffects) {
+        await handler.undoSideEffects(tenantId, document, tx);
+      }
 
       // Generic Accounting Core / Tax Register cleanup (type-agnostic: it
       // only ever looks at rows keyed by sourceDocumentType/Id, never at

@@ -63,6 +63,17 @@ export const ErrorCode = {
   RESERVATION_EXCEEDS_REMAINING: 'RESERVATION_EXCEEDS_REMAINING',
   SHIPMENT_PLAN_EXCEEDS_REMAINING: 'SHIPMENT_PLAN_EXCEEDS_REMAINING',
   PAYMENT_SCHEDULE_MISMATCH: 'PAYMENT_SCHEDULE_MISMATCH',
+
+  // Sales Execution (docx spec Phase 7, section 92)
+  SHIPMENT_QUANTITY_EXCEEDS_REMAINING: 'SHIPMENT_QUANTITY_EXCEEDS_REMAINING',
+  SHIPMENT_INSUFFICIENT_STOCK: 'SHIPMENT_INSUFFICIENT_STOCK',
+  SHIPMENT_HAS_DOWNSTREAM_DOCUMENTS: 'SHIPMENT_HAS_DOWNSTREAM_DOCUMENTS',
+  INVOICE_QUANTITY_EXCEEDS_SOURCE: 'INVOICE_QUANTITY_EXCEEDS_SOURCE',
+  INVOICE_HAS_SETTLEMENTS: 'INVOICE_HAS_SETTLEMENTS',
+  INVOICE_HAS_RETURNS: 'INVOICE_HAS_RETURNS',
+  RETURN_QUANTITY_EXCEEDS_SOLD: 'RETURN_QUANTITY_EXCEEDS_SOLD',
+  RETURN_ORIGINAL_DOCUMENT_REQUIRED: 'RETURN_ORIGINAL_DOCUMENT_REQUIRED',
+  SALES_COGS_NOT_AVAILABLE: 'SALES_COGS_NOT_AVAILABLE',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -352,6 +363,64 @@ export class PaymentScheduleMismatchError extends AppError {
     super(
       ErrorCode.PAYMENT_SCHEDULE_MISMATCH,
       `Payment schedule totals ${actual}, does not match order total ${expected}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class ShipmentQuantityExceedsRemainingError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.SHIPMENT_QUANTITY_EXCEEDS_REMAINING,
+      `Shipment quantity ${requested} exceeds remaining order quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class ShipmentInsufficientStockError extends AppError {
+  constructor(productId: string, available: string, requested: string) {
+    super(
+      ErrorCode.SHIPMENT_INSUFFICIENT_STOCK,
+      `Insufficient stock for product ${productId}: available ${available}, requested ${requested}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class ShipmentHasDownstreamDocumentsError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.SHIPMENT_HAS_DOWNSTREAM_DOCUMENTS, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class InvoiceQuantityExceedsSourceError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.INVOICE_QUANTITY_EXCEEDS_SOURCE,
+      `Invoice quantity ${requested} exceeds remaining invoiceable quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class InvoiceHasSettlementsError extends AppError {
+  constructor(invoiceId: string) {
+    super(ErrorCode.INVOICE_HAS_SETTLEMENTS, `Invoice ${invoiceId} has settlement allocations and cannot be unposted`, HttpStatus.CONFLICT);
+  }
+}
+
+export class InvoiceHasReturnsError extends AppError {
+  constructor(invoiceId: string) {
+    super(ErrorCode.INVOICE_HAS_RETURNS, `Invoice ${invoiceId} has posted returns and cannot be unposted`, HttpStatus.CONFLICT);
+  }
+}
+
+export class ReturnQuantityExceedsSoldError extends AppError {
+  constructor(maxReturnable: string, requested: string) {
+    super(
+      ErrorCode.RETURN_QUANTITY_EXCEEDS_SOLD,
+      `Return quantity ${requested} exceeds returnable quantity ${maxReturnable}`,
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }

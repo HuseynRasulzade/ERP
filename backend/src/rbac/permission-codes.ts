@@ -189,6 +189,18 @@ export const PermissionCodes = {
   SALES_PAYMENT_SCHEDULE_VIEW: 'sales.payment_schedule.view',
   SALES_FULFILLMENT_VIEW: 'sales.fulfillment.view',
   SALES_ORDER_HOLD_MANAGE: 'sales.order_hold.manage',
+
+  // Sales Execution (docx spec Phase 7, section 84)
+  SALES_SHIPMENT_VIEW: 'sales.shipment.view',
+  SALES_SHIPMENT_CREATE: 'sales.shipment.create',
+  SALES_SHIPMENT_EDIT: 'sales.shipment.edit',
+  SALES_SHIPMENT_CANCEL: 'sales.shipment.cancel',
+  SALES_INVOICE_REVERSE: 'sales.invoice.reverse',
+  SALES_RETURN_VIEW: 'sales.return.view',
+  SALES_RETURN_CREATE: 'sales.return.create',
+  SALES_RETURN_EDIT: 'sales.return.edit',
+  SALES_ACCOUNTING_ENTRIES_VIEW: 'sales.accounting_entries.view',
+  SALES_TAX_DETAILS_VIEW: 'sales.tax_details.view',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -370,4 +382,15 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.SALES_PAYMENT_SCHEDULE_VIEW, module: 'sales_preorder', description: 'View order payment schedules' },
   { code: PermissionCodes.SALES_FULFILLMENT_VIEW, module: 'sales_preorder', description: 'View order fulfillment status' },
   { code: PermissionCodes.SALES_ORDER_HOLD_MANAGE, module: 'sales_preorder', description: 'Place/release order holds' },
+
+  { code: PermissionCodes.SALES_SHIPMENT_VIEW, module: 'sales_execution', description: 'View shipments' },
+  { code: PermissionCodes.SALES_SHIPMENT_CREATE, module: 'sales_execution', description: 'Create shipments' },
+  { code: PermissionCodes.SALES_SHIPMENT_EDIT, module: 'sales_execution', description: 'Edit shipments' },
+  { code: PermissionCodes.SALES_SHIPMENT_CANCEL, module: 'sales_execution', description: 'Cancel shipments' },
+  { code: PermissionCodes.SALES_INVOICE_REVERSE, module: 'sales_execution', description: 'Reverse a posted sales invoice' },
+  { code: PermissionCodes.SALES_RETURN_VIEW, module: 'sales_execution', description: 'View sales returns' },
+  { code: PermissionCodes.SALES_RETURN_CREATE, module: 'sales_execution', description: 'Create sales returns' },
+  { code: PermissionCodes.SALES_RETURN_EDIT, module: 'sales_execution', description: 'Edit sales returns' },
+  { code: PermissionCodes.SALES_ACCOUNTING_ENTRIES_VIEW, module: 'sales_execution', description: 'View accounting entries behind a sales document' },
+  { code: PermissionCodes.SALES_TAX_DETAILS_VIEW, module: 'sales_execution', description: 'View tax calculation details behind a sales document' },
 ];

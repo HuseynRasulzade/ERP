@@ -1,0 +1,53 @@
+import { Type } from 'class-transformer';
+import { ArrayMinSize, IsArray, IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+
+export class ShipmentLineDto {
+  @IsOptional() @IsString() sourceOrderLineId?: string;
+  @IsString() productId!: string;
+  @IsString() unitId!: string;
+  @IsNumberString() quantity!: string;
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() notes?: string;
+}
+
+export class CreateShipmentDto {
+  @IsDateString() documentDate!: string;
+  @IsString() counterpartyId!: string;
+  @IsString() warehouseId!: string;
+  @IsOptional() @IsString() customerOrderId?: string;
+  @IsOptional() @IsString() deliveryAddressSnapshot?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ShipmentLineDto)
+  lines!: ShipmentLineDto[];
+}
+
+export class VersionedCommandDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+export class SalesReturnLineDto {
+  @IsOptional() @IsString() sourceInvoiceLineId?: string;
+  @IsString() productId!: string;
+  @IsString() unitId!: string;
+  @IsNumberString() quantity!: string;
+  @IsOptional() @IsString() reason?: string;
+}
+
+export class CreateSalesReturnDto {
+  @IsDateString() documentDate!: string;
+  @IsString() counterpartyId!: string;
+  @IsOptional() @IsString() originalSalesInvoiceId?: string;
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() currencyId?: string;
+  @IsOptional() @IsIn(['PHYSICAL_RETURN', 'FINANCIAL_CREDIT_ONLY', 'PRICE_CORRECTION']) returnType?: string;
+  @IsOptional() @IsString() reasonCode?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SalesReturnLineDto)
+  lines!: SalesReturnLineDto[];
+}

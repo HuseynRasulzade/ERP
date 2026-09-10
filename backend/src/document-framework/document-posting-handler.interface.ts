@@ -62,4 +62,13 @@ export interface DocumentPostingHandler<TDocument extends BaseDocumentFields = B
     document: TDocument,
     tx: PrismaTransactionClient,
   ): Promise<AccountingBatchResult | null>;
+
+  /** Optional: undoes whatever side effects `buildAccountingBatch` (or any
+   * other posting step beyond the generic RegisterMovement rows
+   * DocumentPostingService already cleans up itself) performed — called
+   * by `unpost`, inside the same transaction, symmetrically to how `post`
+   * calls `buildAccountingBatch` (Sales Execution spec section 17: "Never
+   * simply set posted=false"). A handler with no such side effects (the
+   * common case) simply omits this method. */
+  undoSideEffects?(tenantId: string, document: TDocument, tx: PrismaTransactionClient): Promise<void>;
 }

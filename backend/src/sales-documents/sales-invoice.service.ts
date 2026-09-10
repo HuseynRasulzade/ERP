@@ -29,6 +29,8 @@ interface ResolvedLine {
   priceListId: string | null;
   productPriceId: string | null;
   description?: string;
+  sourceOrderLineId?: string;
+  sourceShipmentLineId?: string;
 }
 
 /**
@@ -139,6 +141,8 @@ export class SalesInvoiceService {
             priceListId: line.priceListId,
             productPriceId: line.productPriceId,
             description: line.description,
+            sourceOrderLineId: line.sourceOrderLineId,
+            sourceShipmentLineId: line.sourceShipmentLineId,
             createdBy: userId,
             updatedBy: userId,
           },
@@ -270,6 +274,8 @@ export class SalesInvoiceService {
               priceListId: line.priceListId,
               productPriceId: line.productPriceId,
               description: line.description,
+              sourceOrderLineId: line.sourceOrderLineId,
+              sourceShipmentLineId: line.sourceShipmentLineId,
               createdBy: userId,
               updatedBy: userId,
             },
@@ -392,6 +398,8 @@ export class SalesInvoiceService {
         priceListId,
         productPriceId,
         description: line.description,
+        sourceOrderLineId: line.sourceOrderLineId,
+        sourceShipmentLineId: line.sourceShipmentLineId,
       });
     }
     return resolved;

@@ -7,40 +7,46 @@ import {
   RegisterMovementInput,
 } from '../document-framework/document-posting-handler.interface';
 import { BaseDocumentFields } from '../document-framework/base-document';
-import { ValidationAppError } from '../common/errors/app-error';
+import { InvoiceHasReturnsError, InvoiceQuantityExceedsSourceError, ValidationAppError } from '../common/errors/app-error';
 import { SALES_INVOICE_TYPE } from './sales-invoice.repository';
+import { SALES_ORDER_TYPE } from './sales-order.repository';
 import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
 import { TaxRegisterService } from '../tax-engine/tax-register.service';
 import { AccountingMappingService } from '../accounting-core/accounting-mapping.service';
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
+import { CostingService } from '../sales-execution/costing.service';
+import { SHIPMENT_TYPE } from '../sales-execution/shipment.repository';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
 /**
  * Posting handler for SalesInvoice. Emits one SALES_SETTLEMENT_REGISTER
  * RECEIVABLE_ACCRUAL movement per line (unchanged, spec section 71's
- * generic register), AND (new — the Accounting Core/Tax Engine
- * reconciliation) a real Accounting Core + Tax Register consequence:
+ * generic register), AND (the Accounting Core/Tax Engine reconciliation,
+ * extended for Sales Execution — docx spec Phase 7) a real Accounting
+ * Core + Tax Register consequence:
  *
  *   Dr Customer Receivable (211)     grandTotal
  *   Cr Sales Revenue (601)           per-line net, one line per product
  *   Cr VAT Output Payable (521)      Tax Engine's resolved output VAT
+ *   [Dr COGS / Cr Goods Inventory    only when CostingService has a real
+ *                                     unit cost — spec section 38: never
+ *                                     fabricated, silently skipped
+ *                                     otherwise, see docs/SALES_EXECUTION.md]
  *
- * Scope note (see docs/SALES_RECONCILIATION.md): this posts Receivable/
- * Revenue/VAT only. COGS/Inventory (Dr 701 / Cr 205) is deliberately NOT
- * posted here — that requires an inventory costing engine (Accounting
- * Core spec's own Phase 10/11 boundary), which does not exist in this
- * codebase yet.
+ * Phase 7 additions: `taxPointDate`/`amountDue` set on post; invoiced
+ * quantity validated against the remaining invoiceable quantity on the
+ * source Order/Shipment line (spec sections 24-25); a `DocumentLineLink`
+ * (`ORDER_TO_INVOICE`/`SHIPMENT_TO_INVOICE`) is written for line-level
+ * traceability; a `SettlementObligation` row is created as the Phase 13
+ * AR handoff contract (spec sections 40-41).
  *
  * Tax scope note: every line defaults to the STANDARD_VAT tax category
  * (via ProductTaxProfile if one is configured, spec section 19) rather
  * than the invoice line's own `taxRate` field — the Tax Engine, not an
  * ad-hoc per-line rate, is now the single source of truth for the GL/Tax
- * Register consequence. This can diverge from the invoice's displayed
- * `taxAmount` if a line was saved with a manually-typed custom rate; see
- * docs/SALES_RECONCILIATION.md Technical Debt for why unifying save-time
- * display math with the Tax Engine is a separate, deferred step.
+ * Register consequence.
  */
 @Injectable()
 export class SalesInvoicePostingHandler implements DocumentPostingHandler {
@@ -51,6 +57,7 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
     private readonly taxCalculation: TaxCalculationService,
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
+    private readonly costing: CostingService,
   ) {}
 
   async validateForPosting(
@@ -68,7 +75,21 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
     for (const line of invoice.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a sales invoice with non-positive quantity');
       if (line.price.lt(0)) throw new ValidationAppError('Cannot post a sales invoice with negative price');
+
+      if (line.sourceOrderLineId) {
+        const remaining = await remainingInvoiceable(tx, tenantId, SALES_ORDER_TYPE, line.sourceOrderLineId);
+        if (new Decimal(line.quantity.toString()).gt(remaining)) {
+          throw new InvoiceQuantityExceedsSourceError(remaining.toFixed(6), line.quantity.toString());
+        }
+      }
+      if (line.sourceShipmentLineId) {
+        const remaining = await remainingInvoiceable(tx, tenantId, SHIPMENT_TYPE, line.sourceShipmentLineId);
+        if (new Decimal(line.quantity.toString()).gt(remaining)) {
+          throw new InvoiceQuantityExceedsSourceError(remaining.toFixed(6), line.quantity.toString());
+        }
+      }
     }
+
     const counterparty = await tx.counterparty.findFirst({
       where: { id: invoice.counterpartyId, tenantId },
     });
@@ -123,11 +144,8 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
 
     const organizationId = document.organizationId!;
     const businessDate = document.postingDate ?? document.documentDate;
+    const taxPointDate = invoice.taxPointDate ?? businessDate;
 
-    // Fall back to the organization's, then the tenant's, base currency
-    // when the invoice itself was saved without an explicit one (the
-    // field is optional at save time — spec section 21 accounts for a
-    // domestic-only flow with no per-document currency selection).
     let currencyId = invoice.currencyId;
     if (!currencyId) {
       const org = await tx.organization.findUnique({ where: { id: organizationId } });
@@ -141,9 +159,6 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       throw new ValidationAppError('Cannot post a sales invoice: no currency on the invoice, organization, or tenant');
     }
 
-    // Resolve each line's tax category (ProductTaxProfile if configured,
-    // else the STANDARD_VAT default) and run it through the real Tax
-    // Engine — never the invoice's own ad-hoc `taxRate` field.
     const taxResults = [];
     for (const line of invoice.lines) {
       const profile = await tx.productTaxProfile.findFirst({
@@ -151,8 +166,8 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
           tenantId,
           productId: line.productId,
           active: true,
-          validFrom: { lte: businessDate },
-          OR: [{ validTo: null }, { validTo: { gte: businessDate } }],
+          validFrom: { lte: taxPointDate },
+          OR: [{ validTo: null }, { validTo: { gte: taxPointDate } }],
           AND: [{ OR: [{ organizationId }, { organizationId: null }] }],
         },
         include: { taxCategory: true },
@@ -165,14 +180,14 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
           tenantId,
           organizationId,
           businessDate,
-          taxPointDate: businessDate,
+          taxPointDate,
           operationType: 'SALE',
           taxCategoryCode,
           taxpayerSide: 'SELLER',
         },
         {
           sourceLineId: line.id,
-          amount: line.lineTotal, // already net (spec: never re-derive from a gross that may itself be stale)
+          amount: line.lineTotal,
           priceIncludesTax: false,
           currency: currencyId,
         },
@@ -181,15 +196,15 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       taxResults.push(result);
     }
 
-    const { accountingLines: vatLines } = await this.taxRegister.registerTaxable(
+    const { movementIds, accountingLines: vatLines } = await this.taxRegister.registerTaxable(
       tenantId,
       document.postedBy ?? document.createdBy ?? 'system',
       {
         organizationId,
         sourceDocumentType: SALES_INVOICE_TYPE,
         sourceDocumentId: document.id,
-        taxPointDate: businessDate,
-        currencyId: currencyId,
+        taxPointDate,
+        currencyId,
         operationType: 'SALE',
         lines: taxResults,
       },
@@ -226,10 +241,138 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       ...vatLines,
     ];
 
+    // COGS (spec sections 35-38): only posted when CostingService has a
+    // real, authoritative unit cost. Never fabricated from the selling
+    // price — silently skipped (not zero-posted) otherwise.
+    const cogsLines = await this.buildCogsLines(tenantId, organizationId, invoice.lines, businessDate, tx);
+    lines.push(...cogsLines);
+
+    // Traceability + AR handoff (spec sections 22-25, 40-41).
+    for (const [i, line] of invoice.lines.entries()) {
+      if (line.sourceOrderLineId) {
+        await tx.documentLineLink.create({
+          data: {
+            tenantId,
+            sourceDocumentType: SALES_ORDER_TYPE,
+            sourceDocumentId: (await this.resolveOrderIdForLine(tx, tenantId, line.sourceOrderLineId)) ?? '',
+            sourceLineId: line.sourceOrderLineId,
+            targetDocumentType: SALES_INVOICE_TYPE,
+            targetDocumentId: invoice.id,
+            targetLineId: line.id,
+            quantity: line.quantity,
+            relationType: 'ORDER_TO_INVOICE',
+          },
+        });
+      }
+      if (line.sourceShipmentLineId) {
+        const shipmentLine = await tx.shipmentLine.findFirst({ where: { id: line.sourceShipmentLineId, tenantId } });
+        if (shipmentLine) {
+          await tx.documentLineLink.create({
+            data: {
+              tenantId,
+              sourceDocumentType: SHIPMENT_TYPE,
+              sourceDocumentId: shipmentLine.shipmentId,
+              sourceLineId: line.sourceShipmentLineId,
+              targetDocumentType: SALES_INVOICE_TYPE,
+              targetDocumentId: invoice.id,
+              targetLineId: line.id,
+              quantity: line.quantity,
+              relationType: 'SHIPMENT_TO_INVOICE',
+            },
+          });
+        }
+      }
+      void i;
+    }
+
+    await tx.settlementObligation.create({
+      data: {
+        tenantId,
+        organizationId,
+        counterpartyId: invoice.counterpartyId,
+        sourceDocumentType: SALES_INVOICE_TYPE,
+        sourceDocumentId: invoice.id,
+        currencyId,
+        amountDue: grossTotal.toString(),
+      },
+    });
+
+    await tx.salesInvoice.update({
+      where: { id: invoice.id },
+      data: { taxPointDate, amountDue: grossTotal.toString() },
+    });
+
+    void movementIds;
+
     return {
       description: `Sales invoice ${invoice.number ?? invoice.id}`,
       operationType: 'SYSTEM_DOCUMENT',
       lines,
     };
   }
+
+  async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    const activeReturn = await tx.salesReturn.findFirst({
+      where: { tenantId, originalSalesInvoiceId: document.id, postingStatus: 'POSTED' },
+    });
+    if (activeReturn) throw new InvoiceHasReturnsError(document.id);
+
+    await tx.settlementObligation.deleteMany({ where: { tenantId, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: document.id } });
+    await tx.documentLineLink.deleteMany({
+      where: { tenantId, targetDocumentType: SALES_INVOICE_TYPE, targetDocumentId: document.id, relationType: { in: ['ORDER_TO_INVOICE', 'SHIPMENT_TO_INVOICE'] } },
+    });
+  }
+
+  private async resolveOrderIdForLine(tx: PrismaTransactionClient, tenantId: string, salesOrderLineId: string): Promise<string | null> {
+    const line = await tx.salesOrderLine.findFirst({ where: { id: salesOrderLineId, tenantId } });
+    return line?.salesOrderId ?? null;
+  }
+
+  private async buildCogsLines(
+    tenantId: string,
+    organizationId: string,
+    lines: Array<{ id: string; productId: string; quantity: Decimal; sourceShipmentLineId: string | null }>,
+    businessDate: Date,
+    tx: PrismaTransactionClient,
+  ): Promise<AccountingPostingLineInput[]> {
+    const result: AccountingPostingLineInput[] = [];
+    for (const line of lines) {
+      if (!line.sourceShipmentLineId) continue; // no physical execution linked — nothing to cost
+      const shipmentLine = await tx.shipmentLine.findFirst({ where: { id: line.sourceShipmentLineId, tenantId } });
+      const warehouseId = shipmentLine?.warehouseId;
+      if (!warehouseId) continue;
+
+      const unitCost = await this.costing.getUnitCost(tenantId, organizationId, line.productId, warehouseId, businessDate);
+      if (!unitCost) continue; // spec section 38: no authoritative cost — skip, never fabricate
+
+      const totalCost = unitCost.mul(line.quantity.toString());
+      const cogs = await this.mappings.resolve(tenantId, organizationId, MappingKeys.COGS, businessDate, tx);
+      const inventory = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
+
+      result.push(
+        { accountId: cogs.id, side: 'DEBIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'COGS' },
+        { accountId: inventory.id, side: 'CREDIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'Inventory issue cost' },
+      );
+    }
+    return result;
+  }
+}
+
+async function remainingInvoiceable(tx: PrismaTransactionClient, tenantId: string, sourceDocumentType: string, sourceLineId: string): Promise<Decimal> {
+  const sourceQuantity =
+    sourceDocumentType === SALES_ORDER_TYPE
+      ? (await tx.salesOrderLine.findFirst({ where: { id: sourceLineId, tenantId } }))?.quantity
+      : (await tx.shipmentLine.findFirst({ where: { id: sourceLineId, tenantId } }))?.quantity;
+  if (!sourceQuantity) return new Decimal(0);
+
+  const alreadyInvoiced = await tx.documentLineLink.aggregate({
+    where: {
+      tenantId,
+      sourceDocumentType,
+      sourceLineId,
+      relationType: sourceDocumentType === SALES_ORDER_TYPE ? 'ORDER_TO_INVOICE' : 'SHIPMENT_TO_INVOICE',
+    },
+    _sum: { quantity: true },
+  });
+  return new Decimal(sourceQuantity.toString()).minus((alreadyInvoiced._sum.quantity ?? 0).toString());
 }

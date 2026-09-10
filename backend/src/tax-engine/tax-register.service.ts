@@ -17,6 +17,16 @@ export interface RegisterTaxableParams {
   /** SALE -> output VAT liability; PURCHASE -> input VAT (recoverable/pending/non-recoverable). */
   operationType: 'SALE' | 'PURCHASE';
   lines: TaxLineResult[];
+  /** True for a Sales/Purchase Return (Sales Execution spec section 51):
+   * flips the GL side of the VAT line (a return DEBITS output VAT payable
+   * instead of crediting it, reducing the liability) while the
+   * `TaxMovement` row still records the same `direction` as the original
+   * sale/purchase — a genuinely new tax event tagged by its own
+   * `sourceDocumentType`, not a reversal of a specific prior movement.
+   * `taxBalance()`'s reversal-based netting does not net these against
+   * the original automatically; a period report must sum both source
+   * types explicitly — see docs/SALES_EXECUTION.md. */
+  contra?: boolean;
 }
 
 /**
@@ -98,7 +108,7 @@ export class TaxRegisterService {
         );
         accountingLines.push({
           accountId: account.id,
-          side: 'CREDIT',
+          side: params.contra ? 'DEBIT' : 'CREDIT',
           amountBase: line.taxAmount,
           description: `${line.taxType} output tax — ${line.explanation}`,
         });
@@ -113,7 +123,7 @@ export class TaxRegisterService {
           );
           accountingLines.push({
             accountId: account.id,
-            side: 'DEBIT',
+            side: params.contra ? 'CREDIT' : 'DEBIT',
             amountBase: line.recoverableAmount,
             description: `${line.taxType} recoverable input tax`,
           });
@@ -128,7 +138,7 @@ export class TaxRegisterService {
           );
           accountingLines.push({
             accountId: account.id,
-            side: 'DEBIT',
+            side: params.contra ? 'CREDIT' : 'DEBIT',
             amountBase: line.nonrecoverableAmount,
             description: `${line.taxType} non-recoverable input tax`,
           });

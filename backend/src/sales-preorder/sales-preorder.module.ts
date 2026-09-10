@@ -72,7 +72,7 @@ import {
     PaymentScheduleService,
     OrderHoldService,
   ],
-  exports: [CreditCheckService, OrderFulfillmentService],
+  exports: [CreditCheckService, OrderFulfillmentService, ReservationService],
 })
 export class SalesPreorderModule implements OnModuleInit {
   constructor(

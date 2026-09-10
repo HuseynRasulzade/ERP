@@ -8,6 +8,7 @@ import { CounterpartyPricingModule } from '../counterparty-pricing/counterparty-
 import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { SalesPreorderModule } from '../sales-preorder/sales-preorder.module';
+import { SalesExecutionModule } from '../sales-execution/sales-execution.module';
 import { SalesOrderService } from './sales-order.service';
 import { SalesInvoiceService } from './sales-invoice.service';
 import { SalesOrderController } from './sales-order.controller';
@@ -36,6 +37,7 @@ import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper'
     AccountingCoreModule,
     TaxEngineModule,
     SalesPreorderModule,
+    SalesExecutionModule,
   ],
   controllers: [SalesOrderController, SalesInvoiceController],
   providers: [
