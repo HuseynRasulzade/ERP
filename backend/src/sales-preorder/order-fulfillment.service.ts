@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { NotFoundAppError } from '../common/errors/app-error';
 import { SALES_ORDER_TYPE } from '../sales-documents/sales-order.repository';
 
@@ -20,17 +20,19 @@ export interface LineFulfillment {
  * is computed live from the operational sources of truth (`DocumentLineLink`
  * for execution, `StockReservation`, `ShipmentPlanLine`) — never a stored,
  * independently-editable total (spec section 83: "Do not persist manually
- * editable fulfillment totals as source of truth"). `fulfilled` will
- * always be zero in this build: nothing yet writes a `DocumentLineLink`
- * with `relationType = 'ORDER_TO_SHIPMENT'` because Phase 7 (Shipment)
- * doesn't exist — the aggregation is still correct and ready for it.
+ * editable fulfillment totals as source of truth"). Every method accepts
+ * an optional `tx` so `ShipmentPostingHandler` (Sales Execution, docx spec
+ * Phase 7) can call `recomputeOrderStatuses` from inside the same posting
+ * transaction that just wrote the `ORDER_TO_SHIPMENT` links it aggregates
+ * — reading through `this.prisma` there would miss the uncommitted write.
  */
 @Injectable()
 export class OrderFulfillmentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async forOrder(tenantId: string, salesOrderId: string): Promise<LineFulfillment[]> {
-    const order = await this.prisma.salesOrder.findFirst({
+  async forOrder(tenantId: string, salesOrderId: string, tx?: PrismaTransactionClient): Promise<LineFulfillment[]> {
+    const client = tx ?? this.prisma;
+    const order = await client.salesOrder.findFirst({
       where: { id: salesOrderId, tenantId },
       include: { lines: { orderBy: { position: 'asc' } } },
     });
@@ -38,15 +40,15 @@ export class OrderFulfillmentService {
 
     const results: LineFulfillment[] = [];
     for (const line of order.lines) {
-      const fulfilledLinks = await this.prisma.documentLineLink.aggregate({
+      const fulfilledLinks = await client.documentLineLink.aggregate({
         where: { tenantId, sourceDocumentType: SALES_ORDER_TYPE, sourceDocumentId: salesOrderId, sourceLineId: line.id, relationType: 'ORDER_TO_SHIPMENT' },
         _sum: { quantity: true },
       });
-      const reservations = await this.prisma.stockReservation.aggregate({
+      const reservations = await client.stockReservation.aggregate({
         where: { tenantId, sourceDocumentType: SALES_ORDER_TYPE, sourceDocumentId: salesOrderId, sourceLineId: line.id, status: { in: ['ACTIVE', 'PARTIALLY_RELEASED'] } },
         _sum: { quantity: true },
       });
-      const planned = await this.prisma.shipmentPlanLine.aggregate({
+      const planned = await client.shipmentPlanLine.aggregate({
         where: { tenantId, salesOrderLineId: line.id, shipmentPlan: { status: { not: 'CANCELLED' } } },
         _sum: { plannedQuantity: true },
       });
@@ -71,10 +73,11 @@ export class OrderFulfillmentService {
     return results;
   }
 
-  async remainingForLine(tenantId: string, salesOrderLineId: string): Promise<Decimal> {
-    const line = await this.prisma.salesOrderLine.findFirst({ where: { id: salesOrderLineId, tenantId } });
+  async remainingForLine(tenantId: string, salesOrderLineId: string, tx?: PrismaTransactionClient): Promise<Decimal> {
+    const client = tx ?? this.prisma;
+    const line = await client.salesOrderLine.findFirst({ where: { id: salesOrderLineId, tenantId } });
     if (!line) throw new NotFoundAppError('SalesOrderLine', salesOrderLineId);
-    const fulfilled = await this.prisma.documentLineLink.aggregate({
+    const fulfilled = await client.documentLineLink.aggregate({
       where: { tenantId, sourceDocumentType: SALES_ORDER_TYPE, sourceLineId: line.id, relationType: 'ORDER_TO_SHIPMENT' },
       _sum: { quantity: true },
     });
@@ -96,16 +99,17 @@ export class OrderFulfillmentService {
     return new Decimal((reservations._sum.quantity ?? 0).toString());
   }
 
-  async recomputeOrderStatuses(tenantId: string, salesOrderId: string): Promise<void> {
-    const lines = await this.forOrder(tenantId, salesOrderId);
-    const order = await this.prisma.salesOrder.findFirst({ where: { id: salesOrderId, tenantId }, include: { lines: true } });
+  async recomputeOrderStatuses(tenantId: string, salesOrderId: string, tx?: PrismaTransactionClient): Promise<void> {
+    const client = tx ?? this.prisma;
+    const lines = await this.forOrder(tenantId, salesOrderId, tx);
+    const order = await client.salesOrder.findFirst({ where: { id: salesOrderId, tenantId }, include: { lines: true } });
     if (!order) throw new NotFoundAppError('SalesOrder', salesOrderId);
 
     const goodsLines = lines.filter((l, i) => !order.lines[i].isService);
     const fulfillmentStatus = deriveFulfillmentStatus(lines);
     const reservationStatus = deriveReservationStatus(goodsLines, order.lines.filter((l) => !l.isService));
 
-    await this.prisma.salesOrder.update({
+    await client.salesOrder.update({
       where: { id: salesOrderId },
       data: { fulfillmentStatus, reservationStatus },
     });

@@ -75,6 +75,22 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     const organizationId = ret.organizationId;
     const businessDate = document.postingDate ?? document.documentDate;
 
+    // Same currency fallback as SalesInvoicePostingHandler — the return's
+    // own currency may be unset, but 211 always needs a real CURRENCY
+    // dimension value.
+    let currencyId = ret.currencyId;
+    if (!currencyId) {
+      const org = await tx.organization.findUnique({ where: { id: organizationId } });
+      currencyId = org?.baseCurrencyId ?? null;
+    }
+    if (!currencyId) {
+      const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
+      currencyId = tenant?.baseCurrencyId ?? null;
+    }
+    if (!currencyId) {
+      throw new ValidationAppError('Cannot post a sales return: no currency on the return, organization, or tenant');
+    }
+
     const taxResults: TaxLineResult[] = [];
     for (const line of ret.lines) {
       if (line.sourceInvoiceLineId) {
@@ -132,7 +148,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
         sourceDocumentType: SALES_RETURN_TYPE,
         sourceDocumentId: document.id,
         taxPointDate: businessDate,
-        currencyId: ret.currencyId ?? undefined,
+        currencyId,
         operationType: 'SALE',
         contra: true,
         lines: taxResults,
@@ -164,7 +180,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
           { dimensionCode: 'PARTNER', referenceId: ret.counterpartyId },
           { dimensionCode: 'COUNTERPARTY', referenceId: ret.counterpartyId },
           { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: ret.id },
-          ...(ret.currencyId ? [{ dimensionCode: 'CURRENCY', referenceId: ret.currencyId }] : []),
+          { dimensionCode: 'CURRENCY', referenceId: currencyId },
         ],
       },
     ];

@@ -47,8 +47,8 @@ consequence (a Sales Invoice, a Manual Operation), adopt the chart and
 seed VAT localization once per tenant:
 `POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 150 tests, all
-passing (3 unit + 147 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 155 tests, all
+passing (3 unit + 152 e2e against a real Postgres instance).
 
 ---
 
@@ -215,6 +215,21 @@ role rather than a duplicate table.
 
 Full write-up: [`backend/docs/SALES_PREORDER.md`](backend/docs/SALES_PREORDER.md).
 
+### Sales Execution
+
+`Shipment` (physical delivery, kept structurally distinct from
+`SalesInvoice`) with a real quantity-only inventory register, reservation
+consumption on posting and restoration on unposting, and Order⇒Shipment
+defaulting to the remaining fulfillable quantity only. `SalesInvoice`
+extended with final tax-point-date calculation, invoiced-quantity caps
+against the source order/shipment, a clean `SettlementObligation` AR
+contract for a future Phase 13, and an honest COGS integration point that
+never fabricates a cost when Costing isn't available. `SalesReturn` with
+tax prorated from the original posted `TaxMovement` (never re-resolved
+against today's rule) and a contra GL entry.
+
+Full write-up: [`backend/docs/SALES_EXECUTION.md`](backend/docs/SALES_EXECUTION.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -239,6 +254,7 @@ Policy, Tax Profile, Access).
 | `backend/test/accounting-core.e2e-spec.ts` | 18 | Idempotent chart adoption, account hierarchy, non-postable reporting nodes, mapping resolution + override, balance/dimension validation, manual operation lifecycle incl. reversal, closed-period block, Trial Balance/GL/Account Card, tenant isolation |
 | `backend/test/tax-engine.e2e-spec.ts` | 18 | Idempotent VAT localization seed, exclusive/inclusive calculation, zero-rated/exempt/out-of-scope distinction, missing/ambiguous rule detection, legal rule versioning + repealed-rule exclusion, recoverability split, atomic Tax+GL posting, duplicate prevention, reversal, shared Period Guard, tax registrations, tenant isolation |
 | `backend/test/sales-preorder.e2e-spec.ts` | 17 | Customer Request create/cancel, Commercial Offer price resolution/discount/Tax Preview, offer lifecycle + derived expiry, Request⇒Offer and Offer⇒SalesOrder conversion with price preservation, order confirmation with credit check + hold gating and an explicit no-GL/no-tax-register assertion, reservation create/oversubscription/release, fulfillment computation, shipment plan limits, payment schedule rounding, tenant isolation |
+| `backend/test/sales-execution.e2e-spec.ts` | 8 | Order⇒Shipment defaulting to remaining quantity, draft-vs-posted fulfillment counting, partial shipment + over-shipment rejection, insufficient-stock rejection, reservation consumption on post + restoration on unpost, Shipment⇒Invoice with balanced GL + SettlementObligation + invoiceable-quantity cap, physical Sales Return with prorated historical tax + contra GL + inventory receipt + excessive-return rejection + invoice-unpost-blocked-by-return, tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -264,5 +280,10 @@ All run against a real PostgreSQL instance — no mocked database.
 - **Sales Pre-Order & Order Management** — ✅ done, tested, documented.
   No Partner/Contract/Agreement entities (reuses Counterparty directly —
   see docs); no frontend UI yet.
+- **Sales Execution** — ✅ done, tested, documented. Shipment posts real
+  inventory quantity movements (no valuation); COGS is never fabricated
+  (Costing doesn't exist yet — every COGS attempt is honestly skipped);
+  AR is a clean SettlementObligation contract, not a full register. No
+  frontend UI yet.
 - **Purchase, Inventory, Payroll, Banking, Fixed Assets, ...** — not
   started. Later phases building on this foundation.

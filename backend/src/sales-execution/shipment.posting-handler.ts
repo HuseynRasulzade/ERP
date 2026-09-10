@@ -12,6 +12,7 @@ import { SHIPMENT_TYPE } from './shipment.repository';
 import { SALES_ORDER_TYPE } from '../sales-documents/sales-order.repository';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { ReservationService } from '../sales-preorder/reservation.service';
+import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -36,6 +37,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryLedgerService,
     private readonly reservations: ReservationService,
+    private readonly fulfillment: OrderFulfillmentService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -140,6 +142,10 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
       }
     }
 
+    if (shipment.customerOrderId) {
+      await this.fulfillment.recomputeOrderStatuses(tenantId, shipment.customerOrderId, tx);
+    }
+
     return null; // no GL consequence — see class docstring
   }
 
@@ -188,6 +194,10 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
           });
         }
       }
+    }
+
+    if (shipment.customerOrderId) {
+      await this.fulfillment.recomputeOrderStatuses(tenantId, shipment.customerOrderId, tx);
     }
   }
 }
