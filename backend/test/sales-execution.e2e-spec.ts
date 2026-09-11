@@ -129,21 +129,22 @@ describe('Sales Execution (e2e)', () => {
   }
 
   async function receiveStock(qty: number) {
-    // No Phase 10 Inventory module exists — seed the ledger directly via a
-    // dummy posted Shipment's own RECEIPT would be circular, so seed the
-    // underlying register row directly for test setup purposes only.
-    const count = await prisma.registerMovement.count({ where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER' } });
-    await prisma.registerMovement.create({
+    // Seed the real Phase 10 InventoryMovement register directly for test
+    // setup purposes only — a dummy posted Goods Receipt would work too
+    // but is unnecessary ceremony for a Sales Execution test fixture.
+    await prisma.inventoryMovement.create({
       data: {
         tenantId: tenant1Id,
-        registerCode: 'INVENTORY_REGISTER',
-        recorderDocumentType: 'TEST_STOCK_SEED',
-        recorderDocumentId: `seed-${run}`,
-        businessDate: new Date(DOC_DATE),
-        movementType: 'RECEIPT',
-        dimensions: { warehouseId, productId },
-        resources: { quantity: String(qty) },
-        sequence: BigInt(count + 1),
+        organizationId: org1Id,
+        warehouseId,
+        productId,
+        unitId,
+        movementType: 'PURCHASE_RECEIPT',
+        quantity: String(qty),
+        baseQuantity: String(qty),
+        effectiveDate: new Date(DOC_DATE),
+        registrarDocumentType: 'TEST_STOCK_SEED',
+        registrarDocumentId: `seed-${run}-${Date.now()}-${Math.random()}`,
       },
     });
   }
@@ -249,8 +250,8 @@ describe('Sales Execution (e2e)', () => {
       const activeQty = reservationsAfterShip.filter((r) => r.status === 'PARTIALLY_RELEASED' || r.status === 'ACTIVE').reduce((s, r) => s + Number(r.quantity), 0);
       expect(activeQty).toBeCloseTo(12, 6); // 20 reserved - 8 consumed
 
-      const movementsBeforeUnpost = await prisma.registerMovement.count({
-        where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: SHIPMENT_TYPE, recorderDocumentId: shipment.body.id },
+      const movementsBeforeUnpost = await prisma.inventoryMovement.count({
+        where: { tenantId: tenant1Id, registrarDocumentType: SHIPMENT_TYPE, registrarDocumentId: shipment.body.id },
       });
       expect(movementsBeforeUnpost).toBe(1);
 
@@ -258,8 +259,8 @@ describe('Sales Execution (e2e)', () => {
         .send({ expectedVersion: posted.body.version })
         .expect(201);
 
-      const movementsAfterUnpost = await prisma.registerMovement.count({
-        where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: SHIPMENT_TYPE, recorderDocumentId: shipment.body.id },
+      const movementsAfterUnpost = await prisma.inventoryMovement.count({
+        where: { tenantId: tenant1Id, registrarDocumentType: SHIPMENT_TYPE, registrarDocumentId: shipment.body.id },
       });
       expect(movementsAfterUnpost).toBe(0);
 
@@ -339,14 +340,14 @@ describe('Sales Execution (e2e)', () => {
         })
         .expect(201);
 
-      const stockBefore = await prisma.registerMovement.count({ where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', movementType: 'RECEIPT', recorderDocumentType: 'SALES_RETURN' } });
+      const stockBefore = await prisma.inventoryMovement.count({ where: { tenantId: tenant1Id, movementType: 'SALES_RETURN', registrarDocumentType: 'SALES_RETURN' } });
 
       const postedReturn = await auth1(request(app.getHttpServer()).post(`/documents/SALES_RETURN/${ret.body.id}/post`))
         .send({ expectedVersion: ret.body.version })
         .expect(201);
       expect(postedReturn.body.postingStatus).toBe('POSTED');
 
-      const stockAfter = await prisma.registerMovement.count({ where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', movementType: 'RECEIPT', recorderDocumentType: 'SALES_RETURN' } });
+      const stockAfter = await prisma.inventoryMovement.count({ where: { tenantId: tenant1Id, movementType: 'SALES_RETURN', registrarDocumentType: 'SALES_RETURN' } });
       expect(stockAfter).toBe(stockBefore + 1);
 
       const returnEntry = await prisma.journalEntry.findFirst({ where: { tenantId: tenant1Id, sourceDocumentType: 'SALES_RETURN', sourceDocumentId: ret.body.id }, include: { lines: true } });

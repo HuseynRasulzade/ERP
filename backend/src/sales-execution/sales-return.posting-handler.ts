@@ -213,8 +213,6 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
-    await tx.registerMovement.deleteMany({
-      where: { tenantId, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: SALES_RETURN_TYPE, recorderDocumentId: document.id },
-    });
+    await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
   }
 }

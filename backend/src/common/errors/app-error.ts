@@ -91,6 +91,23 @@ export const ErrorCode = {
   PURCHASE_INVOICE_HAS_RETURNS: 'PURCHASE_INVOICE_HAS_RETURNS',
   PURCHASE_RETURN_QUANTITY_EXCEEDS_RECEIVED: 'PURCHASE_RETURN_QUANTITY_EXCEEDS_RECEIVED',
   PURCHASE_RETURN_SOURCE_REQUIRED: 'PURCHASE_RETURN_SOURCE_REQUIRED',
+
+  // Warehouse / Stock Engine (docx spec Phase 10, section 87)
+  INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  NEGATIVE_STOCK_BLOCKED: 'NEGATIVE_STOCK_BLOCKED',
+  BATCH_MISMATCH: 'BATCH_MISMATCH',
+  BATCH_INSUFFICIENT: 'BATCH_INSUFFICIENT',
+  BATCH_REQUIRED: 'BATCH_REQUIRED',
+  SERIAL_REQUIRED: 'SERIAL_REQUIRED',
+  SERIAL_COUNT_MISMATCH: 'SERIAL_COUNT_MISMATCH',
+  SERIAL_NOT_AVAILABLE: 'SERIAL_NOT_AVAILABLE',
+  SERIAL_WRONG_LOCATION: 'SERIAL_WRONG_LOCATION',
+  SERIAL_DUPLICATE: 'SERIAL_DUPLICATE',
+  LOCATION_INSUFFICIENT_STOCK: 'LOCATION_INSUFFICIENT_STOCK',
+  TRANSFER_UNPOST_BLOCKED: 'TRANSFER_UNPOST_BLOCKED',
+  TRANSFER_ALREADY_RECEIVED: 'TRANSFER_ALREADY_RECEIVED',
+  TRANSFER_RECEIVE_EXCEEDS_SHIPPED: 'TRANSFER_RECEIVE_EXCEEDS_SHIPPED',
+  INVENTORY_UNPOST_DEPENDENCY: 'INVENTORY_UNPOST_DEPENDENCY',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -554,5 +571,123 @@ export class PurchaseReturnSourceRequiredError extends AppError {
       'A purchase return line must reference a source receipt or invoice line, or the return must carry an explicit price',
       HttpStatus.BAD_REQUEST,
     );
+  }
+}
+
+export class InsufficientStockError extends AppError {
+  constructor(productCode: string, available: string, requested: string) {
+    super(
+      ErrorCode.INSUFFICIENT_STOCK,
+      `Insufficient stock for product ${productCode}: available ${available}, requested ${requested}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class NegativeStockBlockedError extends AppError {
+  constructor(warehouseCode: string, productCode: string, available: string, requested: string) {
+    super(
+      ErrorCode.NEGATIVE_STOCK_BLOCKED,
+      `Warehouse ${warehouseCode} has only ${available} units of ${productCode} available; ${requested} units were requested`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class BatchMismatchError extends AppError {
+  constructor(batchNumber: string, productCode: string) {
+    super(ErrorCode.BATCH_MISMATCH, `Batch ${batchNumber} does not belong to product ${productCode}`, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export class BatchInsufficientError extends AppError {
+  constructor(batchNumber: string, available: string, requested: string) {
+    super(
+      ErrorCode.BATCH_INSUFFICIENT,
+      `Batch ${batchNumber} has only ${available} units available; ${requested} units were requested`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class BatchRequiredError extends AppError {
+  constructor(productCode: string) {
+    super(ErrorCode.BATCH_REQUIRED, `Product ${productCode} requires a batch to be specified`, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export class SerialRequiredError extends AppError {
+  constructor(productCode: string) {
+    super(ErrorCode.SERIAL_REQUIRED, `Product ${productCode} requires serial numbers to be specified`, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export class SerialCountMismatchError extends AppError {
+  constructor(expected: number, actual: number) {
+    super(
+      ErrorCode.SERIAL_COUNT_MISMATCH,
+      actual < expected ? `${expected - actual} serial numbers are still required` : `${actual - expected} too many serial numbers were provided`,
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
+export class SerialNotAvailableError extends AppError {
+  constructor(serialNumber: string, status: string) {
+    super(ErrorCode.SERIAL_NOT_AVAILABLE, `Serial ${serialNumber} is not available (current status: ${status})`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class SerialWrongLocationError extends AppError {
+  constructor(serialNumber: string, currentWarehouseCode: string, requestedWarehouseCode: string) {
+    super(
+      ErrorCode.SERIAL_WRONG_LOCATION,
+      `Serial ${serialNumber} is currently located in Warehouse ${currentWarehouseCode} and cannot be issued from ${requestedWarehouseCode}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class SerialDuplicateError extends AppError {
+  constructor(serialNumber: string) {
+    super(ErrorCode.SERIAL_DUPLICATE, `Serial ${serialNumber} has already been received and is not available for re-receipt`, HttpStatus.CONFLICT);
+  }
+}
+
+export class LocationInsufficientStockError extends AppError {
+  constructor(locationCode: string, available: string, requested: string) {
+    super(
+      ErrorCode.LOCATION_INSUFFICIENT_STOCK,
+      `Warehouse location ${locationCode} does not contain sufficient stock: available ${available}, requested ${requested}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class TransferUnpostBlockedError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.TRANSFER_UNPOST_BLOCKED, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class TransferAlreadyReceivedError extends AppError {
+  constructor() {
+    super(ErrorCode.TRANSFER_ALREADY_RECEIVED, 'This transfer has already been fully received', HttpStatus.CONFLICT);
+  }
+}
+
+export class TransferReceiveExceedsShippedError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.TRANSFER_RECEIVE_EXCEEDS_SHIPPED,
+      `Receive quantity ${requested} exceeds remaining in-transit quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class InventoryUnpostDependencyError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.INVENTORY_UNPOST_DEPENDENCY, reason, HttpStatus.CONFLICT);
   }
 }

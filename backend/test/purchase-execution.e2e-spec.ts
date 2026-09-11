@@ -156,7 +156,7 @@ describe('Purchase Execution (e2e)', () => {
       expect(bal1.debit).toBeCloseTo(bal1.credit, 2);
       expect(bal1.debit).toBeCloseTo(600, 2); // 60 * 10
 
-      const invMovement = await prisma.registerMovement.findFirst({ where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: GOODS_RECEIPT_TYPE, recorderDocumentId: gr1.body.id } });
+      const invMovement = await prisma.inventoryMovement.findFirst({ where: { tenantId: tenant1Id, registrarDocumentType: GOODS_RECEIPT_TYPE, registrarDocumentId: gr1.body.id } });
       expect(invMovement).not.toBeNull();
 
       const fulfillmentMid = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/supplier-orders/${order.id}/fulfillment`)).expect(200);
@@ -222,7 +222,7 @@ describe('Purchase Execution (e2e)', () => {
 
       // Only ONE inventory movement exists for the whole chain (from the
       // receipt) — the invoice never wrote a second one.
-      const invMovementCount = await prisma.registerMovement.count({ where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: GOODS_RECEIPT_TYPE, recorderDocumentId: grFresh.body.id } });
+      const invMovementCount = await prisma.inventoryMovement.count({ where: { tenantId: tenant1Id, registrarDocumentType: GOODS_RECEIPT_TYPE, registrarDocumentId: grFresh.body.id } });
       expect(invMovementCount).toBe(1);
     });
 
@@ -280,7 +280,7 @@ describe('Purchase Execution (e2e)', () => {
       expect(bal.debit).toBeCloseTo(bal.credit, 2);
       expect(bal.debit).toBeGreaterThan(75); // 3 * 25 net + prorated VAT
 
-      const issueMovement = await prisma.registerMovement.findFirst({ where: { tenantId: tenant1Id, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: 'PURCHASE_RETURN', recorderDocumentId: ret.body.id } });
+      const issueMovement = await prisma.inventoryMovement.findFirst({ where: { tenantId: tenant1Id, registrarDocumentType: 'PURCHASE_RETURN', registrarDocumentId: ret.body.id } });
       expect(issueMovement).not.toBeNull();
 
       // Already returned 3 of 10 — attempting to return 8 more (11 total) is rejected.

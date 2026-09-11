@@ -7,6 +7,7 @@ import { OrgStructureModule } from '../org-structure/org-structure.module';
 import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { SalesPreorderModule } from '../sales-preorder/sales-preorder.module';
+import { WarehouseInventoryModule } from '../warehouse-inventory/warehouse-inventory.module';
 
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { CostingService } from './costing.service';
@@ -25,11 +26,13 @@ import { SalesReturnController } from './sales-return.controller';
 
 /**
  * Sales Execution (docx spec Phase 7). See docs/SALES_EXECUTION.md for the
- * architecture and disclosed simplifications (Inventory is a real
- * quantity-only register on top of Phase 0's RegisterMovement, not a full
- * Phase 10 module; Costing always returns "unavailable", so COGS is never
- * posted, never fabricated; AR is a clean SettlementObligation contract,
- * not a full Phase 13 register).
+ * architecture and disclosed simplifications (Costing always returns
+ * "unavailable", so COGS is never posted, never fabricated; AR is a clean
+ * SettlementObligation contract, not a full Phase 13 register).
+ * `InventoryLedgerService` here is this module's own call surface, now
+ * backed by the real Phase 10 `InventoryMovement` register (see
+ * docs/WAREHOUSE_INVENTORY.md) via `WarehouseInventoryModule` instead of
+ * the quantity-only RegisterMovement stand-in it originally used.
  *
  * `CostingService` is exported for `SalesInvoicePostingHandler`
  * (sales-documents module) to consume — this is the one dependency that
@@ -45,6 +48,7 @@ import { SalesReturnController } from './sales-return.controller';
     AccountingCoreModule,
     TaxEngineModule,
     SalesPreorderModule,
+    WarehouseInventoryModule,
   ],
   controllers: [ShipmentController, SalesReturnController],
   providers: [

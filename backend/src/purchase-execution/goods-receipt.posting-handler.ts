@@ -172,7 +172,7 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     const dependentReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalGoodsReceiptId: document.id, postingStatus: 'POSTED' } });
     if (dependentReturn) throw new GoodsReceiptHasDownstreamLinksError('a posted Purchase Return references this receipt — unpost it first');
 
-    await tx.registerMovement.deleteMany({ where: { tenantId, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: GOODS_RECEIPT_TYPE, recorderDocumentId: document.id } });
+    await this.inventory.deleteMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: GOODS_RECEIPT_TYPE, targetDocumentId: document.id, relationType: RelationTypes.SUPPLIER_ORDER_TO_RECEIPT } });
   }
 }

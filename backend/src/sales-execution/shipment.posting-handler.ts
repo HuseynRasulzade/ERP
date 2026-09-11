@@ -162,9 +162,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     const shipment = await tx.shipment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!shipment) return;
 
-    await tx.registerMovement.deleteMany({
-      where: { tenantId, registerCode: 'INVENTORY_REGISTER', recorderDocumentType: SHIPMENT_TYPE, recorderDocumentId: shipment.id },
-    });
+    await this.inventory.deleteMovementsFor(tenantId, SHIPMENT_TYPE, shipment.id, tx);
 
     for (const line of shipment.lines) {
       if (!line.sourceOrderLineId) continue;

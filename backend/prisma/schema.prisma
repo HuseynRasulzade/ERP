@@ -123,6 +123,18 @@ model Tenant {
   additionalPurchaseCostLines      AdditionalPurchaseCostLine[]
   purchaseCostAllocations          PurchaseCostAllocation[]
   purchaseMatchingResults          PurchaseMatchingResult[]
+  warehouseLocations                     WarehouseLocation[]
+  batches                                 Batch[]
+  serialNumbers                            SerialNumber[]
+  inventoryMovements                        InventoryMovement[]
+  warehouseTransfers                         WarehouseTransfer[]
+  warehouseTransferLines                      WarehouseTransferLine[]
+  internalConsumptions                         InternalConsumption[]
+  internalConsumptionLines                      InternalConsumptionLine[]
+  inventoryAdjustments                           InventoryAdjustment[]
+  inventoryAdjustmentLines                        InventoryAdjustmentLine[]
+  inventoryStatusTransfers                          InventoryStatusTransfer[]
+  inventoryStatusTransferLines                       InventoryStatusTransferLine[]
 
   @@map("tenants")
 }
@@ -213,6 +225,13 @@ model Organization {
   supplierPayables        SupplierPayable[]
   purchaseReturns         PurchaseReturn[]
   additionalPurchaseCosts AdditionalPurchaseCost[]
+  batches                       Batch[]
+  serialNumbers                  SerialNumber[]
+  inventoryMovements               InventoryMovement[]
+  warehouseTransfers                 WarehouseTransfer[]
+  internalConsumptions                 InternalConsumption[]
+  inventoryAdjustments                   InventoryAdjustment[]
+  inventoryStatusTransfers                 InventoryStatusTransfer[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -277,6 +296,7 @@ model Department {
   manager          ResponsiblePerson? @relation(fields: [managerPersonId], references: [id])
   purchaseRequirements PurchaseRequirement[]
   purchaseInvoiceLines PurchaseInvoiceLine[]
+  internalConsumptions InternalConsumption[]
 
   @@unique([organizationId, code])
   @@index([organizationId, parentDepartmentId])
@@ -356,6 +376,14 @@ model Warehouse {
   goodsReceiptLines               GoodsReceiptLine[]
   purchaseInvoiceLines            PurchaseInvoiceLine[]
   purchaseReturns                  PurchaseReturn[]
+  locations                              WarehouseLocation[]
+  inventoryMovements                       InventoryMovement[]
+  transfersAsSource                          WarehouseTransfer[] @relation("TransferSource")
+  transfersAsDestination                       WarehouseTransfer[] @relation("TransferDestination")
+  internalConsumptions                           InternalConsumption[]
+  inventoryAdjustments                             InventoryAdjustment[]
+  inventoryStatusTransfers                           InventoryStatusTransfer[]
+  currentSerialNumbers                                 SerialNumber[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1057,6 +1085,11 @@ model UnitOfMeasure {
   goodsReceiptLines        GoodsReceiptLine[]        @relation("GoodsReceiptLineUnit")
   purchaseInvoiceLines     PurchaseInvoiceLine[]     @relation("PurchaseInvoiceLineUnit")
   purchaseReturnLines      PurchaseReturnLine[]      @relation("PurchaseReturnLineUnit")
+  inventoryMovements            InventoryMovement[]            @relation("InventoryMovementUnit")
+  warehouseTransferLines          WarehouseTransferLine[]          @relation("WarehouseTransferLineUnit")
+  internalConsumptionLines          InternalConsumptionLine[]          @relation("InternalConsumptionLineUnit")
+  inventoryAdjustmentLines            InventoryAdjustmentLine[]            @relation("InventoryAdjustmentLineUnit")
+  inventoryStatusTransferLines          InventoryStatusTransferLine[]          @relation("InventoryStatusTransferLineUnit")
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
@@ -1131,6 +1164,14 @@ model Product {
   trackInventory     Boolean @default(true) @map("track_inventory")
   allowNegativeStock Boolean @default(false) @map("allow_negative_stock")
 
+  // Phase 10 — batch/serial tracking mode: NONE|OPTIONAL|REQUIRED
+  batchTrackingMode  String   @default("NONE") @map("batch_tracking_mode")
+  serialTrackingMode String   @default("NONE") @map("serial_tracking_mode")
+  minimumStock       Decimal? @map("minimum_stock") @db.Decimal(18, 6)
+  maximumStock       Decimal? @map("maximum_stock") @db.Decimal(18, 6)
+  reorderPoint       Decimal? @map("reorder_point") @db.Decimal(18, 6)
+  safetyStock        Decimal? @map("safety_stock") @db.Decimal(18, 6)
+
   active Boolean @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -1158,6 +1199,13 @@ model Product {
   goodsReceiptLines         GoodsReceiptLine[]
   purchaseInvoiceLines      PurchaseInvoiceLine[]
   purchaseReturnLines       PurchaseReturnLine[]
+  batches                        Batch[]
+  serialNumbers                   SerialNumber[]
+  inventoryMovements               InventoryMovement[]
+  warehouseTransferLines             WarehouseTransferLine[]
+  internalConsumptionLines            InternalConsumptionLine[]
+  inventoryAdjustmentLines              InventoryAdjustmentLine[]
+  inventoryStatusTransferLines            InventoryStatusTransferLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1260,6 +1308,7 @@ model Counterparty {
   supplierPayables                  SupplierPayable[]
   purchaseReturns                   PurchaseReturn[]
   additionalPurchaseCosts           AdditionalPurchaseCost[]
+  inventoryMovementsAsOwner               InventoryMovement[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1770,6 +1819,7 @@ model Account {
   journalEntryLines   JournalEntryLine[]
   accountingMovements AccountingMovement[]
   purchaseInvoiceLines PurchaseInvoiceLine[]
+  internalConsumptionLines InternalConsumptionLine[]
 
   @@unique([tenantId, chartOfAccountsId, code])
   @@index([tenantId, active])
@@ -2578,6 +2628,7 @@ model StockReservation {
   sourceLineId       String    @map("source_line_id")
   productId          String    @map("product_id")
   warehouseId        String    @map("warehouse_id")
+  batchId            String?   @map("batch_id") // Phase 10 — optional; batch allocation may happen later at shipment time (spec section 49)
   quantity           Decimal   @db.Decimal(18, 6)
   status             String    @default("ACTIVE")
   reservationDate    DateTime  @default(now()) @map("reservation_date")
@@ -2593,6 +2644,7 @@ model StockReservation {
   organization Organization @relation(fields: [organizationId], references: [id])
   product      Product      @relation(fields: [productId], references: [id])
   warehouse    Warehouse    @relation(fields: [warehouseId], references: [id])
+  batch        Batch?       @relation(fields: [batchId], references: [id])
 
   @@index([tenantId, organizationId, productId, warehouseId, status])
   @@index([tenantId, sourceDocumentType, sourceDocumentId, sourceLineId])
@@ -2759,6 +2811,7 @@ model ShipmentLine {
   unitId            String  @map("unit_id")
   quantity          Decimal @db.Decimal(18, 6)
   warehouseId       String? @map("warehouse_id")
+  batchId           String? @map("batch_id") // Phase 10 — batch picked for this line, when tracked
   notes             String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -2768,6 +2821,7 @@ model ShipmentLine {
   shipment Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   product  Product       @relation(fields: [productId], references: [id])
   unit     UnitOfMeasure @relation("ShipmentLineUnit", fields: [unitId], references: [id])
+  batch    Batch?        @relation(fields: [batchId], references: [id])
 
   @@index([shipmentId, position])
   @@map("shipment_lines")
@@ -2858,6 +2912,7 @@ model SalesReturnLine {
   returnNet           Decimal @default(0) @map("return_net") @db.Decimal(18, 2)
   returnTax           Decimal @default(0) @map("return_tax") @db.Decimal(18, 2)
   returnGross         Decimal @default(0) @map("return_gross") @db.Decimal(18, 2)
+  batchId             String? @map("batch_id") // Phase 10
   reason              String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -2866,6 +2921,7 @@ model SalesReturnLine {
   salesReturn SalesReturn   @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
   product     Product       @relation(fields: [productId], references: [id])
   unit        UnitOfMeasure @relation("SalesReturnLineUnit", fields: [unitId], references: [id])
+  batch       Batch?        @relation(fields: [batchId], references: [id])
 
   @@index([salesReturnId, position])
   @@map("sales_return_lines")
@@ -3272,6 +3328,7 @@ model GoodsReceiptLine {
   countryOfOrigin     String?   @map("country_of_origin")
   customsDeclaration  String?   @map("customs_declaration")
   expiryDate          DateTime? @map("expiry_date") @db.Date
+  batchId             String?   @map("batch_id") // Phase 10 — batch captured/created at receipt
   description         String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -3282,6 +3339,7 @@ model GoodsReceiptLine {
   product      Product      @relation(fields: [productId], references: [id])
   unit         UnitOfMeasure @relation("GoodsReceiptLineUnit", fields: [unitId], references: [id])
   warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id])
+  batch        Batch?       @relation(fields: [batchId], references: [id])
   additionalCostLines AdditionalPurchaseCostLine[]
 
   @@index([goodsReceiptId, position])
@@ -3486,6 +3544,7 @@ model PurchaseReturnLine {
   returnNet           Decimal @default(0) @map("return_net") @db.Decimal(18, 2)
   returnTax           Decimal @default(0) @map("return_tax") @db.Decimal(18, 2)
   returnGross         Decimal @default(0) @map("return_gross") @db.Decimal(18, 2)
+  batchId             String? @map("batch_id") // Phase 10
   reason              String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -3494,6 +3553,7 @@ model PurchaseReturnLine {
   purchaseReturn PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
   product        Product        @relation(fields: [productId], references: [id])
   unit           UnitOfMeasure  @relation("PurchaseReturnLineUnit", fields: [unitId], references: [id])
+  batch          Batch?         @relation(fields: [batchId], references: [id])
 
   @@index([purchaseReturnId, position])
   @@map("purchase_return_lines")
@@ -3602,4 +3662,451 @@ model PurchaseMatchingResult {
 
   @@index([tenantId, purchaseInvoiceId])
   @@map("purchase_matching_results")
+}
+
+// ============================================================================
+// WAREHOUSE / STOCK ENGINE (docx spec Phase 10)
+//
+// The single Stock Truth Engine every other module reads from — never a
+// mutable `product.stockQuantity` or `warehouse.inventoryValue` field.
+// `InventoryMovement` is the immutable source of truth (spec section 4's
+// "Layer 1"); every balance (physical/reserved/available/expected/in
+// transit/projected) is computed live from it and from the existing
+// StockReservation register (Phase 6) — see StockAvailabilityService.
+// Quantity is SIGNED (+ = IN, - = OUT, spec section 3's explicit choice)
+// so every balance is a plain SUM(quantity). `stockStatus` folds the
+// spec's separate "quality status" and "inventory status" dimensions into
+// one column (AVAILABLE/QUARANTINE/QUALITY_CONTROL/REJECTED/DAMAGED/
+// BLOCKED/IN_TRANSIT/EXPIRED) — a disclosed simplification, see
+// docs/WAREHOUSE_INVENTORY.md. In-transit stock (spec section 10) is
+// modeled as this same stockStatus at the DESTINATION warehouse rather
+// than a separate "transit" pseudo-warehouse — no new concept needed.
+// ============================================================================
+
+model WarehouseLocation {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  warehouseId      String   @map("warehouse_id")
+  parentLocationId String?  @map("parent_location_id")
+  code             String
+  name             String
+  locationType     String   @default("BIN") @map("location_type")
+  active           Boolean  @default(true)
+  allowReceipt     Boolean  @default(true) @map("allow_receipt")
+  allowIssue       Boolean  @default(true) @map("allow_issue")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  tenant    Tenant              @relation(fields: [tenantId], references: [id])
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
+  parent    WarehouseLocation?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id])
+  children  WarehouseLocation[] @relation("LocationHierarchy")
+
+  movements                   InventoryMovement[]
+  transferSourceLines         WarehouseTransferLine[] @relation("TransferSourceLocation")
+  transferDestinationLines    WarehouseTransferLine[] @relation("TransferDestinationLocation")
+  currentSerialNumbers        SerialNumber[]
+
+  @@unique([warehouseId, code])
+  @@map("warehouse_locations")
+}
+
+/// Product batch/lot (spec sections 19-20). `sourceReceiptId` is a soft
+/// reference (plain string, not a hard FK) — same convention as
+/// `ShipmentLine.sourceOrderLineId` elsewhere in this codebase.
+model Batch {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  organizationId      String    @map("organization_id")
+  productId           String    @map("product_id")
+  batchNumber         String    @map("batch_number")
+  manufactureDate     DateTime? @map("manufacture_date") @db.Date
+  expiryDate          DateTime? @map("expiry_date") @db.Date
+  supplierBatchNumber String?   @map("supplier_batch_number")
+  countryOfOrigin     String?   @map("country_of_origin")
+  sourceReceiptId     String?   @map("source_receipt_id")
+  status              String    @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+
+  movements                   InventoryMovement[]
+  reservations                StockReservation[]
+  goodsReceiptLines            GoodsReceiptLine[]
+  shipmentLines                 ShipmentLine[]
+  salesReturnLines               SalesReturnLine[]
+  purchaseReturnLines             PurchaseReturnLine[]
+  warehouseTransferLines           WarehouseTransferLine[]
+  internalConsumptionLines          InternalConsumptionLine[]
+  inventoryAdjustmentLines            InventoryAdjustmentLine[]
+  inventoryStatusTransferLines          InventoryStatusTransferLine[]
+
+  @@unique([organizationId, productId, batchNumber])
+  @@map("batches")
+}
+
+/// Serial-tracked unit (spec sections 21-23). Uniqueness is
+/// `(organization, product, serialNumber)` — the spec's stated default
+/// ("product + serial number unique"), not globally unique. Full history
+/// per serial (spec section 23) is simply every `InventoryMovement` row
+/// with this `serialId`, ordered by date — no separate history table.
+model SerialNumber {
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  organizationId     String  @map("organization_id")
+  productId          String  @map("product_id")
+  serialNumber       String  @map("serial_number")
+  status             String  @default("AVAILABLE")
+  currentWarehouseId String? @map("current_warehouse_id")
+  currentLocationId  String? @map("current_location_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant           Tenant             @relation(fields: [tenantId], references: [id])
+  organization     Organization       @relation(fields: [organizationId], references: [id])
+  product          Product            @relation(fields: [productId], references: [id])
+  currentWarehouse Warehouse?         @relation(fields: [currentWarehouseId], references: [id])
+  currentLocation  WarehouseLocation? @relation(fields: [currentLocationId], references: [id])
+  movements        InventoryMovement[]
+
+  @@unique([organizationId, productId, serialNumber])
+  @@index([tenantId, status])
+  @@map("serial_numbers")
+}
+
+/// THE immutable inventory movement register — every quantity balance in
+/// the platform is `SUM(quantity)` over a filtered slice of this table
+/// (spec sections 3-4, 35). Never updated after creation; unpost deletes
+/// the rows a document's own posting wrote (same convention as
+/// `RegisterMovement` everywhere else in this codebase) rather than
+/// writing a reversal row — see docs/WAREHOUSE_INVENTORY.md for why that
+/// stays consistent with the rest of the platform instead of adopting the
+/// spec's optional "reversal document" alternative (section 39).
+model InventoryMovement {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  organizationId      String   @map("organization_id")
+  warehouseId         String   @map("warehouse_id")
+  locationId          String?  @map("location_id")
+  productId           String   @map("product_id")
+  unitId              String   @map("unit_id")
+  batchId             String?  @map("batch_id")
+  serialId            String?  @map("serial_id")
+  ownershipType       String   @default("OWN") @map("ownership_type")
+  ownerCounterpartyId String?  @map("owner_counterparty_id")
+  stockStatus         String   @default("AVAILABLE") @map("stock_status")
+  movementType        String   @map("movement_type")
+  quantity            Decimal  @db.Decimal(18, 6) // signed: + IN, - OUT
+  baseQuantity        Decimal  @map("base_quantity") @db.Decimal(18, 6) // signed, base unit
+
+  effectiveDate         DateTime @map("effective_date") @db.Date
+  registrarDocumentType String   @map("registrar_document_type")
+  registrarDocumentId   String   @map("registrar_document_id")
+  registrarLineId       String?  @map("registrar_line_id")
+
+  // Phase 11 Costing handoff (spec sections 51-52) — never authoritative here.
+  provisionalCost Decimal? @map("provisional_cost") @db.Decimal(18, 6)
+  costingStatus   String?  @map("costing_status")
+  journalEntryId  String?  @map("journal_entry_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  warehouse         Warehouse          @relation(fields: [warehouseId], references: [id])
+  location          WarehouseLocation? @relation(fields: [locationId], references: [id])
+  product           Product            @relation(fields: [productId], references: [id])
+  unit              UnitOfMeasure      @relation("InventoryMovementUnit", fields: [unitId], references: [id])
+  batch             Batch?             @relation(fields: [batchId], references: [id])
+  serial            SerialNumber?      @relation(fields: [serialId], references: [id])
+  ownerCounterparty Counterparty?      @relation(fields: [ownerCounterpartyId], references: [id])
+
+  @@index([tenantId, organizationId, warehouseId, productId, effectiveDate])
+  @@index([tenantId, batchId])
+  @@index([tenantId, serialId])
+  @@index([tenantId, registrarDocumentType, registrarDocumentId])
+  @@index([tenantId, productId, stockStatus])
+  @@map("inventory_movements")
+}
+
+/// Warehouse-to-warehouse (or, when `transferType = INTERNAL_LOCATION_
+/// TRANSFER`, location-to-location within one warehouse — spec section
+/// 13 folded in here rather than a separate document, since it is
+/// structurally the same header/lines shape with source = destination
+/// warehouse) transfer (spec sections 11-13). `transferStatus` carries
+/// the fine-grained SHIPPED/PARTIALLY_RECEIVED/RECEIVED progression
+/// alongside the generic `postingStatus` — `postingStatus = POSTED` IS
+/// "shipped" (source decreases, destination goes IN_TRANSIT); `receive`
+/// is a bespoke partial-capable command, not the generic unpost.
+model WarehouseTransfer {
+  id                     String         @id @default(uuid())
+  tenantId               String         @map("tenant_id")
+  organizationId         String         @map("organization_id")
+  sourceWarehouseId      String         @map("source_warehouse_id")
+  destinationWarehouseId String         @map("destination_warehouse_id")
+  transferType           String         @default("INSTANT") @map("transfer_type") // INSTANT|TWO_STEP|INTERNAL_LOCATION_TRANSFER
+  documentType           String         @default("WAREHOUSE_TRANSFER") @map("document_type")
+  number                 String?
+  documentDate           DateTime       @map("document_date") @db.Date
+  postingDate            DateTime?      @map("posting_date") @db.Date
+  expectedArrivalDate    DateTime?      @map("expected_arrival_date") @db.Date
+  status                 DocumentStatus @default(DRAFT)
+  postingStatus          PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  transferStatus         String         @default("DRAFT") @map("transfer_status") // DRAFT|SHIPPED|PARTIALLY_RECEIVED|RECEIVED|CANCELLED
+  description            String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant               Tenant                  @relation(fields: [tenantId], references: [id])
+  organization         Organization            @relation(fields: [organizationId], references: [id])
+  sourceWarehouse      Warehouse               @relation("TransferSource", fields: [sourceWarehouseId], references: [id])
+  destinationWarehouse Warehouse               @relation("TransferDestination", fields: [destinationWarehouseId], references: [id])
+  lines                WarehouseTransferLine[]
+
+  @@unique([tenantId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, transferStatus])
+  @@map("warehouse_transfers")
+}
+
+model WarehouseTransferLine {
+  id                    String  @id @default(uuid())
+  tenantId              String  @map("tenant_id")
+  warehouseTransferId   String  @map("warehouse_transfer_id")
+  position              Int     @default(0)
+  productId             String  @map("product_id")
+  unitId                String  @map("unit_id")
+  quantity              Decimal @db.Decimal(18, 6)
+  receivedQuantity      Decimal @default(0) @map("received_quantity") @db.Decimal(18, 6)
+  batchId               String? @map("batch_id")
+  sourceLocationId      String? @map("source_location_id")
+  destinationLocationId String? @map("destination_location_id")
+  description           String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant              Tenant             @relation(fields: [tenantId], references: [id])
+  warehouseTransfer   WarehouseTransfer  @relation(fields: [warehouseTransferId], references: [id], onDelete: Cascade)
+  product             Product            @relation(fields: [productId], references: [id])
+  unit                UnitOfMeasure      @relation("WarehouseTransferLineUnit", fields: [unitId], references: [id])
+  batch               Batch?             @relation(fields: [batchId], references: [id])
+  sourceLocation      WarehouseLocation? @relation("TransferSourceLocation", fields: [sourceLocationId], references: [id])
+  destinationLocation WarehouseLocation? @relation("TransferDestinationLocation", fields: [destinationLocationId], references: [id])
+
+  @@index([warehouseTransferId, position])
+  @@map("warehouse_transfer_lines")
+}
+
+/// Non-sale stock consumption (spec sections 16, 16) — office/marketing/
+/// maintenance/project use. Posts a real OUT movement plus, when the
+/// tenant's mapping resolves one, `Dr Expense (per line, or department-
+/// scoped) / Cr Inventory` — never hard-coded accounts.
+model InternalConsumption {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  warehouseId    String         @map("warehouse_id")
+  departmentId   String?        @map("department_id")
+  documentType   String         @default("INTERNAL_CONSUMPTION") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  operationType  String         @default("OFFICE_CONSUMPTION") @map("operation_type")
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  description    String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id])
+  organization Organization               @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse                  @relation(fields: [warehouseId], references: [id])
+  department   Department?                @relation(fields: [departmentId], references: [id])
+  lines        InternalConsumptionLine[]
+
+  @@unique([tenantId, number])
+  @@map("internal_consumptions")
+}
+
+model InternalConsumptionLine {
+  id                    String  @id @default(uuid())
+  tenantId              String  @map("tenant_id")
+  internalConsumptionId String  @map("internal_consumption_id")
+  position              Int     @default(0)
+  productId             String  @map("product_id")
+  unitId                String  @map("unit_id")
+  quantity              Decimal @db.Decimal(18, 6)
+  batchId               String? @map("batch_id")
+  purpose               String?
+  expenseAccountId      String? @map("expense_account_id")
+  description           String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant              Tenant              @relation(fields: [tenantId], references: [id])
+  internalConsumption InternalConsumption @relation(fields: [internalConsumptionId], references: [id], onDelete: Cascade)
+  product             Product             @relation(fields: [productId], references: [id])
+  unit                UnitOfMeasure       @relation("InternalConsumptionLineUnit", fields: [unitId], references: [id])
+  batch               Batch?              @relation(fields: [batchId], references: [id])
+  expenseAccount      Account?            @relation(fields: [expenseAccountId], references: [id])
+
+  @@index([internalConsumptionId, position])
+  @@map("internal_consumption_lines")
+}
+
+/// Write-off, surplus/shortage, and opening balances (spec sections 17,
+/// 42, 77) consolidated into ONE document type — a disclosed
+/// simplification of the spec's three separate concepts. `adjustmentType`
+/// picks the sign (WRITE_OFF/OPENING_BALANCE = OUT.. actually IN for
+/// opening; see service) and the movement type
+/// (WRITE_OFF/INVENTORY_SURPLUS/INVENTORY_SHORTAGE/OPENING_BALANCE)
+/// written to `InventoryMovement`; line `quantity` is always entered
+/// positive.
+model InventoryAdjustment {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  warehouseId    String         @map("warehouse_id")
+  documentType   String         @default("INVENTORY_ADJUSTMENT") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  adjustmentType String         @map("adjustment_type") // WRITE_OFF|SURPLUS|OPENING_BALANCE
+  reasonCode     String?        @map("reason_code") // DAMAGE|EXPIRY|LOSS|THEFT|OBSOLETE|QUALITY_FAILURE|NATURAL_LOSS|MANAGEMENT_DECISION|OTHER
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  description    String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse                 @relation(fields: [warehouseId], references: [id])
+  lines        InventoryAdjustmentLine[]
+
+  @@unique([tenantId, number])
+  @@map("inventory_adjustments")
+}
+
+model InventoryAdjustmentLine {
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  inventoryAdjustmentId String   @map("inventory_adjustment_id")
+  position              Int      @default(0)
+  productId             String   @map("product_id")
+  unitId                String   @map("unit_id")
+  quantity              Decimal  @db.Decimal(18, 6) // always positive — sign derives from the header's adjustmentType
+  batchId               String?  @map("batch_id")
+  stockStatus           String   @default("AVAILABLE") @map("stock_status")
+  costReference         Decimal? @map("cost_reference") @db.Decimal(18, 2)
+  description           String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant              Tenant              @relation(fields: [tenantId], references: [id])
+  inventoryAdjustment InventoryAdjustment @relation(fields: [inventoryAdjustmentId], references: [id], onDelete: Cascade)
+  product             Product             @relation(fields: [productId], references: [id])
+  unit                UnitOfMeasure       @relation("InventoryAdjustmentLineUnit", fields: [unitId], references: [id])
+  batch               Batch?              @relation(fields: [batchId], references: [id])
+
+  @@index([inventoryAdjustmentId, position])
+  @@map("inventory_adjustment_lines")
+}
+
+/// Stock status re-tagging (spec section 26) — e.g. Available -> Quarantine.
+/// Quantity never leaves the warehouse; only `stockStatus` changes, via a
+/// STATUS_CHANGE_OUT/STATUS_CHANGE_IN movement pair at the same warehouse.
+model InventoryStatusTransfer {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  warehouseId    String         @map("warehouse_id")
+  documentType   String         @default("INVENTORY_STATUS_TRANSFER") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  description    String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant       Tenant                         @relation(fields: [tenantId], references: [id])
+  organization Organization                   @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse                      @relation(fields: [warehouseId], references: [id])
+  lines        InventoryStatusTransferLine[]
+
+  @@unique([tenantId, number])
+  @@map("inventory_status_transfers")
+}
+
+model InventoryStatusTransferLine {
+  id                         String  @id @default(uuid())
+  tenantId                   String  @map("tenant_id")
+  inventoryStatusTransferId  String  @map("inventory_status_transfer_id")
+  position                   Int     @default(0)
+  productId                  String  @map("product_id")
+  unitId                     String  @map("unit_id")
+  quantity                   Decimal @db.Decimal(18, 6)
+  batchId                    String? @map("batch_id")
+  fromStatus                 String  @map("from_status")
+  toStatus                   String  @map("to_status")
+  description                String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  inventoryStatusTransfer InventoryStatusTransfer  @relation(fields: [inventoryStatusTransferId], references: [id], onDelete: Cascade)
+  product                 Product                  @relation(fields: [productId], references: [id])
+  unit                    UnitOfMeasure            @relation("InventoryStatusTransferLineUnit", fields: [unitId], references: [id])
+  batch                   Batch?                   @relation(fields: [batchId], references: [id])
+
+  @@index([inventoryStatusTransferId, position])
+  @@map("inventory_status_transfer_lines")
 }
