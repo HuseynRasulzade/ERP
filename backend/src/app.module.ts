@@ -33,6 +33,7 @@ import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
 import { SalesExecutionModule } from './sales-execution/sales-execution.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
+import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
 
 @Module({
   imports: [
@@ -93,6 +94,11 @@ import { PurchaseExecutionModule } from './purchase-execution/purchase-execution
     // Invoice with real input VAT + Accounts Payable, Purchase Return,
     // Additional Purchase Cost allocation, three-way matching, reporting).
     PurchaseExecutionModule,
+
+    // Warehouse / Stock Engine (docx spec Phase 10 — the Stock Truth
+    // Engine every other module reads from, plus WarehouseTransfer,
+    // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
+    WarehouseInventoryModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

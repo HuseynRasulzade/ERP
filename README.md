@@ -47,8 +47,8 @@ consequence (a Sales Invoice, a Manual Operation), adopt the chart and
 seed VAT localization once per tenant:
 `POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 173 tests, all
-passing (3 unit + 170 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 180 tests, all
+passing (3 unit + 177 e2e against a real Postgres instance).
 
 ---
 
@@ -295,6 +295,7 @@ Policy, Tax Profile, Access).
 | `backend/test/sales-execution.e2e-spec.ts` | 8 | Order⇒Shipment defaulting to remaining quantity, draft-vs-posted fulfillment counting, partial shipment + over-shipment rejection, insufficient-stock rejection, reservation consumption on post + restoration on unpost, Shipment⇒Invoice with balanced GL + SettlementObligation + invoiceable-quantity cap, physical Sales Return with prorated historical tax + contra GL + inventory receipt + excessive-return rejection + invoice-unpost-blocked-by-return, tenant isolation |
 | `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
 | `backend/test/purchase-execution.e2e-spec.ts` | 8 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, tenant isolation |
+| `backend/test/warehouse-inventory.e2e-spec.ts` | 7 | Instant warehouse transfer (source decrease + destination increase in one post), negative-stock-blocked transfer, two-step transfer (ship ⇒ IN_TRANSIT, partial receive, over-receive rejection, unpost blocked after any receive), internal consumption physical decrease, inventory adjustment write-off/surplus, inventory status transfer (quantity unchanged, only status moves), tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -335,5 +336,18 @@ All run against a real PostgreSQL instance — no mocked database.
   tracking; no approval workflow; no Payment/Advance engine (Phase 13/14
   boundary — SupplierPayable never shows PARTIALLY_PAID/PAID); no
   frontend UI yet.
-- **Inventory, Payroll, Banking, Fixed Assets, ...** — not started. Later
-  phases building on this foundation.
+- **Warehouse / Stock Engine** — ✅ done, tested, documented. The Stock
+  Truth Engine: physical stock always computed live from the immutable
+  `InventoryMovement` register (never a mutable field), with Phase 7/9's
+  `InventoryLedgerService` retrofitted onto it with zero call-site
+  changes and zero test regressions. WarehouseTransfer (instant/two-step/
+  internal-location), InternalConsumption, InventoryAdjustment (write-off/
+  surplus/opening-balance), InventoryStatusTransfer, plus Stock Balance/
+  Stock Card/Batch/Serial/Negative-Stock/Min-Max reporting. No costing
+  engine yet, so InternalConsumption/InventoryAdjustment never fabricate
+  an accounting entry (Phase 11's job); no batch/serial auto-capture
+  wiring into Goods Receipt/Shipment yet; boolean negative-stock policy,
+  not the spec's 3-state enum — see docs/WAREHOUSE_INVENTORY.md for the
+  full list. No frontend UI yet.
+- **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
+  started. Later phases building on this foundation.
