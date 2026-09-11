@@ -48,6 +48,7 @@ import {
   InventoryStatusTransferListPage,
   InventoryStatusTransferDetailPage,
 } from './pages/warehouse/WarehouseInventoryPages';
+import { ProductCatalogPage } from './pages/catalog/ProductCatalogPage';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -115,6 +116,8 @@ function AppRoutes() {
         <Route path="/inventory-adjustments/:id" element={<InventoryAdjustmentDetailPage />} />
         <Route path="/inventory-status-transfers" element={<InventoryStatusTransferListPage />} />
         <Route path="/inventory-status-transfers/:id" element={<InventoryStatusTransferDetailPage />} />
+
+        <Route path="/product-catalog" element={<ProductCatalogPage />} />
 
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />

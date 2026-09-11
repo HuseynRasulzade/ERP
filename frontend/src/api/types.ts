@@ -193,6 +193,51 @@ export interface Warehouse {
   version: number;
 }
 
+export interface UnitOfMeasure {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string | null;
+  unitType: string;
+  description: string | null;
+  active: boolean;
+  version: number;
+}
+
+export interface ProductCategory {
+  id: string;
+  organizationId: string;
+  code: string;
+  name: string;
+  parentCategoryId: string | null;
+  description: string | null;
+  active: boolean;
+  version: number;
+}
+
+export interface Product {
+  id: string;
+  organizationId: string;
+  categoryId: string | null;
+  code: string;
+  name: string;
+  fullName: string | null;
+  productType: string;
+  baseUnitId: string;
+  description: string | null;
+  sku: string | null;
+  barcode: string | null;
+  manufacturer: string | null;
+  brand: string | null;
+  model: string | null;
+  trackInventory: boolean;
+  allowNegativeStock: boolean;
+  batchTrackingMode: string;
+  serialTrackingMode: string;
+  active: boolean;
+  version: number;
+}
+
 export interface Cashbox {
   id: string;
   organizationId: string;

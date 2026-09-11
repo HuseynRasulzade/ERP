@@ -56,6 +56,14 @@ export function Layout() {
 
       <div className="app-body">
         <nav className="sidenav">
+          <div className="nav-group-label">{t.nav.groupCore}</div>
+          {hasPermission('product.view') && (
+            <NavLink to="/product-catalog">
+              <span className="nav-icon">▤</span>
+              {t.nav.productCatalog}
+            </NavLink>
+          )}
+
           <div className="nav-group-label">{t.nav.groupSales}</div>
           {hasPermission('sales.customer_request.view') && (
             <NavLink to="/customer-requests">
