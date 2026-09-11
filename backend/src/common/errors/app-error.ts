@@ -82,6 +82,15 @@ export const ErrorCode = {
   PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS: 'PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS',
   SUPPLY_PEG_EXCEEDS_DEMAND: 'SUPPLY_PEG_EXCEEDS_DEMAND',
   NO_PURCHASE_PRICE_FOUND: 'NO_PURCHASE_PRICE_FOUND',
+
+  // Purchase Execution (docx spec Phase 9, section 46)
+  RECEIPT_QUANTITY_EXCEEDS_REMAINING: 'RECEIPT_QUANTITY_EXCEEDS_REMAINING',
+  GOODS_RECEIPT_HAS_DOWNSTREAM_LINKS: 'GOODS_RECEIPT_HAS_DOWNSTREAM_LINKS',
+  DUPLICATE_SUPPLIER_INVOICE: 'DUPLICATE_SUPPLIER_INVOICE',
+  PURCHASE_INVOICE_QUANTITY_EXCEEDS_SOURCE: 'PURCHASE_INVOICE_QUANTITY_EXCEEDS_SOURCE',
+  PURCHASE_INVOICE_HAS_RETURNS: 'PURCHASE_INVOICE_HAS_RETURNS',
+  PURCHASE_RETURN_QUANTITY_EXCEEDS_RECEIVED: 'PURCHASE_RETURN_QUANTITY_EXCEEDS_RECEIVED',
+  PURCHASE_RETURN_SOURCE_REQUIRED: 'PURCHASE_RETURN_SOURCE_REQUIRED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -482,6 +491,68 @@ export class NoPurchasePriceFoundError extends AppError {
       ErrorCode.NO_PURCHASE_PRICE_FOUND,
       `No purchase price found for product ${productCode} at this date/quantity/supplier`,
       HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class ReceiptQuantityExceedsRemainingError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.RECEIPT_QUANTITY_EXCEEDS_REMAINING,
+      `Receipt quantity ${requested} exceeds remaining supplier order quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class GoodsReceiptHasDownstreamLinksError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.GOODS_RECEIPT_HAS_DOWNSTREAM_LINKS, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class DuplicateSupplierInvoiceError extends AppError {
+  constructor(supplierInvoiceNumber: string) {
+    super(
+      ErrorCode.DUPLICATE_SUPPLIER_INVOICE,
+      `Supplier invoice ${supplierInvoiceNumber} already exists for this supplier`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class PurchaseInvoiceQuantityExceedsSourceError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.PURCHASE_INVOICE_QUANTITY_EXCEEDS_SOURCE,
+      `Invoice quantity ${requested} exceeds remaining invoiceable quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class PurchaseInvoiceHasReturnsError extends AppError {
+  constructor(invoiceId: string) {
+    super(ErrorCode.PURCHASE_INVOICE_HAS_RETURNS, `Invoice ${invoiceId} has posted returns and cannot be unposted`, HttpStatus.CONFLICT);
+  }
+}
+
+export class PurchaseReturnQuantityExceedsReceivedError extends AppError {
+  constructor(maxReturnable: string, requested: string) {
+    super(
+      ErrorCode.PURCHASE_RETURN_QUANTITY_EXCEEDS_RECEIVED,
+      `Return quantity ${requested} exceeds returnable quantity ${maxReturnable}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class PurchaseReturnSourceRequiredError extends AppError {
+  constructor() {
+    super(
+      ErrorCode.PURCHASE_RETURN_SOURCE_REQUIRED,
+      'A purchase return line must reference a source receipt or invoice line, or the return must carry an explicit price',
+      HttpStatus.BAD_REQUEST,
     );
   }
 }

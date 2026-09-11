@@ -32,6 +32,7 @@ import { TaxEngineModule } from './tax-engine/tax-engine.module';
 import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
 import { SalesExecutionModule } from './sales-execution/sales-execution.module';
 import { ProcurementModule } from './procurement/procurement.module';
+import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 
 @Module({
   imports: [
@@ -87,6 +88,11 @@ import { ProcurementModule } from './procurement/procurement.module';
     // commitment, expected supply, payment schedule, demand-supply
     // pegging; no GL/AP/inventory/Tax Register consequence).
     ProcurementModule,
+
+    // Purchase Execution (docx spec Phase 9 — Goods Receipt, Purchase
+    // Invoice with real input VAT + Accounts Payable, Purchase Return,
+    // Additional Purchase Cost allocation, three-way matching, reporting).
+    PurchaseExecutionModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

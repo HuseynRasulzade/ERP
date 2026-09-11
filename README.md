@@ -47,8 +47,8 @@ consequence (a Sales Invoice, a Manual Operation), adopt the chart and
 seed VAT localization once per tenant:
 `POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 165 tests, all
-passing (3 unit + 162 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 173 tests, all
+passing (3 unit + 170 e2e against a real Postgres instance).
 
 ---
 
@@ -250,6 +250,24 @@ PurchaseOrderLine for traceability (never a physical reservation).
 
 Full write-up: [`backend/docs/PROCUREMENT.md`](backend/docs/PROCUREMENT.md).
 
+### Purchase Execution
+
+`GoodsReceipt` (physical event, real quantity-only inventory RECEIPT
+movement + a GRNI clearing GL entry — Model A only) → `PurchaseInvoice`
+(commercial/legal/tax event — real input VAT via the Tax Engine, clears
+the receipt's GRNI liability rather than double-debiting inventory, and
+creates a `SupplierPayable`) → `PurchaseReturn` (prorated historical tax,
+contra GL, physical ISSUE, blocked beyond what was actually
+received/invoiced) → `AdditionalPurchaseCost` (BY_VALUE/BY_QUANTITY/
+BY_WEIGHT/BY_VOLUME/EQUALLY/MANUAL allocation across goods receipt
+lines, capitalized to inventory). Every alternative flow the spec calls
+out — receipt-first, invoice-first, no Supplier Order at all, multiple
+partial receipts — is supported since every cross-document reference is
+optional. Three-way matching (Supplier Order vs Receipt vs Invoice)
+computed live, snapshotted on demand.
+
+Full write-up: [`backend/docs/PURCHASE_EXECUTION.md`](backend/docs/PURCHASE_EXECUTION.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -276,6 +294,7 @@ Policy, Tax Profile, Access).
 | `backend/test/sales-preorder.e2e-spec.ts` | 17 | Customer Request create/cancel, Commercial Offer price resolution/discount/Tax Preview, offer lifecycle + derived expiry, Request⇒Offer and Offer⇒SalesOrder conversion with price preservation, order confirmation with credit check + hold gating and an explicit no-GL/no-tax-register assertion, reservation create/oversubscription/release, fulfillment computation, shipment plan limits, payment schedule rounding, tenant isolation |
 | `backend/test/sales-execution.e2e-spec.ts` | 8 | Order⇒Shipment defaulting to remaining quantity, draft-vs-posted fulfillment counting, partial shipment + over-shipment rejection, insufficient-stock rejection, reservation consumption on post + restoration on unpost, Shipment⇒Invoice with balanced GL + SettlementObligation + invoiceable-quantity cap, physical Sales Return with prorated historical tax + contra GL + inventory receipt + excessive-return rejection + invoice-unpost-blocked-by-return, tenant isolation |
 | `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
+| `backend/test/purchase-execution.e2e-spec.ts` | 8 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -311,5 +330,10 @@ All run against a real PostgreSQL instance — no mocked database.
   same simplification as Sales); no persisted supplier comparison (live
   query instead); no MOQ/order-multiple enforcement (captured, surfaced,
   not yet validated); no frontend UI yet.
+- **Purchase Execution** — ✅ done, tested, documented. Goods Receipt
+  Model A only (GRNI clearing — Model B not implemented); no batch/serial
+  tracking; no approval workflow; no Payment/Advance engine (Phase 13/14
+  boundary — SupplierPayable never shows PARTIALLY_PAID/PAID); no
+  frontend UI yet.
 - **Inventory, Payroll, Banking, Fixed Assets, ...** — not started. Later
   phases building on this foundation.

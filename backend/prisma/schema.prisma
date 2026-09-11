@@ -112,6 +112,17 @@ model Tenant {
   purchaseOrderPaymentSchedules  PurchaseOrderPaymentSchedule[]
   supplierProductCodes           SupplierProductCode[]
   supplyPegs                     SupplyPeg[]
+  goodsReceipts                  GoodsReceipt[]
+  goodsReceiptLines               GoodsReceiptLine[]
+  purchaseInvoices                PurchaseInvoice[]
+  purchaseInvoiceLines            PurchaseInvoiceLine[]
+  supplierPayables                 SupplierPayable[]
+  purchaseReturns                  PurchaseReturn[]
+  purchaseReturnLines              PurchaseReturnLine[]
+  additionalPurchaseCosts          AdditionalPurchaseCost[]
+  additionalPurchaseCostLines      AdditionalPurchaseCostLine[]
+  purchaseCostAllocations          PurchaseCostAllocation[]
+  purchaseMatchingResults          PurchaseMatchingResult[]
 
   @@map("tenants")
 }
@@ -197,6 +208,11 @@ model Organization {
   purchaseRequirements  PurchaseRequirement[]
   purchaseOrders        PurchaseOrder[]
   supplierProductCodes  SupplierProductCode[]
+  goodsReceipts           GoodsReceipt[]
+  purchaseInvoices        PurchaseInvoice[]
+  supplierPayables        SupplierPayable[]
+  purchaseReturns         PurchaseReturn[]
+  additionalPurchaseCosts AdditionalPurchaseCost[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -260,6 +276,7 @@ model Department {
   children         Department[]       @relation("DepartmentHierarchy")
   manager          ResponsiblePerson? @relation(fields: [managerPersonId], references: [id])
   purchaseRequirements PurchaseRequirement[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, parentDepartmentId])
@@ -335,6 +352,10 @@ model Warehouse {
   purchaseOrders                PurchaseOrder[]
   purchaseOrderLines            PurchaseOrderLine[]
   purchaseDeliveryScheduleLines PurchaseDeliveryScheduleLine[]
+  goodsReceipts                  GoodsReceipt[]
+  goodsReceiptLines               GoodsReceiptLine[]
+  purchaseInvoiceLines            PurchaseInvoiceLine[]
+  purchaseReturns                  PurchaseReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -700,6 +721,11 @@ model Currency {
   salesReturns             SalesReturn[]
   purchaseOrders                PurchaseOrder[]
   purchaseOrderPaymentSchedules PurchaseOrderPaymentSchedule[]
+  goodsReceipts                  GoodsReceipt[]
+  purchaseInvoices                PurchaseInvoice[]
+  supplierPayables                 SupplierPayable[]
+  purchaseReturns                  PurchaseReturn[]
+  additionalPurchaseCosts          AdditionalPurchaseCost[]
 
   @@map("currencies")
 }
@@ -1028,6 +1054,9 @@ model UnitOfMeasure {
   purchaseRequirementLines PurchaseRequirementLine[] @relation("PurchaseRequirementLineUnit")
   purchaseOrderLines       PurchaseOrderLine[]       @relation("PurchaseOrderLineUnit")
   supplierProductCodes     SupplierProductCode[]     @relation("SupplierProductCodeUnit")
+  goodsReceiptLines        GoodsReceiptLine[]        @relation("GoodsReceiptLineUnit")
+  purchaseInvoiceLines     PurchaseInvoiceLine[]     @relation("PurchaseInvoiceLineUnit")
+  purchaseReturnLines      PurchaseReturnLine[]      @relation("PurchaseReturnLineUnit")
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
@@ -1126,6 +1155,9 @@ model Product {
   purchaseRequirementLines PurchaseRequirementLine[]
   purchaseOrderLines       PurchaseOrderLine[]
   supplierProductCodes     SupplierProductCode[]
+  goodsReceiptLines         GoodsReceiptLine[]
+  purchaseInvoiceLines      PurchaseInvoiceLine[]
+  purchaseReturnLines       PurchaseReturnLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1223,6 +1255,11 @@ model Counterparty {
   purchaseOrders                    PurchaseOrder[]
   supplierProductCodes              SupplierProductCode[]
   preferredForRequirementLines      PurchaseRequirementLine[] @relation("PreferredSupplierForRequirementLine")
+  goodsReceipts                     GoodsReceipt[]
+  purchaseInvoices                  PurchaseInvoice[]
+  supplierPayables                  SupplierPayable[]
+  purchaseReturns                   PurchaseReturn[]
+  additionalPurchaseCosts           AdditionalPurchaseCost[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1732,6 +1769,7 @@ model Account {
   accountingMappings  AccountingMapping[]
   journalEntryLines   JournalEntryLine[]
   accountingMovements AccountingMovement[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
 
   @@unique([tenantId, chartOfAccountsId, code])
   @@index([tenantId, active])
@@ -3148,4 +3186,420 @@ model SupplyPeg {
   @@index([tenantId, demandType, demandId, demandLineId])
   @@index([tenantId, supplyType, supplyId, supplyLineId])
   @@map("supply_pegs")
+}
+
+// ============================================================================
+// PURCHASE / GOODS RECEIPT / INVOICE / RETURN (docx spec Phase 9)
+//
+// Executes against a confirmed PurchaseOrder (Phase 8's "Supplier Order")
+// exactly the way Sales Execution (Phase 7) executes against a confirmed
+// SalesOrder: GoodsReceipt is the physical event (real inventory
+// movement), PurchaseInvoice is the commercial/legal/tax event (real
+// input VAT + Accounts Payable), kept structurally distinct — spec
+// section 1's alternative flows (receipt-first, invoice-first, no order
+// at all) are all supported because DocumentLineLink makes every source
+// reference OPTIONAL, never a required chain. See docs/PURCHASE_EXECUTION.md
+// for the accounting model (Model A: Goods Receipt posts a GRNI clearing
+// liability; Purchase Invoice clears it) and disclosed simplifications
+// (no batch/serial tracking, no approval workflow, no payment/advance
+// engine — Phase 13/14 boundary, matching spec section 56).
+// ============================================================================
+
+/// Physical receipt of goods from a supplier (spec sections 3-5). Reuses
+/// InventoryLedgerService (Phase 7) for the same quantity-only
+/// INVENTORY_REGISTER RECEIPT movement a Purchase Return later reverses
+/// with ISSUE — one physical stock ledger for the whole platform, not a
+/// parallel purchase-side one.
+model GoodsReceipt {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  warehouseId    String         @map("warehouse_id")
+  counterpartyId String         @map("counterparty_id") // supplier
+  supplierOrderId String?       @map("supplier_order_id") // Phase 8 PurchaseOrder
+  documentType   String         @default("GOODS_RECEIPT") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId     String?        @map("currency_id")
+  exchangeRate   Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+
+  operationType         String    @default("PURCHASE_FROM_SUPPLIER") @map("operation_type")
+  supplierDocumentNumber String?  @map("supplier_document_number")
+  supplierDocumentDate   DateTime? @map("supplier_document_date") @db.Date
+  externalReference      String?  @map("external_reference")
+  description            String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse          @relation(fields: [warehouseId], references: [id])
+  counterparty Counterparty       @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?          @relation(fields: [currencyId], references: [id])
+  lines        GoodsReceiptLine[]
+  purchaseReturns PurchaseReturn[]
+
+  @@unique([tenantId, number])
+  @@index([organizationId, counterpartyId, status])
+  @@index([organizationId, supplierOrderId])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  goodsReceiptId      String    @map("goods_receipt_id")
+  position            Int       @default(0)
+  productId           String    @map("product_id")
+  unitId              String    @map("unit_id")
+  quantity            Decimal   @db.Decimal(18, 6)
+  warehouseId         String?   @map("warehouse_id") // line-level override
+  price               Decimal   @default(0) @db.Decimal(18, 6) // informational — GRNI clearing value + later price-variance comparison
+  lineTotal           Decimal   @default(0) @map("line_total") @db.Decimal(18, 2)
+  supplierOrderLineId String?   @map("supplier_order_line_id") // direct FK, mirrors ShipmentLine.sourceOrderLineId
+  countryOfOrigin     String?   @map("country_of_origin")
+  customsDeclaration  String?   @map("customs_declaration")
+  expiryDate          DateTime? @map("expiry_date") @db.Date
+  description         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+  unit         UnitOfMeasure @relation("GoodsReceiptLineUnit", fields: [unitId], references: [id])
+  warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id])
+  additionalCostLines AdditionalPurchaseCostLine[]
+
+  @@index([goodsReceiptId, position])
+  @@index([tenantId, productId])
+  @@index([tenantId, supplierOrderLineId])
+  @@map("goods_receipt_lines")
+}
+
+/// Commercial/legal/tax event (spec sections 6-9). Real input VAT via
+/// TaxRegisterService and a real Accounts Payable consequence — the
+/// purchase-side mirror of SalesInvoice. `supplierInvoiceNumber`
+/// uniqueness (organization+supplier scoped) is the duplicate-invoice
+/// control (spec section 36); Postgres treats NULLs as distinct so an
+/// invoice without one never collides.
+model PurchaseInvoice {
+  id                    String         @id @default(uuid())
+  tenantId              String         @map("tenant_id")
+  organizationId        String         @map("organization_id")
+  counterpartyId        String         @map("counterparty_id")
+  documentType          String         @default("PURCHASE_INVOICE") @map("document_type")
+  number                String?
+  documentDate          DateTime       @map("document_date") @db.Date
+  postingDate           DateTime?      @map("posting_date") @db.Date
+  dueDate               DateTime?      @map("due_date") @db.Date
+  status                DocumentStatus @default(DRAFT)
+  postingStatus         PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId            String?        @map("currency_id")
+  exchangeRate          Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+  supplierInvoiceNumber String?        @map("supplier_invoice_number")
+  supplierInvoiceDate   DateTime?      @map("supplier_invoice_date") @db.Date
+  supplierOrderId       String?        @map("supplier_order_id")
+  goodsReceiptId        String?        @map("goods_receipt_id") // primary/first linked receipt, convenience only — lines may span several
+  priceIncludesTax      Boolean        @default(false) @map("price_includes_tax")
+  taxPointDate          DateTime?      @map("tax_point_date") @db.Date
+  subtotal              Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal              Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal            Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  amountDue             Decimal        @default(0) @map("amount_due") @db.Decimal(18, 2) // frozen gross total at posting — feeds SupplierPayable
+  description            String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty          @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?             @relation(fields: [currencyId], references: [id])
+  lines        PurchaseInvoiceLine[]
+  purchaseReturns PurchaseReturn[]
+  matchingResults PurchaseMatchingResult[]
+
+  @@unique([organizationId, counterpartyId, supplierInvoiceNumber])
+  @@index([tenantId, number])
+  @@index([organizationId, counterpartyId, status])
+  @@index([organizationId, goodsReceiptId])
+  @@index([organizationId, supplierOrderId])
+  @@index([organizationId, dueDate])
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceLine {
+  id                  String  @id @default(uuid())
+  tenantId            String  @map("tenant_id")
+  purchaseInvoiceId   String  @map("purchase_invoice_id")
+  position            Int     @default(0)
+  lineType            String  @default("INVENTORY") @map("line_type") // INVENTORY|SERVICE|EXPENSE|FIXED_ASSET|PREPAYMENT|OTHER
+  productId           String? @map("product_id")
+  unitId              String? @map("unit_id")
+  quantity            Decimal @default(1) @db.Decimal(18, 6)
+  price               Decimal @db.Decimal(18, 6)
+  discountAmount      Decimal @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  lineTotal           Decimal @map("line_total") @db.Decimal(18, 2)
+  taxRate             Decimal @default(0) @map("tax_rate") @db.Decimal(18, 2)
+  taxAmount           Decimal @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  lineTotalWithTax    Decimal @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
+  warehouseId         String? @map("warehouse_id")
+  expenseAccountId    String? @map("expense_account_id") // explicit override for EXPENSE/FIXED_ASSET/PREPAYMENT lines
+  departmentId        String? @map("department_id")
+  goodsReceiptLineId  String? @map("goods_receipt_line_id")
+  supplierOrderLineId String? @map("supplier_order_line_id")
+  description         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  purchaseInvoice PurchaseInvoice  @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+  product         Product?         @relation(fields: [productId], references: [id])
+  unit            UnitOfMeasure?   @relation("PurchaseInvoiceLineUnit", fields: [unitId], references: [id])
+  warehouse       Warehouse?       @relation(fields: [warehouseId], references: [id])
+  expenseAccount  Account?         @relation(fields: [expenseAccountId], references: [id])
+  department      Department?      @relation(fields: [departmentId], references: [id])
+
+  @@index([purchaseInvoiceId, position])
+  @@index([tenantId, productId])
+  @@index([tenantId, goodsReceiptLineId])
+  @@index([tenantId, supplierOrderLineId])
+  @@map("purchase_invoice_lines")
+}
+
+/// Accounts Payable contract (spec sections 10, 17-18) — the purchase-side
+/// mirror of SettlementObligation, kept as its own table (rather than
+/// reused) since AP and AR reporting should never need a
+/// sourceDocumentType filter to stay apart. `paidAmount` stays 0 and
+/// `status` stays OPEN forever in this build (no Payment/Advance engine —
+/// Phase 13/14 boundary, spec section 56): OVERDUE is computed live by
+/// SupplierSettlementService from `dueDate`, never stored, so it can
+/// never drift stale.
+model SupplierPayable {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  counterpartyId     String    @map("counterparty_id")
+  sourceDocumentType String    @default("PURCHASE_INVOICE") @map("source_document_type")
+  sourceDocumentId   String    @map("source_document_id")
+  currencyId         String?   @map("currency_id")
+  invoiceAmount      Decimal   @map("invoice_amount") @db.Decimal(18, 2)
+  paidAmount         Decimal   @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  dueDate            DateTime? @map("due_date") @db.Date
+  status             String    @default("OPEN") // OPEN|PAID|CANCELLED — see class docstring for what this build never fabricates
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([organizationId, counterpartyId, status])
+  @@map("supplier_payables")
+}
+
+/// Return of goods to a supplier (spec sections 14-16) — against a
+/// GoodsReceipt, a PurchaseInvoice, or neither (manual reference).
+/// Mirrors SalesReturn's structure exactly (prorated historical tax when
+/// linked to a posted invoice line, contra GL, inventory ISSUE).
+model PurchaseReturn {
+  id                      String         @id @default(uuid())
+  tenantId                String         @map("tenant_id")
+  organizationId          String         @map("organization_id")
+  documentType            String         @default("PURCHASE_RETURN") @map("document_type")
+  number                  String?
+  documentDate            DateTime       @map("document_date") @db.Date
+  postingDate             DateTime?      @map("posting_date") @db.Date
+  originalGoodsReceiptId  String?        @map("original_goods_receipt_id")
+  originalPurchaseInvoiceId String?      @map("original_purchase_invoice_id")
+  counterpartyId          String         @map("counterparty_id")
+  warehouseId             String?        @map("warehouse_id")
+  currencyId               String?       @map("currency_id")
+  returnReason            String?        @map("return_reason") // DAMAGED|WRONG_ITEM|QUALITY_ISSUE|EXCESS_DELIVERY|EXPIRED|CONTRACT_CANCELLATION|OTHER
+  status                  DocumentStatus @default(DRAFT)
+  postingStatus            PostingStatus @default(NOT_POSTED) @map("posting_status")
+  subtotal                Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal                Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal              Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  description              String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  createdBy String?   @map("created_by")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  postedAt  DateTime? @map("posted_at")
+  postedBy  String?   @map("posted_by")
+  version   Int       @default(1)
+
+  tenant                Tenant               @relation(fields: [tenantId], references: [id])
+  organization          Organization         @relation(fields: [organizationId], references: [id])
+  counterparty           Counterparty        @relation(fields: [counterpartyId], references: [id])
+  currency               Currency?           @relation(fields: [currencyId], references: [id])
+  warehouse               Warehouse?          @relation(fields: [warehouseId], references: [id])
+  originalGoodsReceipt    GoodsReceipt?       @relation(fields: [originalGoodsReceiptId], references: [id])
+  originalPurchaseInvoice PurchaseInvoice?    @relation(fields: [originalPurchaseInvoiceId], references: [id])
+  lines                   PurchaseReturnLine[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, documentDate])
+  @@index([organizationId, originalGoodsReceiptId])
+  @@index([organizationId, originalPurchaseInvoiceId])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnLine {
+  id                  String  @id @default(uuid())
+  tenantId            String  @map("tenant_id")
+  purchaseReturnId    String  @map("purchase_return_id")
+  position            Int     @default(0)
+  sourceReceiptLineId String? @map("source_receipt_line_id")
+  sourceInvoiceLineId String? @map("source_invoice_line_id")
+  productId           String  @map("product_id")
+  unitId              String  @map("unit_id")
+  quantity            Decimal @db.Decimal(18, 6)
+  originalUnitPrice   Decimal @map("original_unit_price") @db.Decimal(18, 6)
+  returnNet           Decimal @default(0) @map("return_net") @db.Decimal(18, 2)
+  returnTax           Decimal @default(0) @map("return_tax") @db.Decimal(18, 2)
+  returnGross         Decimal @default(0) @map("return_gross") @db.Decimal(18, 2)
+  reason              String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id])
+  purchaseReturn PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  product        Product        @relation(fields: [productId], references: [id])
+  unit           UnitOfMeasure  @relation("PurchaseReturnLineUnit", fields: [unitId], references: [id])
+
+  @@index([purchaseReturnId, position])
+  @@map("purchase_return_lines")
+}
+
+/// Additional purchase cost (spec sections 12-13) — transport, customs,
+/// insurance, etc. — allocated across GoodsReceiptLines it targets.
+/// Capitalized-to-inventory model only in this build (Model A-equivalent
+/// simplification — see docs/PURCHASE_EXECUTION.md): always posts
+/// Dr Inventory / Cr Supplier Payable, never the expense-recognition
+/// alternative the spec also allows.
+model AdditionalPurchaseCost {
+  id                String         @id @default(uuid())
+  tenantId          String         @map("tenant_id")
+  organizationId    String         @map("organization_id")
+  counterpartyId    String         @map("counterparty_id") // the cost supplier (may differ from the goods supplier)
+  documentType      String         @default("ADDITIONAL_PURCHASE_COST") @map("document_type")
+  number            String?
+  documentDate      DateTime       @map("document_date") @db.Date
+  postingDate       DateTime?      @map("posting_date") @db.Date
+  status            DocumentStatus @default(DRAFT)
+  postingStatus     PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId        String?        @map("currency_id")
+  costType          String         @default("OTHER") @map("cost_type") // TRANSPORT|CUSTOMS|INSURANCE|LOADING|BROKER|FREIGHT|HANDLING|CERTIFICATION|OTHER
+  allocationMethod  String         @default("BY_VALUE") @map("allocation_method") // BY_QUANTITY|BY_WEIGHT|BY_VOLUME|BY_VALUE|EQUALLY|MANUAL
+  totalCost         Decimal        @db.Decimal(18, 2)
+  taxRate           Decimal        @default(0) @map("tax_rate") @db.Decimal(18, 2)
+  taxAmount         Decimal        @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  description       String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  version      Int       @default(1)
+
+  tenant       Tenant                        @relation(fields: [tenantId], references: [id])
+  organization Organization                  @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty                  @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?                     @relation(fields: [currencyId], references: [id])
+  targetLines  AdditionalPurchaseCostLine[]
+  allocations  PurchaseCostAllocation[]
+
+  @@unique([tenantId, number])
+  @@index([organizationId, counterpartyId, status])
+  @@map("additional_purchase_costs")
+}
+
+/// The GoodsReceiptLines one AdditionalPurchaseCost allocates across.
+model AdditionalPurchaseCostLine {
+  id                       String   @id @default(uuid())
+  tenantId                 String   @map("tenant_id")
+  additionalPurchaseCostId String   @map("additional_purchase_cost_id")
+  goodsReceiptLineId       String   @map("goods_receipt_line_id")
+  manualCoefficient        Decimal? @map("manual_coefficient") @db.Decimal(18, 6) // used only when allocationMethod = MANUAL
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id])
+  additionalPurchaseCost AdditionalPurchaseCost @relation(fields: [additionalPurchaseCostId], references: [id], onDelete: Cascade)
+  goodsReceiptLine       GoodsReceiptLine       @relation(fields: [goodsReceiptLineId], references: [id])
+
+  @@index([additionalPurchaseCostId])
+  @@map("additional_purchase_cost_lines")
+}
+
+/// Computed allocation result, written at posting time (spec section 12:
+/// "Allocation nəticəsi inventory costing layer-a ötürülməlidir" — this IS
+/// that handoff row; Phase 11 Costing reads it, no recalculation here).
+model PurchaseCostAllocation {
+  id                       String  @id @default(uuid())
+  tenantId                 String  @map("tenant_id")
+  additionalPurchaseCostId String  @map("additional_purchase_cost_id")
+  goodsReceiptLineId       String  @map("goods_receipt_line_id")
+  productId                String  @map("product_id")
+  allocatedAmount          Decimal @map("allocated_amount") @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id])
+  additionalPurchaseCost AdditionalPurchaseCost @relation(fields: [additionalPurchaseCostId], references: [id], onDelete: Cascade)
+
+  @@index([additionalPurchaseCostId])
+  @@index([tenantId, goodsReceiptLineId])
+  @@map("purchase_cost_allocations")
+}
+
+/// Three-way matching snapshot (spec sections 8, 39.5, 55) — computed live
+/// by PurchaseMatchingService and persisted here only when explicitly
+/// requested (POST .../check-matching), never automatically on every
+/// posting — matching is a review aid, not a posting gate, in this build
+/// (spec's own tolerance/approval configuration is deferred, see docs).
+model PurchaseMatchingResult {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  purchaseInvoiceId String   @map("purchase_invoice_id")
+  overallStatus     String   @map("overall_status") // MATCHED|QUANTITY_MISMATCH|PRICE_MISMATCH|OVER_INVOICED|RECEIPT_MISSING|ORDER_MISSING|MANUAL_REVIEW_REQUIRED
+  details           Json
+  computedAt        DateTime @default(now()) @map("computed_at")
+  computedBy        String?  @map("computed_by")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, purchaseInvoiceId])
+  @@map("purchase_matching_results")
 }

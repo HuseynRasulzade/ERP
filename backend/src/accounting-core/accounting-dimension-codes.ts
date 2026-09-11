@@ -77,6 +77,8 @@ export const MappingKeys = {
   VAT_SETTLEMENT: 'VAT_SETTLEMENT',
   VAT_ROUNDING: 'VAT_ROUNDING',
   VAT_ADJUSTMENT: 'VAT_ADJUSTMENT',
+  // Purchase / Procurement build (docx spec Phase 9, section 5 Model A)
+  GOODS_RECEIVED_NOT_INVOICED: 'GOODS_RECEIVED_NOT_INVOICED',
 } as const;
 
 export type MappingKey = (typeof MappingKeys)[keyof typeof MappingKeys];

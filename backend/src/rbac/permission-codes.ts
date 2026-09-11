@@ -224,6 +224,18 @@ export const PermissionCodes = {
   PURCHASE_ORDER_HOLD_MANAGE: 'purchase.order_hold.manage',
   PURCHASE_SUPPLIER_PRODUCT_CODE_VIEW: 'purchase.supplier_product_code.view',
   PURCHASE_SUPPLIER_PRODUCT_CODE_MANAGE: 'purchase.supplier_product_code.manage',
+
+  // Purchase Execution (docx spec Phase 9, section 37) — Goods Receipt,
+  // Purchase Invoice, Purchase Return, Additional Purchase Cost. Confirm
+  // /reopen/cancel reuse the generic documents.post/unpost/cancel
+  // permissions on /documents/<TYPE>/:id/... like every other document
+  // type in this codebase (PURCHASE_POST/UNPOST/CANCEL from the spec's
+  // own list are intentionally not duplicated here).
+  PURCHASE_VIEW: 'purchase_execution.view',
+  PURCHASE_CREATE: 'purchase_execution.create',
+  PURCHASE_EDIT: 'purchase_execution.edit',
+  PURCHASE_RETURN: 'purchase_execution.return',
+  PURCHASE_VIEW_ACCOUNTING: 'purchase_execution.view_accounting',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -438,4 +450,10 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.PURCHASE_ORDER_HOLD_MANAGE, module: 'procurement', description: 'Place/release purchase order holds' },
   { code: PermissionCodes.PURCHASE_SUPPLIER_PRODUCT_CODE_VIEW, module: 'procurement', description: 'View supplier product code mappings' },
   { code: PermissionCodes.PURCHASE_SUPPLIER_PRODUCT_CODE_MANAGE, module: 'procurement', description: 'Manage supplier product code mappings' },
+
+  { code: PermissionCodes.PURCHASE_VIEW, module: 'purchase_execution', description: 'View goods receipts, purchase invoices, returns, and additional costs' },
+  { code: PermissionCodes.PURCHASE_CREATE, module: 'purchase_execution', description: 'Create goods receipts, purchase invoices, and additional costs' },
+  { code: PermissionCodes.PURCHASE_EDIT, module: 'purchase_execution', description: 'Edit draft goods receipts and purchase invoices' },
+  { code: PermissionCodes.PURCHASE_RETURN, module: 'purchase_execution', description: 'Create purchase returns' },
+  { code: PermissionCodes.PURCHASE_VIEW_ACCOUNTING, module: 'purchase_execution', description: 'View purchase reports and accounting entries' },
 ];

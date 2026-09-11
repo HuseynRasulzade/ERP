@@ -310,6 +310,7 @@ export const AZ_DEFAULT_DIMENSION_RULES: Record<string, string[]> = {
   '224': ['BANK_ACCOUNT', 'CURRENCY'],
   '431': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
   '531': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
+  '538': ['PARTNER', 'COUNTERPARTY', 'SETTLEMENT_DOCUMENT', 'CURRENCY'],
   '443': ['PARTNER', 'COUNTERPARTY', 'CURRENCY'],
   '543': ['PARTNER', 'COUNTERPARTY', 'CURRENCY'],
   '601': ['PRODUCT'],
@@ -348,4 +349,8 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   VAT_SETTLEMENT: '226',
   VAT_ROUNDING: '731', // Sair əməliyyat xərcləri
   VAT_ADJUSTMENT: '731',
+  // Purchase / Procurement build (docx spec Phase 9, section 5 Model A):
+  // Goods Receipt posts to a clearing liability distinct from the real
+  // Supplier Payable (531) — Purchase Invoice posting clears it.
+  GOODS_RECEIVED_NOT_INVOICED: '538', // Digər qısamüddətli kreditor borcları
 };
