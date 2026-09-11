@@ -131,6 +131,8 @@ model Tenant {
   counterpartyBankAccounts                     CounterpartyBankAccount[]
   counterpartyContracts                        CounterpartyContract[]
   counterpartyContractAmendments               CounterpartyContractAmendment[]
+  counterpartyContractLines                    CounterpartyContractLine[]
+  counterpartyContractPaymentInstallments      CounterpartyContractPaymentInstallment[]
   counterpartyDocuments                        CounterpartyDocument[]
   warehouseTransfers                         WarehouseTransfer[]
   warehouseTransferLines                      WarehouseTransferLine[]
@@ -765,6 +767,7 @@ model Currency {
   counterpartyBankAccounts      CounterpartyBankAccount[]
   counterpartyContracts         CounterpartyContract[]
   counterpartyContractAmendments CounterpartyContractAmendment[]
+  counterpartyContractPaymentInstallments CounterpartyContractPaymentInstallment[]
   goodsReceipts                  GoodsReceipt[]
   purchaseInvoices                PurchaseInvoice[]
   supplierPayables                 SupplierPayable[]
@@ -1097,6 +1100,7 @@ model UnitOfMeasure {
   salesReturnLines     SalesReturnLine[]     @relation("SalesReturnLineUnit")
   purchaseRequirementLines PurchaseRequirementLine[] @relation("PurchaseRequirementLineUnit")
   purchaseOrderLines       PurchaseOrderLine[]       @relation("PurchaseOrderLineUnit")
+  counterpartyContractLines CounterpartyContractLine[]
   supplierProductCodes     SupplierProductCode[]     @relation("SupplierProductCodeUnit")
   goodsReceiptLines        GoodsReceiptLine[]        @relation("GoodsReceiptLineUnit")
   purchaseInvoiceLines     PurchaseInvoiceLine[]     @relation("PurchaseInvoiceLineUnit")
@@ -1211,6 +1215,7 @@ model Product {
   salesReturnLines     SalesReturnLine[]
   purchaseRequirementLines PurchaseRequirementLine[]
   purchaseOrderLines       PurchaseOrderLine[]
+  counterpartyContractLines CounterpartyContractLine[]
   supplierProductCodes     SupplierProductCode[]
   goodsReceiptLines         GoodsReceiptLine[]
   purchaseInvoiceLines      PurchaseInvoiceLine[]
@@ -4241,9 +4246,38 @@ model CounterpartyContract {
   endDate        DateTime? @map("end_date") @db.Date
   amount         Decimal?  @db.Decimal(18, 2)
   currencyId     String?   @map("currency_id")
-  paymentTerms   String?   @map("payment_terms")
+  paymentTerms   String?   @map("payment_terms") // "qalan ödənişin şərtləri" — free text (e.g. "NET 30")
   responsiblePersonId String? @map("responsible_person_id")
   notes          String?
+
+  // -- Commercial / delivery terms (spec section 10) ------------------------
+  hasAdvance              Boolean  @default(false) @map("has_advance")
+  advancePercent          Decimal? @map("advance_percent") @db.Decimal(5, 2)
+  // Auto-computed as grandTotal * advancePercent/100 whenever the total or
+  // percent changes — UNLESS `advanceAmountManual` is true, meaning a user
+  // with the right permission overrode it explicitly (see
+  // CounterpartyContractService.setAdvance); the override itself is only
+  // ever recorded in the audit trail (oldValues/newValues), never a second
+  // schema column, matching how every other history requirement in this
+  // module is satisfied.
+  advanceAmount           Decimal? @map("advance_amount") @db.Decimal(18, 2)
+  advanceAmountManual     Boolean  @default(false) @map("advance_amount_manual")
+  remainingPaymentDueDays Int?     @map("remaining_payment_due_days")
+  deliveryDate            DateTime? @map("delivery_date") @db.Date
+  deliveryTermDays        Int?     @map("delivery_term_days")
+  deliveryAddress         String?  @map("delivery_address")
+  deliveryTerms           String?  @map("delivery_terms")
+  warrantyPeriod          String?  @map("warranty_period")
+  penaltyTerms            String?  @map("penalty_terms")
+  otherTerms              String?  @map("other_terms")
+
+  // -- Nomenclature lines + live totals (spec sections 11-13) ---------------
+  priceIncludesTax        Boolean  @default(false) @map("price_includes_tax")
+  sourcePurchaseOrderId   String?  @map("source_purchase_order_id")
+  subtotal                Decimal? @db.Decimal(18, 2) // pre-tax, post-discount sum of all lines
+  totalDiscount           Decimal? @map("total_discount") @db.Decimal(18, 2)
+  totalTax                Decimal? @map("total_tax") @db.Decimal(18, 2)
+  remainingPayableAmount  Decimal? @map("remaining_payable_amount") @db.Decimal(18, 2) // amount - advanceAmount
 
   // DRAFT|PENDING_APPROVAL|APPROVED|ACTIVE|EXPIRED|CANCELLED
   status     String    @default("DRAFT")
@@ -4262,10 +4296,84 @@ model CounterpartyContract {
   currency            Currency?                      @relation(fields: [currencyId], references: [id])
   responsiblePerson   ResponsiblePerson?              @relation(fields: [responsiblePersonId], references: [id])
   amendments          CounterpartyContractAmendment[]
+  lines               CounterpartyContractLine[]
+  paymentInstallments CounterpartyContractPaymentInstallment[]
 
   @@unique([counterpartyId, number])
   @@index([organizationId, status])
+  @@index([sourcePurchaseOrderId])
   @@map("counterparty_contracts")
+}
+
+/// One nomenclature line on a contract (spec sections 11-13) — either
+/// copied from a confirmed PurchaseOrderLine (`sourceOrderLineId` set) or
+/// entered directly. Every monetary field below is DERIVED — never typed
+/// by hand — and recomputed by CounterpartyContractService whenever
+/// quantity/price/discount/tax inputs change (spec section 13's
+/// recalculation rule).
+model CounterpartyContractLine {
+  id               String  @id @default(uuid())
+  tenantId         String  @map("tenant_id")
+  contractId       String  @map("contract_id")
+  position         Int     @default(0)
+  productId        String  @map("product_id")
+  description      String?
+  quantity         Decimal @db.Decimal(18, 6)
+  unitId           String  @map("unit_id")
+  unitPrice        Decimal @map("unit_price") @db.Decimal(18, 6)
+  discountPercent  Decimal @default(0) @map("discount_percent") @db.Decimal(9, 4)
+  discountAmount   Decimal @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  lineAmount       Decimal @default(0) @map("line_amount") @db.Decimal(18, 2) // quantity * unitPrice
+  taxBase          Decimal @default(0) @map("tax_base") @db.Decimal(18, 2) // lineAmount - discountAmount
+  taxCategoryCode  String? @map("tax_category_code")
+  taxRatePercent   Decimal? @map("tax_rate_percent") @db.Decimal(9, 4)
+  taxAmount        Decimal? @map("tax_amount") @db.Decimal(18, 2)
+  lineTotal        Decimal? @map("line_total") @db.Decimal(18, 2) // taxBase + taxAmount
+  // Set instead of taxRatePercent/taxAmount when TaxRuleResolverService
+  // found no matching rule — the line still saves (DRAFT stays editable),
+  // but the contract cannot approve while any line carries this.
+  taxCalculationError String? @map("tax_calculation_error")
+  sourceOrderLineId   String? @map("source_order_line_id") // PurchaseOrderLine — soft reference
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant   Tenant               @relation(fields: [tenantId], references: [id])
+  contract CounterpartyContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  product  Product              @relation(fields: [productId], references: [id])
+  unit     UnitOfMeasure        @relation(fields: [unitId], references: [id])
+
+  @@index([contractId, position])
+  @@index([tenantId, sourceOrderLineId])
+  @@map("counterparty_contract_lines")
+}
+
+/// Payment schedule installment ("Ödəniş qrafiki", spec section 10) —
+/// same shape as PurchaseOrderPaymentSchedule for consistency across the
+/// codebase's two payment-schedule concepts.
+model CounterpartyContractPaymentInstallment {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  contractId String   @map("contract_id")
+  sequence   Int      @default(0)
+  dueDate    DateTime @map("due_date") @db.Date
+  basis      String   @default("AFTER_DELIVERY") // ADVANCE|AFTER_DELIVERY|AFTER_INVOICE
+  percentage Decimal? @db.Decimal(9, 4)
+  amount     Decimal  @db.Decimal(18, 2)
+  currencyId String?  @map("currency_id")
+  status     String   @default("PLANNED")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant               @relation(fields: [tenantId], references: [id])
+  contract CounterpartyContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  currency Currency?            @relation(fields: [currencyId], references: [id])
+
+  @@index([contractId, sequence])
+  @@map("counterparty_contract_payment_installments")
 }
 
 /// Amendment ("əlavə") to a CounterpartyContract (spec section 6) — always

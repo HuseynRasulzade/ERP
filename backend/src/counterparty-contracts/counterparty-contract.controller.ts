@@ -1,6 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { CounterpartyContractService } from './counterparty-contract.service';
-import { CreateCounterpartyContractDto, SetContractStatusDto, UpdateCounterpartyContractDto } from './dto/counterparty-contract.dto';
+import {
+  CreateContractFromPurchaseOrderDto,
+  CreateContractLineDto,
+  CreateCounterpartyContractDto,
+  GenerateContractPaymentScheduleDto,
+  SetContractAdvanceDto,
+  SetContractStatusDto,
+  UpdateContractLineDto,
+  UpdateCounterpartyContractDto,
+} from './dto/counterparty-contract.dto';
 import { VersionedCommandDto } from '../org-structure/dto/common.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
@@ -46,6 +55,23 @@ export class CounterpartyContractsForCounterpartyController {
 export class CounterpartyContractController {
   constructor(private readonly contracts: CounterpartyContractService) {}
 
+  /** Bespoke command — a contract created from a confirmed Purchase Order
+   * (spec section 11). Not the generic create-based-on mapper: it needs
+   * per-line quantity allocation the mapper's 1:1 interface has no room
+   * for, same reasoning as ProcurementPlanningService's own requirement
+   * -> PurchaseOrder command. */
+  @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
+  @Post('from-purchase-order')
+  createFromPurchaseOrder(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: CreateContractFromPurchaseOrderDto,
+  ) {
+    return this.contracts.createFromPurchaseOrder(tenantId, membershipId, organizationId, user.userId, dto);
+  }
+
   @RequirePermissions(PermissionCodes.CONTRACT_VIEW)
   @Get(':id')
   get(@CurrentTenantId() tenantId: string, @CurrentMembershipId() membershipId: string, @Param('organizationId') organizationId: string, @Param('id') id: string) {
@@ -90,5 +116,77 @@ export class CounterpartyContractController {
     @Body() dto: SetContractStatusDto,
   ) {
     return this.contracts.setStatus(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion, dto.status);
+  }
+
+  // -- Nomenclature lines (spec sections 11-13) --------------------------------
+
+  @RequirePermissions(PermissionCodes.CONTRACT_EDIT)
+  @Post(':id/lines')
+  addLine(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: CreateContractLineDto,
+  ) {
+    return this.contracts.addLine(tenantId, membershipId, organizationId, id, user.userId, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.CONTRACT_EDIT)
+  @Patch(':id/lines/:lineId')
+  updateLine(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: UpdateContractLineDto,
+  ) {
+    const { expectedVersion, ...patch } = dto;
+    return this.contracts.updateLine(tenantId, membershipId, organizationId, id, lineId, user.userId, expectedVersion, patch);
+  }
+
+  @RequirePermissions(PermissionCodes.CONTRACT_EDIT)
+  @Delete(':id/lines/:lineId')
+  removeLine(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.contracts.removeLine(tenantId, membershipId, organizationId, id, lineId, user.userId);
+  }
+
+  // -- Advance + payment schedule (spec section 10) ----------------------------
+
+  @RequirePermissions(PermissionCodes.CONTRACT_EDIT)
+  @Post(':id/advance')
+  setAdvance(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: SetContractAdvanceDto,
+  ) {
+    const { expectedVersion, ...rest } = dto;
+    return this.contracts.setAdvance(tenantId, membershipId, organizationId, id, user.userId, expectedVersion, rest);
+  }
+
+  @RequirePermissions(PermissionCodes.CONTRACT_EDIT)
+  @Post(':id/payment-schedule')
+  generatePaymentSchedule(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: GenerateContractPaymentScheduleDto,
+  ) {
+    return this.contracts.generatePaymentSchedule(tenantId, membershipId, organizationId, id, user.userId, dto.installments);
   }
 }

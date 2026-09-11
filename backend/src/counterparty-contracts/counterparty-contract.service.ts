@@ -4,15 +4,26 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { CounterpartyService } from '../counterparty-pricing/counterparty.service';
+import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
+import { TaxRuleNotFoundError, TaxRuleAmbiguousError } from '../common/errors/app-error';
 import { ConcurrencyConflictError, ConflictAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 
 export const STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRED', 'CANCELLED'];
+const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
+const VAT_EXEMPT_CATEGORY = 'VAT_EXEMPT';
+
+function round2(v: Decimal): Decimal {
+  return new Decimal(v.toFixed(2));
+}
 
 /**
- * CounterpartyContract service ("Kontragentlər" module, spec section 5).
- * Plain CRUD + a bespoke approval gate, same non-posting shape as
- * PurchaseRequirement/CounterpartyService — a contract never touches GL
- * or inventory.
+ * CounterpartyContract service ("Kontragentlər" module, spec sections 5,
+ * 8, 10-14). Plain CRUD + a bespoke approval gate, same non-posting
+ * shape as PurchaseRequirement/CounterpartyService — a contract never
+ * touches GL or inventory. Extended (spec sections 10-14) with
+ * commercial/delivery terms, nomenclature lines priced through the real
+ * Tax Engine (never a hardcoded rate — see resolveLineTax), and
+ * creation from a confirmed PurchaseOrder.
  */
 @Injectable()
 export class CounterpartyContractService {
@@ -21,6 +32,7 @@ export class CounterpartyContractService {
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
     private readonly counterparties: CounterpartyService,
+    private readonly taxCalculation: TaxCalculationService,
   ) {}
 
   async listForCounterparty(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string) {
@@ -33,7 +45,11 @@ export class CounterpartyContractService {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     const contract = await this.prisma.counterpartyContract.findFirst({
       where: { id, organizationId },
-      include: { amendments: { orderBy: { createdAt: 'desc' } } },
+      include: {
+        amendments: { orderBy: { createdAt: 'desc' } },
+        lines: { orderBy: { position: 'asc' } },
+        paymentInstallments: { orderBy: { sequence: 'asc' } },
+      },
     });
     if (!contract) throw new NotFoundAppError('CounterpartyContract', id);
     return contract;
@@ -61,6 +77,17 @@ export class CounterpartyContractService {
         amount: input.amount != null ? new Decimal(input.amount.toString()) : undefined,
         currencyId: input.currencyId, paymentTerms: input.paymentTerms,
         responsiblePersonId: input.responsiblePersonId, notes: input.notes,
+        hasAdvance: input.hasAdvance ?? false,
+        advancePercent: input.advancePercent != null ? new Decimal(input.advancePercent.toString()) : undefined,
+        remainingPaymentDueDays: input.remainingPaymentDueDays,
+        deliveryDate: input.deliveryDate ? new Date(input.deliveryDate) : undefined,
+        deliveryTermDays: input.deliveryTermDays,
+        deliveryAddress: input.deliveryAddress,
+        deliveryTerms: input.deliveryTerms,
+        warrantyPeriod: input.warrantyPeriod,
+        penaltyTerms: input.penaltyTerms,
+        otherTerms: input.otherTerms,
+        priceIncludesTax: input.priceIncludesTax ?? false,
       },
     });
 
@@ -76,10 +103,12 @@ export class CounterpartyContractService {
     if (patch.currencyId) await this.assertCurrency(patch.currencyId);
     if (patch.responsiblePersonId) await this.assertResponsiblePerson(tenantId, patch.responsiblePersonId);
 
+    const dateFields = ['signedDate', 'startDate', 'endDate', 'deliveryDate'];
+    const decimalFields = ['amount', 'advancePercent'];
     const updateData: any = { updatedBy: userId, version: { increment: 1 } };
     for (const k of Object.keys(patch)) {
-      if (['signedDate', 'startDate', 'endDate'].includes(k) && patch[k] !== undefined) updateData[k] = new Date(patch[k]);
-      else if (k === 'amount' && patch.amount !== undefined && patch.amount !== null) updateData.amount = new Decimal(patch.amount.toString());
+      if (dateFields.includes(k) && patch[k] !== undefined) updateData[k] = patch[k] ? new Date(patch[k]) : null;
+      else if (decimalFields.includes(k) && patch[k] !== undefined) updateData[k] = patch[k] != null ? new Decimal(patch[k].toString()) : null;
       else if (patch[k] !== undefined) updateData[k] = patch[k];
     }
     const result = await this.prisma.counterpartyContract.updateMany({ where: { id, organizationId, version: expectedVersion }, data: updateData });
@@ -88,19 +117,391 @@ export class CounterpartyContractService {
       tenantId, eventType: 'COUNTERPARTY_CONTRACT_UPDATED', entityType: 'CounterpartyContract',
       entityId: id, action: 'UPDATE', userId, newValues: patch,
     });
-    return this.prisma.counterpartyContract.findUnique({ where: { id } });
+
+    // A tax-point-relevant field changed (dates, price-includes-tax) — the
+    // resolved rate for every line may now be different (spec section
+    // 12: "sənədin tarixinə uyğun qüvvədə olan vergi dərəcəsi seçilsin").
+    if (patch.signedDate !== undefined || patch.startDate !== undefined || patch.priceIncludesTax !== undefined) {
+      await this.recalculateContract(tenantId, id);
+    }
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
-  /** Approval gate (spec sections 5, 8) — every field the spec's own list
-   * for section 5 names is mandatory before a contract can leave DRAFT.
-   * Missing fields are collected together, never fail-fast. */
+  // -- Nomenclature lines (spec sections 11-13) --------------------------------
+
+  async addLine(tenantId: string, membershipId: string, organizationId: string, contractId: string, userId: string, input: any) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const contract = await this.requireEditable(tenantId, membershipId, organizationId, contractId);
+    const product = await this.prisma.product.findFirst({ where: { id: input.productId, organizationId } });
+    if (!product) throw new ValidationAppError('Product does not belong to this organization');
+    const unit = await this.prisma.unitOfMeasure.findFirst({ where: { id: input.unitId, tenantId } });
+    if (!unit) throw new ValidationAppError('Unit of measure not found');
+    const quantity = new Decimal(input.quantity.toString());
+    if (!quantity.isFinite() || quantity.lte(0)) throw new ValidationAppError('Line quantity must be positive');
+
+    const maxPosition = await this.prisma.counterpartyContractLine.aggregate({ where: { contractId }, _max: { position: true } });
+
+    const line = await this.prisma.counterpartyContractLine.create({
+      data: {
+        tenantId, contractId, position: (maxPosition._max.position ?? -1) + 1,
+        productId: input.productId, description: input.description, quantity,
+        unitId: input.unitId, unitPrice: new Decimal((input.unitPrice ?? 0).toString()),
+        discountPercent: new Decimal((input.discountPercent ?? 0).toString()),
+        sourceOrderLineId: input.sourceOrderLineId,
+      },
+    });
+
+    await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, line.id, contract);
+    await this.recalculateContractTotals(tenantId, contractId);
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_CONTRACT_LINE_ADDED', entityType: 'CounterpartyContract',
+      entityId: contractId, action: 'CREATE', userId, newValues: { lineId: line.id, productId: input.productId, quantity: quantity.toString() },
+    });
+    return this.prisma.counterpartyContractLine.findUnique({ where: { id: line.id } });
+  }
+
+  async updateLine(tenantId: string, membershipId: string, organizationId: string, contractId: string, lineId: string, userId: string, expectedVersion: number, patch: any) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const contract = await this.requireEditable(tenantId, membershipId, organizationId, contractId);
+    const before = await this.prisma.counterpartyContractLine.findFirst({ where: { id: lineId, contractId } });
+    if (!before) throw new NotFoundAppError('CounterpartyContractLine', lineId);
+
+    const updateData: any = { updatedBy: userId, version: { increment: 1 } };
+    if (patch.quantity !== undefined) updateData.quantity = new Decimal(patch.quantity.toString());
+    if (patch.unitPrice !== undefined) updateData.unitPrice = new Decimal(patch.unitPrice.toString());
+    if (patch.discountPercent !== undefined) updateData.discountPercent = new Decimal(patch.discountPercent.toString());
+    if (patch.description !== undefined) updateData.description = patch.description;
+    if (patch.unitId !== undefined) updateData.unitId = patch.unitId;
+
+    const result = await this.prisma.counterpartyContractLine.updateMany({ where: { id: lineId, contractId, version: expectedVersion }, data: updateData });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+
+    // "Alış sifarişindən gətirilmiş məlumatlar müqavilədə redaktə edilərsə,
+    // ilkin və dəyişdirilmiş dəyərlər tarixçədə saxlanılsın" (spec section
+    // 11) — a PO-sourced line's own history keeps BOTH values, not just
+    // the fact that something changed.
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+    for (const key of ['quantity', 'unitPrice', 'discountPercent', 'description', 'unitId']) {
+      if (patch[key] !== undefined) {
+        oldValues[key] = (before as any)[key]?.toString?.() ?? (before as any)[key];
+        newValues[key] = patch[key];
+      }
+    }
+    await this.audit.record({
+      tenantId, eventType: before.sourceOrderLineId ? 'COUNTERPARTY_CONTRACT_LINE_PO_VALUE_CHANGED' : 'COUNTERPARTY_CONTRACT_LINE_UPDATED',
+      entityType: 'CounterpartyContract', entityId: contractId, action: 'UPDATE', userId, oldValues, newValues,
+      metadata: { lineId, sourceOrderLineId: before.sourceOrderLineId },
+    });
+
+    await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, lineId, contract);
+    await this.recalculateContractTotals(tenantId, contractId);
+    return this.prisma.counterpartyContractLine.findUnique({ where: { id: lineId } });
+  }
+
+  async removeLine(tenantId: string, membershipId: string, organizationId: string, contractId: string, lineId: string, userId: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.requireEditable(tenantId, membershipId, organizationId, contractId);
+    const line = await this.prisma.counterpartyContractLine.findFirst({ where: { id: lineId, contractId } });
+    if (!line) throw new NotFoundAppError('CounterpartyContractLine', lineId);
+
+    await this.prisma.counterpartyContractLine.delete({ where: { id: lineId } });
+    await this.recalculateContractTotals(tenantId, contractId);
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_CONTRACT_LINE_REMOVED', entityType: 'CounterpartyContract',
+      entityId: contractId, action: 'DELETE', userId, oldValues: { lineId, productId: line.productId, quantity: line.quantity.toString() },
+    });
+    return { removed: true };
+  }
+
+  /** Resolves this line's tax (spec section 12) through the real Tax
+   * Engine — never a hardcoded rate. `taxCategoryCode` comes from
+   * ProductTaxProfile when configured (same precedent Sales/Purchase
+   * Invoice posting already use), else from the counterparty's own VAT-
+   * payer status (not a VAT payer -> VAT_EXEMPT), else the platform
+   * default. A missing/ambiguous rule for the document's date never
+   * throws here — it's recorded on the line as `taxCalculationError` so
+   * the line still saves (DRAFT stays editable) and the approval gate
+   * is what actually blocks (spec section 14). */
+  private async recalculateLine(tenantId: string, organizationId: string, counterpartyId: string, lineId: string, contract: { priceIncludesTax: boolean; signedDate: Date | null; startDate: Date | null }) {
+    const line = await this.prisma.counterpartyContractLine.findUnique({ where: { id: lineId } });
+    if (!line) return;
+    const counterparty = await this.prisma.counterparty.findFirst({ where: { id: counterpartyId } });
+
+    const lineAmount = round2(new Decimal(line.quantity.toString()).mul(line.unitPrice.toString()));
+    const discountAmount = round2(lineAmount.mul(line.discountPercent.toString()).div(100));
+    const amountForTax = lineAmount.minus(discountAmount);
+    const businessDate = contract.signedDate ?? contract.startDate ?? new Date();
+
+    const taxCategoryCode = await this.resolveTaxCategoryCode(tenantId, organizationId, line.productId, counterparty, businessDate);
+
+    try {
+      const result = await this.taxCalculation.calculateLine(
+        {
+          tenantId, organizationId, businessDate, taxPointDate: businessDate,
+          operationType: 'PURCHASE', taxCategoryCode, taxpayerSide: 'BUYER',
+          counterpartyId, productId: line.productId,
+        },
+        { sourceLineId: line.id, amount: amountForTax, priceIncludesTax: contract.priceIncludesTax },
+      );
+      await this.prisma.counterpartyContractLine.update({
+        where: { id: lineId },
+        data: {
+          lineAmount, discountAmount, taxBase: round2(result.taxableBase), taxCategoryCode,
+          taxRatePercent: result.rate, taxAmount: round2(result.taxAmount), lineTotal: round2(result.grossAmount),
+          taxCalculationError: null,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof TaxRuleNotFoundError || err instanceof TaxRuleAmbiguousError ? err.message : 'Tax calculation failed';
+      await this.prisma.counterpartyContractLine.update({
+        where: { id: lineId },
+        data: { lineAmount, discountAmount, taxBase: lineAmount.minus(discountAmount), taxCategoryCode, taxRatePercent: null, taxAmount: null, lineTotal: null, taxCalculationError: message },
+      });
+    }
+  }
+
+  /** Recomputes every line (used when a tax-point-relevant contract field
+   * changes) then the header totals. */
+  private async recalculateContract(tenantId: string, contractId: string) {
+    const contract = await this.prisma.counterpartyContract.findUnique({ where: { id: contractId }, include: { lines: true } });
+    if (!contract) return;
+    for (const line of contract.lines) {
+      await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, line.id, contract);
+    }
+    await this.recalculateContractTotals(tenantId, contractId);
+  }
+
+  /** Header totals (spec section 13) — subtotal/discount/tax/grand total
+   * always derived live from the lines, never hand-entered; `amount`
+   * IS the grand (tax-included) total, kept structurally in sync so the
+   * approval gate's "total equals sum of lines" check can never
+   * realistically fail. Advance amount auto-recomputes from the new
+   * grand total UNLESS a user has manually overridden it. */
+  private async recalculateContractTotals(tenantId: string, contractId: string) {
+    const contract = await this.prisma.counterpartyContract.findUnique({ where: { id: contractId }, include: { lines: true } });
+    if (!contract) return;
+
+    let subtotal = new Decimal(0);
+    let totalDiscount = new Decimal(0);
+    let totalTax = new Decimal(0);
+    let grandTotal = new Decimal(0);
+    for (const line of contract.lines) {
+      subtotal = subtotal.plus(line.taxBase.toString());
+      totalDiscount = totalDiscount.plus(line.discountAmount.toString());
+      if (line.taxAmount != null) totalTax = totalTax.plus(line.taxAmount.toString());
+      if (line.lineTotal != null) grandTotal = grandTotal.plus(line.lineTotal.toString());
+    }
+
+    let advanceAmount = contract.advanceAmount;
+    if (contract.hasAdvance && contract.advancePercent != null && !contract.advanceAmountManual) {
+      advanceAmount = round2(grandTotal.mul(contract.advancePercent.toString()).div(100));
+    }
+    const remainingPayableAmount = grandTotal.minus(advanceAmount ? new Decimal(advanceAmount.toString()) : 0);
+
+    await this.prisma.counterpartyContract.update({
+      where: { id: contractId },
+      data: {
+        subtotal: round2(subtotal), totalDiscount: round2(totalDiscount), totalTax: round2(totalTax),
+        amount: contract.lines.length > 0 ? round2(grandTotal) : contract.amount,
+        advanceAmount: advanceAmount ?? undefined,
+        remainingPayableAmount: contract.lines.length > 0 ? round2(remainingPayableAmount) : contract.remainingPayableAmount,
+      },
+    });
+  }
+
+  private async resolveTaxCategoryCode(tenantId: string, organizationId: string, productId: string, counterparty: { vatPayer: boolean } | null, businessDate: Date): Promise<string> {
+    const profile = await this.prisma.productTaxProfile.findFirst({
+      where: {
+        tenantId, productId, active: true,
+        validFrom: { lte: businessDate },
+        OR: [{ validTo: null }, { validTo: { gte: businessDate } }],
+        AND: [{ OR: [{ organizationId }, { organizationId: null }] }],
+      },
+      include: { taxCategory: true },
+      orderBy: { validFrom: 'desc' },
+    });
+    if (profile) return profile.taxCategory.code;
+    if (counterparty && counterparty.vatPayer === false) return VAT_EXEMPT_CATEGORY;
+    return DEFAULT_TAX_CATEGORY;
+  }
+
+  // -- Advance (spec section 10) -----------------------------------------------
+
+  /** Manual advance-amount override (spec section 10: "İstifadəçinin
+   * səlahiyyəti olduqda hesablanmış məbləği əl ilə dəyişmək mümkün olsun
+   * və bu dəyişiklik tarixçədə saxlanılsın") — permission-gated at the
+   * controller (`counterparty.contract.advance.override` maps to
+   * `contract.edit` here, same as every other field edit). Passing
+   * `advanceAmount: null` clears the override and reverts to auto-calc. */
+  async setAdvance(tenantId: string, membershipId: string, organizationId: string, contractId: string, userId: string, expectedVersion: number, input: { hasAdvance?: boolean; advancePercent?: number | null; advanceAmount?: number | null }) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const contract = await this.get(tenantId, membershipId, organizationId, contractId);
+    if (contract.status === 'APPROVED' || contract.status === 'ACTIVE') throw new ValidationAppError('Unapprove the contract before changing its advance terms');
+
+    const oldValues = { advancePercent: contract.advancePercent?.toString() ?? null, advanceAmount: contract.advanceAmount?.toString() ?? null, advanceAmountManual: contract.advanceAmountManual };
+    const updateData: any = { updatedBy: userId, version: { increment: 1 } };
+    if (input.hasAdvance !== undefined) updateData.hasAdvance = input.hasAdvance;
+    if (input.advancePercent !== undefined) updateData.advancePercent = input.advancePercent != null ? new Decimal(input.advancePercent.toString()) : null;
+
+    if (input.advanceAmount !== undefined) {
+      // An explicit amount is always a deliberate manual override.
+      updateData.advanceAmount = input.advanceAmount != null ? new Decimal(input.advanceAmount.toString()) : null;
+      updateData.advanceAmountManual = input.advanceAmount != null;
+    } else if (input.advancePercent !== undefined) {
+      // Changing the percent alone re-enables auto-calculation.
+      updateData.advanceAmountManual = false;
+    }
+
+    const result = await this.prisma.counterpartyContract.updateMany({ where: { id: contractId, organizationId, version: expectedVersion }, data: updateData });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+
+    await this.recalculateContractTotals(tenantId, contractId);
+    const after = await this.prisma.counterpartyContract.findUnique({ where: { id: contractId } });
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_CONTRACT_ADVANCE_CHANGED', entityType: 'CounterpartyContract', entityId: contractId, action: 'UPDATE', userId,
+      oldValues, newValues: { advancePercent: after?.advancePercent?.toString() ?? null, advanceAmount: after?.advanceAmount?.toString() ?? null, advanceAmountManual: after?.advanceAmountManual },
+    });
+    return this.get(tenantId, membershipId, organizationId, contractId);
+  }
+
+  // -- Payment schedule (spec section 10) --------------------------------------
+
+  /** Generates installments from percentages of the CURRENT grand total,
+   * rounding the residual into the last installment — same convention
+   * PurchaseOrderPaymentScheduleService already uses. */
+  async generatePaymentSchedule(tenantId: string, membershipId: string, organizationId: string, contractId: string, userId: string, installments: { dueDate: string; basis: string; percentage?: number; amount?: number }[]) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const contract = await this.get(tenantId, membershipId, organizationId, contractId);
+    if (!contract.amount) throw new ValidationAppError('Add contract lines (or an amount) before generating a payment schedule');
+    const total = new Decimal(contract.amount.toString());
+
+    await this.prisma.counterpartyContractPaymentInstallment.deleteMany({ where: { contractId } });
+
+    let allocated = new Decimal(0);
+    const rows: { dueDate: Date; basis: string; percentage?: Decimal; amount: Decimal }[] = [];
+    for (const [index, inst] of installments.entries()) {
+      const isLast = index === installments.length - 1;
+      let amount: Decimal;
+      if (isLast) {
+        amount = round2(total.minus(allocated));
+      } else if (inst.amount != null) {
+        amount = round2(new Decimal(inst.amount.toString()));
+      } else {
+        amount = round2(total.mul((inst.percentage ?? 0).toString()).div(100));
+      }
+      allocated = allocated.plus(amount);
+      rows.push({ dueDate: new Date(inst.dueDate), basis: inst.basis, percentage: inst.percentage != null ? new Decimal(inst.percentage.toString()) : undefined, amount });
+    }
+
+    for (const [index, row] of rows.entries()) {
+      await this.prisma.counterpartyContractPaymentInstallment.create({
+        data: { tenantId, contractId, sequence: index, dueDate: row.dueDate, basis: row.basis, percentage: row.percentage, amount: row.amount, currencyId: contract.currencyId },
+      });
+    }
+    await this.audit.record({ tenantId, eventType: 'COUNTERPARTY_CONTRACT_PAYMENT_SCHEDULE_SET', entityType: 'CounterpartyContract', entityId: contractId, action: 'UPDATE', userId, newValues: { count: rows.length } });
+    return this.prisma.counterpartyContractPaymentInstallment.findMany({ where: { contractId }, orderBy: { sequence: 'asc' } });
+  }
+
+  // -- Create from a confirmed Purchase Order (spec section 11) ---------------
+
+  async remainingForPurchaseOrderLine(tenantId: string, purchaseOrderLineId: string): Promise<Decimal> {
+    const poLine = await this.prisma.purchaseOrderLine.findFirst({ where: { id: purchaseOrderLineId, tenantId } });
+    if (!poLine) throw new NotFoundAppError('PurchaseOrderLine', purchaseOrderLineId);
+    const contracted = await this.prisma.counterpartyContractLine.aggregate({
+      where: { tenantId, sourceOrderLineId: purchaseOrderLineId, contract: { status: { not: 'CANCELLED' } } },
+      _sum: { quantity: true },
+    });
+    const remaining = new Decimal(poLine.quantity.toString())
+      .minus(poLine.cancelledQuantity.toString())
+      .minus(new Decimal((contracted._sum.quantity ?? 0).toString()));
+    return remaining;
+  }
+
+  /** Creates a contract from a CONFIRMED (posted) Purchase Order (spec
+   * section 11): counterparty, product/description/quantity/unit/price/
+   * currency are copied straight onto contract lines, each keeping
+   * `sourceOrderLineId` so both directions of traceability work — "hansı
+   * alış sifarişi sətrindən yarandığı müəyyən edilə bilsin". Requesting
+   * more than a PO line's live remaining quantity (across every
+   * non-cancelled contract already drawing on it) is rejected —
+   * "səhvən bir neçə aktiv müqaviləyə tam həcmdə əlavə edilməsi"
+   * is exactly what `remainingForPurchaseOrderLine` prevents. Omitting
+   * `lines` takes every PO line at its full remaining quantity. */
+  async createFromPurchaseOrder(tenantId: string, membershipId: string, organizationId: string, userId: string, input: { purchaseOrderId: string; number: string; subject?: string; lines?: { purchaseOrderLineId: string; quantity?: number }[] }) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const po = await this.prisma.purchaseOrder.findFirst({ where: { id: input.purchaseOrderId, organizationId }, include: { lines: { orderBy: { position: 'asc' } } } });
+    if (!po) throw new NotFoundAppError('PurchaseOrder', input.purchaseOrderId);
+    if (po.postingStatus !== 'POSTED') throw new ValidationAppError('Only a confirmed (posted) purchase order can be used to create a contract');
+
+    const existing = await this.prisma.counterpartyContract.findUnique({ where: { counterpartyId_number: { counterpartyId: po.counterpartyId, number: input.number } } });
+    if (existing) throw new ConflictAppError(`A contract with number ${input.number} already exists for this counterparty`);
+
+    const requested = input.lines && input.lines.length > 0
+      ? input.lines
+      : po.lines.map((l) => ({ purchaseOrderLineId: l.id, quantity: undefined }));
+
+    const resolvedLines: { poLine: (typeof po.lines)[number]; quantity: Decimal }[] = [];
+    for (const req of requested) {
+      const poLine = po.lines.find((l) => l.id === req.purchaseOrderLineId);
+      if (!poLine) throw new ValidationAppError(`Purchase order line not found: ${req.purchaseOrderLineId}`);
+      const remaining = await this.remainingForPurchaseOrderLine(tenantId, poLine.id);
+      const quantity = req.quantity != null ? new Decimal(req.quantity.toString()) : remaining;
+      if (!quantity.isFinite() || quantity.lte(0)) throw new ValidationAppError('Contracted quantity must be positive');
+      if (quantity.gt(remaining)) {
+        throw new ValidationAppError(`Requested quantity ${quantity.toString()} exceeds the purchase order line's remaining quantity ${remaining.toString()}`);
+      }
+      resolvedLines.push({ poLine, quantity });
+    }
+    if (resolvedLines.length === 0) throw new ValidationAppError('No purchase order lines to contract');
+
+    const contract = await this.prisma.counterpartyContract.create({
+      data: {
+        tenantId, organizationId, counterpartyId: po.counterpartyId, createdBy: userId, updatedBy: userId,
+        number: input.number, subject: input.subject ?? `Contract for ${po.number ?? po.id}`,
+        currencyId: po.currencyId, priceIncludesTax: po.priceIncludesTax,
+        sourcePurchaseOrderId: po.id,
+      },
+    });
+
+    for (const [index, { poLine, quantity }] of resolvedLines.entries()) {
+      const line = await this.prisma.counterpartyContractLine.create({
+        data: {
+          tenantId, contractId: contract.id, position: index,
+          productId: poLine.productId, description: poLine.description, quantity,
+          unitId: poLine.unitId, unitPrice: poLine.price, discountPercent: 0,
+          sourceOrderLineId: poLine.id,
+        },
+      });
+      await this.recalculateLine(tenantId, organizationId, po.counterpartyId, line.id, contract);
+    }
+    await this.recalculateContractTotals(tenantId, contract.id);
+
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_CONTRACT_CREATED_FROM_PURCHASE_ORDER', entityType: 'CounterpartyContract',
+      entityId: contract.id, action: 'CREATE', userId,
+      newValues: { number: contract.number, purchaseOrderId: po.id, lineCount: resolvedLines.length },
+    });
+    return this.get(tenantId, membershipId, organizationId, contract.id);
+  }
+
+  // -- Approval (spec sections 8, 14) ------------------------------------------
+
+  /** Approval gate. Extends the original section-8/section-5 field list
+   * with section 14's additions: a linked purchase order, at least one
+   * complete nomenclature line, the counterparty's own tax status
+   * resolved (its own approval already required this), tax calculation
+   * completed on every line, and at least one document uploaded. */
   async approve(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, expectedVersion: number) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     const contract = await this.get(tenantId, membershipId, organizationId, id);
     if (contract.status === 'APPROVED' || contract.status === 'ACTIVE') throw new ValidationAppError(`Contract is already ${contract.status}`);
     if (contract.status === 'CANCELLED') throw new ValidationAppError('Cannot approve a cancelled contract');
 
-    const missing = this.missingRequiredFields(contract);
+    const documentCount = await this.prisma.counterpartyDocument.count({ where: { tenantId, ownerType: 'CONTRACT', ownerId: id, active: true } });
+    const counterparty = await this.prisma.counterparty.findFirst({ where: { id: contract.counterpartyId } });
+
+    const missing = await this.missingRequiredFields(contract, documentCount, counterparty);
     if (missing.length > 0) {
       const fieldErrors: Record<string, string[]> = {};
       for (const f of missing) fieldErrors[f] = ['Required for approval'];
@@ -134,6 +535,13 @@ export class CounterpartyContractService {
 
   // -- helpers ----------------------------------------------------------------
 
+  private async requireEditable(tenantId: string, membershipId: string, organizationId: string, id: string) {
+    const contract = await this.get(tenantId, membershipId, organizationId, id);
+    if (contract.status === 'APPROVED' || contract.status === 'ACTIVE') throw new ValidationAppError('Unapprove the contract before editing its lines');
+    if (contract.status === 'CANCELLED') throw new ValidationAppError('Cannot edit a cancelled contract');
+    return contract;
+  }
+
   private async assertCurrency(currencyId: string) {
     const cur = await this.prisma.currency.findUnique({ where: { id: currencyId } });
     if (!cur) throw new ValidationAppError('Currency not found');
@@ -144,7 +552,7 @@ export class CounterpartyContractService {
     if (!person) throw new ValidationAppError('Responsible person not found');
   }
 
-  private missingRequiredFields(contract: any): string[] {
+  private async missingRequiredFields(contract: any, documentCount: number, counterparty: { id: string; status: string; vatPayer: boolean } | null): Promise<string[]> {
     const missing: string[] = [];
     if (!contract.number?.trim()) missing.push('number');
     if (!contract.subject?.trim()) missing.push('subject');
@@ -156,6 +564,39 @@ export class CounterpartyContractService {
     if (!contract.currencyId) missing.push('currencyId');
     if (!contract.paymentTerms?.trim()) missing.push('paymentTerms');
     if (!contract.responsiblePersonId) missing.push('responsiblePersonId');
+
+    // spec section 14 additions
+    if (!contract.sourcePurchaseOrderId) missing.push('sourcePurchaseOrderId');
+    if (documentCount === 0) missing.push('documents');
+    if (!contract.deliveryTerms?.trim()) missing.push('deliveryTerms');
+    if (!contract.lines || contract.lines.length === 0) {
+      missing.push('lines');
+    } else {
+      let anyLineIncomplete = false;
+      let anyTaxIncomplete = false;
+      for (const line of contract.lines) {
+        if (!line.productId || !(Number(line.quantity) > 0) || !line.unitId || line.unitPrice == null) anyLineIncomplete = true;
+        if (line.taxCalculationError || line.taxAmount == null) anyTaxIncomplete = true;
+      }
+      if (anyLineIncomplete) missing.push('lineDetails');
+      if (anyTaxIncomplete) missing.push('taxCalculation');
+
+      const lineTotalSum = round2(contract.lines.reduce((s: Decimal, l: any) => s.plus(l.lineTotal != null ? l.lineTotal.toString() : 0), new Decimal(0)));
+      if (contract.amount != null && !round2(new Decimal(contract.amount.toString())).equals(lineTotalSum)) {
+        missing.push('amountMismatch');
+      }
+    }
+
+    if (!counterparty) {
+      missing.push('counterpartyTaxStatus');
+    } else if (counterparty.status !== 'APPROVED' && counterparty.status !== 'ACTIVE') {
+      // "Kontragentin vergi statusu müəyyən edilməlidir" — the
+      // counterparty's OWN approval already required residency + VÖEN-or-
+      // foreign-tax-id, so an unapproved counterparty's tax status counts
+      // as undetermined here.
+      missing.push('counterpartyTaxStatus');
+    }
+
     return missing;
   }
 }

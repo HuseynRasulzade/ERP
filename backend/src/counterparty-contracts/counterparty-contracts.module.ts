@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { OrgStructureModule } from '../org-structure/org-structure.module';
 import { CounterpartyPricingModule } from '../counterparty-pricing/counterparty-pricing.module';
+import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 
 import { CounterpartyContractService } from './counterparty-contract.service';
 import { CounterpartyContractsForCounterpartyController, CounterpartyContractController } from './counterparty-contract.controller';
@@ -20,7 +21,7 @@ import { CounterpartyDocumentController } from './counterparty-document.controll
  * a contract's owning counterparty. See docs/COUNTERPARTY_MANAGEMENT.md.
  */
 @Module({
-  imports: [AuditModule, OrgStructureModule, CounterpartyPricingModule],
+  imports: [AuditModule, OrgStructureModule, CounterpartyPricingModule, TaxEngineModule],
   controllers: [
     CounterpartyContractsForCounterpartyController,
     CounterpartyContractController,

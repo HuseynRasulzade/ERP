@@ -1,4 +1,5 @@
-import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested, ArrayMinSize, IsArray } from 'class-validator';
+import { Type } from 'class-transformer';
 
 const STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRED', 'CANCELLED'];
 
@@ -14,6 +15,19 @@ export class CreateCounterpartyContractDto {
   @IsOptional() @IsString() paymentTerms?: string;
   @IsOptional() @IsString() responsiblePersonId?: string;
   @IsOptional() @IsString() notes?: string;
+
+  // Commercial / delivery terms (spec section 10)
+  @IsOptional() @IsBoolean() hasAdvance?: boolean;
+  @IsOptional() @IsNumber() advancePercent?: number;
+  @IsOptional() @IsInt() remainingPaymentDueDays?: number;
+  @IsOptional() @IsDateString() deliveryDate?: string;
+  @IsOptional() @IsInt() deliveryTermDays?: number;
+  @IsOptional() @IsString() deliveryAddress?: string;
+  @IsOptional() @IsString() deliveryTerms?: string;
+  @IsOptional() @IsString() warrantyPeriod?: string;
+  @IsOptional() @IsString() penaltyTerms?: string;
+  @IsOptional() @IsString() otherTerms?: string;
+  @IsOptional() @IsBoolean() priceIncludesTax?: boolean;
 }
 
 export class UpdateCounterpartyContractDto {
@@ -28,7 +42,77 @@ export class UpdateCounterpartyContractDto {
   @IsOptional() @IsString() responsiblePersonId?: string;
   @IsOptional() @IsString() notes?: string;
 
+  @IsOptional() @IsBoolean() hasAdvance?: boolean;
+  @IsOptional() @IsInt() remainingPaymentDueDays?: number;
+  @IsOptional() @IsDateString() deliveryDate?: string;
+  @IsOptional() @IsInt() deliveryTermDays?: number;
+  @IsOptional() @IsString() deliveryAddress?: string;
+  @IsOptional() @IsString() deliveryTerms?: string;
+  @IsOptional() @IsString() warrantyPeriod?: string;
+  @IsOptional() @IsString() penaltyTerms?: string;
+  @IsOptional() @IsString() otherTerms?: string;
+  @IsOptional() @IsBoolean() priceIncludesTax?: boolean;
+
   @IsInt() @Min(1) expectedVersion!: number;
+}
+
+export class CreateContractLineDto {
+  @IsString() productId!: string;
+  @IsString() unitId!: string;
+  @IsNumber() quantity!: number;
+  @IsOptional() @IsNumber() unitPrice?: number;
+  @IsOptional() @IsNumber() discountPercent?: number;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() sourceOrderLineId?: string;
+}
+
+export class UpdateContractLineDto {
+  @IsOptional() @IsString() unitId?: string;
+  @IsOptional() @IsNumber() quantity?: number;
+  @IsOptional() @IsNumber() unitPrice?: number;
+  @IsOptional() @IsNumber() discountPercent?: number;
+  @IsOptional() @IsString() description?: string;
+
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+export class SetContractAdvanceDto {
+  @IsOptional() @IsBoolean() hasAdvance?: boolean;
+  @IsOptional() @IsNumber() advancePercent?: number | null;
+  @IsOptional() @IsNumber() advanceAmount?: number | null;
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+export class PaymentInstallmentItemDto {
+  @IsDateString() dueDate!: string;
+  @IsIn(['ADVANCE', 'AFTER_DELIVERY', 'AFTER_INVOICE'])
+  basis!: string;
+  @IsOptional() @IsNumber() percentage?: number;
+  @IsOptional() @IsNumber() amount?: number;
+}
+
+export class GenerateContractPaymentScheduleDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => PaymentInstallmentItemDto)
+  installments!: PaymentInstallmentItemDto[];
+}
+
+export class CreateContractFromPurchaseOrderLineDto {
+  @IsString() purchaseOrderLineId!: string;
+  @IsOptional() @IsNumber() quantity?: number;
+}
+
+export class CreateContractFromPurchaseOrderDto {
+  @IsString() purchaseOrderId!: string;
+  @IsString() number!: string;
+  @IsOptional() @IsString() subject?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateContractFromPurchaseOrderLineDto)
+  lines?: CreateContractFromPurchaseOrderLineDto[];
 }
 
 export class SetContractStatusDto {

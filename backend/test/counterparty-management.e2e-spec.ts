@@ -231,21 +231,22 @@ describe('Kontragentlər — Counterparty Management (e2e)', () => {
       expect(Object.keys(res.body.fieldErrors).length).toBeGreaterThan(0);
     });
 
-    it('approves a fully completed contract and records the approver/date', async () => {
+    it('fills every section-5 header field but still blocks approval without a purchase order link, lines, and a document (spec section 14)', async () => {
       const updated = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/contracts/${contractId}`))
         .send({
           expectedVersion: 1, contractType: 'SUPPLY', signedDate: '2026-01-10', startDate: '2026-01-15', endDate: '2026-12-31',
-          amount: 50000, currencyId, paymentTerms: 'NET 30', responsiblePersonId,
+          amount: 50000, currencyId, paymentTerms: 'NET 30', responsiblePersonId, deliveryTerms: 'EXW warehouse',
         })
         .expect(200);
       expect(updated.body.version).toBe(2);
 
-      const approved = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contractId}/approve`))
+      const res = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contractId}/approve`))
         .send({ expectedVersion: 2 })
-        .expect(201);
-      expect(approved.body.status).toBe('APPROVED');
-      expect(approved.body.approvedBy).toBeTruthy();
-      expect(approved.body.approvedAt).toBeTruthy();
+        .expect(400);
+      expect(res.body.fieldErrors).toHaveProperty('sourcePurchaseOrderId');
+      expect(res.body.fieldErrors).toHaveProperty('lines');
+      // See test/counterparty-contract-terms.e2e-spec.ts for the full
+      // happy path (PO-sourced lines + tax + document -> approval succeeds).
     });
   });
 
