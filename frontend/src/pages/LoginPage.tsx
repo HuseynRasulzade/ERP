@@ -3,10 +3,13 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../i18n/LocaleContext';
+import { LanguageSwitch } from '../components/LanguageSwitch';
 
 export function LoginPage() {
   const { login } = useAuth();
   const { showError } = useToast();
+  const { t } = useLocale();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,21 +30,28 @@ export function LoginPage() {
 
   return (
     <div className="auth-page">
+      <div style={{ position: 'absolute', top: 20, right: 24 }}>
+        <LanguageSwitch />
+      </div>
       <form className="auth-card" onSubmit={onSubmit}>
-        <h1>Sign in</h1>
+        <div className="auth-brand">
+          <span className="logo-mark">E</span>
+          <strong>{t.brand}</strong>
+        </div>
+        <h1>{t.auth.signIn}</h1>
         <label>
-          Email
+          {t.auth.email}
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         <label>
-          Password
+          {t.auth.password}
           <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Signing in…' : 'Sign in'}
+        <button type="submit" className="primary" disabled={submitting}>
+          {submitting ? t.auth.signingIn : t.auth.signIn}
         </button>
         <p className="auth-switch">
-          No account? <Link to="/register">Register</Link>
+          {t.auth.noAccount} <Link to="/register">{t.auth.register}</Link>
         </p>
       </form>
     </div>

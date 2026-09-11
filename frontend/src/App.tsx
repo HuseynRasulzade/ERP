@@ -3,6 +3,7 @@ import './App.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { OrganizationProvider } from './context/OrganizationContext';
+import { LocaleProvider } from './i18n/LocaleContext';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -17,6 +18,26 @@ import { OrganizationsPage } from './pages/org/OrganizationsPage';
 import { OrganizationDetailPage } from './pages/org/OrganizationDetailPage';
 import { SalesDocumentListPage } from './pages/sales/SalesDocumentListPage';
 import { SalesDocumentDetailPage } from './pages/sales/SalesDocumentDetailPage';
+
+// Phase 6 — Sales Pre-Order
+import { CustomerRequestListPage, CustomerRequestDetailPage } from './pages/preorder/CustomerRequestPage';
+import { CommercialOfferListPage, CommercialOfferDetailPage } from './pages/preorder/CommercialOfferPage';
+
+// Phase 7 — Sales Execution
+import { ShipmentListPage, ShipmentDetailPage } from './pages/execution/ShipmentPage';
+import { SalesReturnListPage, SalesReturnDetailPage } from './pages/execution/SalesReturnPage';
+
+// Phase 8 — Procurement
+import { PurchaseRequirementListPage, PurchaseRequirementDetailPage } from './pages/procurement/PurchaseRequirementPage';
+import { PurchaseOrderListPage, PurchaseOrderDetailPage } from './pages/procurement/PurchaseOrderPage';
+import { SupplierProductCodePage } from './pages/procurement/SupplierProductCodePage';
+
+// Phase 9 — Purchase Execution
+import { GoodsReceiptListPage, GoodsReceiptDetailPage } from './pages/purchasing/GoodsReceiptPage';
+import { PurchaseInvoiceListPage, PurchaseInvoiceDetailPage } from './pages/purchasing/PurchaseInvoicePage';
+import { PurchaseReturnListPage, PurchaseReturnDetailPage } from './pages/purchasing/PurchaseReturnPage';
+import { AdditionalPurchaseCostListPage, AdditionalPurchaseCostDetailPage } from './pages/purchasing/AdditionalPurchaseCostPage';
+import { PurchaseReportsPage } from './pages/purchasing/PurchaseReportsPage';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -47,10 +68,38 @@ function AppRoutes() {
       >
         <Route path="/documents" element={<DocumentsListPage />} />
         <Route path="/documents/:id" element={<DocumentDetailPage />} />
+
         <Route path="/sales-orders" element={<SalesDocumentListPage kind="order" />} />
         <Route path="/sales-orders/:id" element={<SalesDocumentDetailPage kind="order" />} />
         <Route path="/sales-invoices" element={<SalesDocumentListPage kind="invoice" />} />
         <Route path="/sales-invoices/:id" element={<SalesDocumentDetailPage kind="invoice" />} />
+
+        <Route path="/customer-requests" element={<CustomerRequestListPage />} />
+        <Route path="/customer-requests/:id" element={<CustomerRequestDetailPage />} />
+        <Route path="/commercial-offers" element={<CommercialOfferListPage />} />
+        <Route path="/commercial-offers/:id" element={<CommercialOfferDetailPage />} />
+
+        <Route path="/shipments" element={<ShipmentListPage />} />
+        <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
+        <Route path="/sales-returns" element={<SalesReturnListPage />} />
+        <Route path="/sales-returns/:id" element={<SalesReturnDetailPage />} />
+
+        <Route path="/purchase-requirements" element={<PurchaseRequirementListPage />} />
+        <Route path="/purchase-requirements/:id" element={<PurchaseRequirementDetailPage />} />
+        <Route path="/purchase-orders" element={<PurchaseOrderListPage />} />
+        <Route path="/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
+        <Route path="/supplier-product-codes" element={<SupplierProductCodePage />} />
+
+        <Route path="/goods-receipts" element={<GoodsReceiptListPage />} />
+        <Route path="/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
+        <Route path="/purchase-invoices" element={<PurchaseInvoiceListPage />} />
+        <Route path="/purchase-invoices/:id" element={<PurchaseInvoiceDetailPage />} />
+        <Route path="/purchase-returns" element={<PurchaseReturnListPage />} />
+        <Route path="/purchase-returns/:id" element={<PurchaseReturnDetailPage />} />
+        <Route path="/additional-costs" element={<AdditionalPurchaseCostListPage />} />
+        <Route path="/additional-costs/:id" element={<AdditionalPurchaseCostDetailPage />} />
+        <Route path="/purchase-reports" element={<PurchaseReportsPage />} />
+
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />
         <Route path="/periods" element={<PeriodsPage />} />
@@ -66,13 +115,15 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ToastProvider>
-        <AuthProvider>
-          <OrganizationProvider>
-            <AppRoutes />
-          </OrganizationProvider>
-        </AuthProvider>
-      </ToastProvider>
+      <LocaleProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <OrganizationProvider>
+              <AppRoutes />
+            </OrganizationProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </LocaleProvider>
     </BrowserRouter>
   );
 }

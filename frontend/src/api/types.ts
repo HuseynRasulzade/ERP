@@ -339,3 +339,63 @@ export interface SalesLineDraft {
   taxRate: string;
   description: string;
 }
+
+// ---------------------------------------------------------------------------
+// Phases 6-9 — Sales Pre-Order/Execution, Procurement, Purchase Execution.
+// Loosely typed on purpose: these document shapes vary per kind (extra
+// header fields, line source references, lineType) and the backend is
+// already the source of truth for validation — the UI only needs to read
+// common fields safely and pass the rest through untouched.
+// ---------------------------------------------------------------------------
+
+export interface BizLine {
+  id?: string;
+  position?: number;
+  productId?: string;
+  unitId?: string;
+  quantity?: string;
+  price?: string;
+  taxRate?: string;
+  lineTotal?: string;
+  taxAmount?: string;
+  lineTotalWithTax?: string;
+  warehouseId?: string | null;
+  description?: string | null;
+  lineType?: string;
+  reason?: string | null;
+  [key: string]: unknown;
+}
+
+export interface BizDoc {
+  id: string;
+  number: string | null;
+  documentDate: string;
+  postingDate?: string | null;
+  status: DocumentStatus;
+  postingStatus: PostingStatus;
+  counterpartyId?: string;
+  currencyId?: string | null;
+  warehouseId?: string | null;
+  description: string | null;
+  subtotal?: string;
+  taxTotal?: string;
+  grandTotal?: string;
+  totalCost?: string;
+  priceIncludesTax?: boolean;
+  version: number;
+  postedAt?: string | null;
+  lines?: BizLine[];
+  targetLines?: BizLine[];
+  [key: string]: unknown;
+}
+
+export interface LineDraft {
+  productId: string;
+  unitId: string;
+  quantity: string;
+  price: string;
+  taxRate: string;
+  warehouseId: string;
+  description: string;
+  lineType: string;
+}
