@@ -7,6 +7,12 @@ export class ShipmentLineDto {
   @IsString() unitId!: string;
   @IsNumberString() quantity!: string;
   @IsOptional() @IsString() warehouseId?: string;
+  // Phase 10 — batch/serial issue (spec sections 19-23). `batchId` picks
+  // an existing Batch to issue from; `serialNumbers` names the specific
+  // existing serials to issue (each validated AVAILABLE at this
+  // shipment's warehouse at posting time).
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) serialNumbers?: string[];
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -33,6 +39,10 @@ export class SalesReturnLineDto {
   @IsString() productId!: string;
   @IsString() unitId!: string;
   @IsNumberString() quantity!: string;
+  // Phase 10 — the returned batch/serials come back into stock at the
+  // return's warehouse (see BatchSerialService.returnSerials).
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) serialNumbers?: string[];
   @IsOptional() @IsString() reason?: string;
 }
 

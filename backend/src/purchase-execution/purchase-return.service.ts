@@ -7,6 +7,7 @@ import { OrganizationAccessService } from '../org-structure/organization-access.
 import { NotFoundAppError, PurchaseReturnSourceRequiredError, ValidationAppError } from '../common/errors/app-error';
 import { PURCHASE_RETURN_TYPE } from './purchase-return.repository';
 import { CreatePurchaseReturnDto } from './dto/purchase-execution.dto';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'PRTN';
 const SUPPLIER_TYPES = ['SUPPLIER', 'BOTH'];
@@ -18,6 +19,7 @@ export class PurchaseReturnService {
     private readonly numbering: NumberingService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -77,7 +79,7 @@ export class PurchaseReturnService {
       });
 
       for (const [index, line] of dto.lines.entries()) {
-        await tx.purchaseReturnLine.create({
+        const created = await tx.purchaseReturnLine.create({
           data: {
             tenantId,
             purchaseReturnId: header.id,
@@ -88,9 +90,13 @@ export class PurchaseReturnService {
             unitId: line.unitId,
             quantity: new Decimal(line.quantity.toString()),
             originalUnitPrice: new Decimal(line.originalUnitPrice.toString()),
+            batchId: line.batchId,
             reason: line.reason,
           },
         });
+        if (line.serialNumbers?.length) {
+          await this.batchSerial.captureSerials(tenantId, PURCHASE_RETURN_TYPE, created.id, line.serialNumbers, tx);
+        }
       }
 
       await this.audit.record(

@@ -149,15 +149,10 @@ accounting consequence.
   is the sole negative-stock policy authority, not the spec's three-state
   `NEVER | WITH_PERMISSION | ALLOWED` enum. `Product.allowNegativeStock`
   (also pre-existing) is reserved but unused.
-- **No batch/serial capture UI wiring yet** in `GoodsReceiptService`/
-  `ShipmentService`/etc. — the `Batch`/`SerialNumber` models, their
-  relations on every receipt/shipment/return line, and
-  `getStockByBatch`/`getStockBySerial`/serial-history reporting all
-  exist and are exercised by `InventoryAdjustment`/`WarehouseTransfer`'s
-  own optional `batchId` field, but automatic batch-creation-on-receipt
-  and mandatory serial-count validation against
-  `Product.batchTrackingMode`/`serialTrackingMode` are not yet wired into
-  the Phase 7/9 document services. Tracked as follow-up work.
+- **Batch/serial capture is wired** into `GoodsReceiptService`/
+  `ShipmentService`/`SalesReturnService`/`PurchaseReturnService` via one
+  shared `BatchSerialService` (see section H below) rather than four
+  copies of the same logic.
 - **No snapshot/partitioning optimization** on `InventoryMovement` — every
   read is a live aggregate over the full table, same tradeoff every other
   register in this codebase already makes.
@@ -200,7 +195,60 @@ declared for RBAC configurability (spec section 65's own list) but not
 yet wired to a distinct enforcement point, matching how e.g.
 `PURCHASE_RETURN` already coexists with the generic posting permissions.
 
-## G. Phase 11 readiness
+## G. Batch/serial capture (spec sections 19-23)
+
+`BatchSerialService` (`src/warehouse-inventory/batch-serial.service.ts`)
+is the one implementation shared by `GoodsReceiptService`/
+`ShipmentService`/`SalesReturnService`/`PurchaseReturnService` and their
+posting handlers — no per-document duplication.
+
+- **Batches are metadata, resolved at document CREATE time** (find-or-
+  create by `(organizationId, productId, batchNumber)`) — creating one
+  touches no stock, so it is safe before posting. A line's `batchId`
+  then flows straight into `InventoryMovement.batchId` when the line
+  eventually posts.
+- **Serial numbers are captured as raw strings at CREATE time**, via the
+  new `DocumentLineSerial` table (one reusable capture table for all four
+  document types, keyed by `(documentType, lineId)` — same soft-reference
+  convention as `ShipmentLine.sourceOrderLineId`), and only resolved into
+  real `SerialNumber` rows at **POSTING** time:
+  - `receiveSerials` (Goods Receipt, physical return): creates (or
+    reactivates) one `SerialNumber` row per captured string, `AVAILABLE`
+    at the receiving warehouse; a serial already active elsewhere is
+    rejected (`SerialDuplicateError`).
+  - `issueSerials` (Shipment, Purchase Return): every captured serial
+    must already exist, be `AVAILABLE`, and sit in the issuing warehouse
+    — never trusts the draft's own capture (`SerialNotAvailableError`/
+    `SerialWrongLocationError`).
+  - `returnSerials` (Sales Return): symmetric to receive, at the return's
+    warehouse.
+- **One `InventoryMovement` row per serial unit** (qty = 1 each) — the
+  posting handlers loop over resolved serial ids instead of writing one
+  aggregated line-quantity movement, satisfying "full history per serial"
+  via a plain ordered query on `InventoryMovement.serialId` (exposed as
+  `GET .../inventory-reports/serials/:serialId/history`).
+- **Unpost is asymmetric by design**: a receipt's unpost deletes the
+  `SerialNumber` rows it created (`undoReceivedSerials` — same delete-on-
+  unpost convention `InventoryMovement` itself uses, safe because nothing
+  else could yet reference a brand-new serial); an issue's unpost
+  restores the serial to `AVAILABLE` at the issuing warehouse
+  (`undoIssuedSerials`); a return's unpost cannot simply delete the row
+  either (it usually already had movement history from the shipment it
+  is reversing) — it reverts the serial to `CONSUMED` instead
+  (`undoReturnedSerials`).
+- `Product.batchTrackingMode`/`serialTrackingMode` (`NONE | OPTIONAL |
+  REQUIRED`) are now exposed on `POST/PATCH /organizations/:id/products`
+  and enforced by `BatchSerialService.validateCapture` (`BatchRequiredError`/
+  `SerialRequiredError`/`SerialCountMismatchError`) before any document is
+  created.
+- Not yet built: a `WarehouseLocation`-level pick (serials/batches
+  capture a warehouse but not yet a specific bin location on issue),
+  and `InternalConsumption`/`InventoryAdjustment`/`InventoryStatusTransfer`
+  still only accept an existing `batchId` (no serial capture wired into
+  those three — they are lower-volume, non-commercial document types
+  where the spec's own examples focus on Goods Receipt/Shipment/Returns).
+
+## H. Phase 11 readiness
 
 `InventoryMovement.provisionalCost`/`costingStatus`/`journalEntryId` are
 reserved, unused columns — Phase 11 (Inventory Costing) is expected to

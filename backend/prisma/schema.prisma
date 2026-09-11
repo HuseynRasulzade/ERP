@@ -127,6 +127,7 @@ model Tenant {
   batches                                 Batch[]
   serialNumbers                            SerialNumber[]
   inventoryMovements                        InventoryMovement[]
+  documentLineSerials                        DocumentLineSerial[]
   warehouseTransfers                         WarehouseTransfer[]
   warehouseTransferLines                      WarehouseTransferLine[]
   internalConsumptions                         InternalConsumption[]
@@ -3777,6 +3778,7 @@ model SerialNumber {
   currentWarehouse Warehouse?         @relation(fields: [currentWarehouseId], references: [id])
   currentLocation  WarehouseLocation? @relation(fields: [currentLocationId], references: [id])
   movements        InventoryMovement[]
+  lineCaptures     DocumentLineSerial[]
 
   @@unique([organizationId, productId, serialNumber])
   @@index([tenantId, status])
@@ -4109,4 +4111,31 @@ model InventoryStatusTransferLine {
 
   @@index([inventoryStatusTransferId, position])
   @@map("inventory_status_transfer_lines")
+}
+
+/// Serial numbers captured on ONE document line, for any of the four
+/// document types that can carry them (GOODS_RECEIPT/SHIPMENT/
+/// SALES_RETURN/PURCHASE_RETURN) — a single reusable table instead of a
+/// bespoke join table per line type (same soft-reference convention as
+/// `ShipmentLine.sourceOrderLineId`). `serialNumber` is captured at
+/// document CREATE time (before any stock exists); `serialId` is filled
+/// in at POSTING time once the posting handler has resolved/created (for
+/// a receipt) or validated (for an issue/return) the real `SerialNumber`
+/// row — see docs/WAREHOUSE_INVENTORY.md "Batch/serial capture".
+model DocumentLineSerial {
+  id           String  @id @default(uuid())
+  tenantId     String  @map("tenant_id")
+  documentType String  @map("document_type")
+  lineId       String  @map("line_id")
+  position     Int     @default(0)
+  serialNumber String  @map("serial_number")
+  serialId     String? @map("serial_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id])
+  serial SerialNumber? @relation(fields: [serialId], references: [id])
+
+  @@index([tenantId, documentType, lineId])
+  @@map("document_line_serials")
 }

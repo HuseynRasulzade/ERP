@@ -37,6 +37,22 @@ export class GoodsReceiptLineItemDto {
   @IsDateString()
   expiryDate?: string;
 
+  // Phase 10 — batch/serial capture (spec sections 19-23). `batchNumber`
+  // find-or-creates a Batch for this product; `serialNumbers` is captured
+  // raw and resolved into real SerialNumber rows at posting time.
+  @IsOptional()
+  @IsString()
+  batchNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  supplierBatchNumber?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[];
+
   @IsOptional()
   @IsString()
   description?: string;
@@ -254,6 +270,18 @@ export class PurchaseReturnLineItemDto {
 
   @IsNumber()
   originalUnitPrice!: number;
+
+  // Phase 10 — goods physically leave the warehouse back to the supplier
+  // (see PurchaseReturnPostingHandler): `batchId` picks an existing
+  // Batch to issue from, `serialNumbers` the specific existing serials.
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[];
 
   @IsOptional()
   @IsIn(['DAMAGED', 'WRONG_ITEM', 'QUALITY_ISSUE', 'EXCESS_DELIVERY', 'EXPIRED', 'CONTRACT_CANCELLATION', 'OTHER'])

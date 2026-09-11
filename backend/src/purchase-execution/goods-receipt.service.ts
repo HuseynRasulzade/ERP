@@ -7,6 +7,7 @@ import { OrganizationAccessService } from '../org-structure/organization-access.
 import { ConcurrencyConflictError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { GOODS_RECEIPT_TYPE } from './goods-receipt.repository';
 import { CreateGoodsReceiptDto, GoodsReceiptLineItemDto } from './dto/purchase-execution.dto';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'GR';
 const SUPPLIER_TYPES = ['SUPPLIER', 'BOTH'];
@@ -23,6 +24,8 @@ interface ResolvedGRLine {
   customsDeclaration?: string;
   expiryDate?: Date;
   description?: string;
+  batchId?: string;
+  serialNumbers?: string[];
 }
 
 /**
@@ -40,6 +43,7 @@ export class GoodsReceiptService {
     private readonly numbering: NumberingService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -93,7 +97,7 @@ export class GoodsReceiptService {
       });
 
       for (const [index, line] of lines.entries()) {
-        await tx.goodsReceiptLine.create({
+        const created = await tx.goodsReceiptLine.create({
           data: {
             tenantId,
             goodsReceiptId: header.id,
@@ -108,10 +112,14 @@ export class GoodsReceiptService {
             countryOfOrigin: line.countryOfOrigin,
             customsDeclaration: line.customsDeclaration,
             expiryDate: line.expiryDate,
+            batchId: line.batchId,
             description: line.description,
             createdBy: userId,
           },
         });
+        if (line.serialNumbers?.length) {
+          await this.batchSerial.captureSerials(tenantId, GOODS_RECEIPT_TYPE, created.id, line.serialNumbers, tx);
+        }
       }
 
       await this.audit.record(
@@ -151,7 +159,7 @@ export class GoodsReceiptService {
       if (resolved) {
         await tx.goodsReceiptLine.deleteMany({ where: { goodsReceiptId: id } });
         for (const [index, line] of resolved.entries()) {
-          await tx.goodsReceiptLine.create({
+          const created = await tx.goodsReceiptLine.create({
             data: {
               tenantId,
               goodsReceiptId: id,
@@ -166,10 +174,14 @@ export class GoodsReceiptService {
               countryOfOrigin: line.countryOfOrigin,
               customsDeclaration: line.customsDeclaration,
               expiryDate: line.expiryDate,
+              batchId: line.batchId,
               description: line.description,
               createdBy: userId,
             },
           });
+          if (line.serialNumbers?.length) {
+            await this.batchSerial.captureSerials(tenantId, GOODS_RECEIPT_TYPE, created.id, line.serialNumbers, tx);
+          }
         }
       }
 
@@ -206,6 +218,20 @@ export class GoodsReceiptService {
       const unit = await this.prisma.unitOfMeasure.findFirst({ where: { id: line.unitId, tenantId } });
       if (!unit) throw new ValidationAppError('Unit of measure not found');
 
+      this.batchSerial.validateCapture(product, line.batchNumber, line.serialNumbers, quantity.toNumber());
+      let batchId: string | undefined;
+      if (line.batchNumber) {
+        batchId = await this.batchSerial.resolveOrCreateBatch(
+          tenantId,
+          organizationId,
+          line.productId,
+          product.code,
+          line.batchNumber,
+          { expiryDate: line.expiryDate ? new Date(line.expiryDate) : undefined, supplierBatchNumber: line.supplierBatchNumber },
+          this.prisma,
+        );
+      }
+
       let price: Decimal;
       if (line.price !== undefined) {
         price = new Decimal(line.price.toString());
@@ -229,6 +255,8 @@ export class GoodsReceiptService {
         customsDeclaration: line.customsDeclaration,
         expiryDate: line.expiryDate ? new Date(line.expiryDate) : undefined,
         description: line.description,
+        batchId,
+        serialNumbers: line.serialNumbers,
       });
     }
     return resolved;

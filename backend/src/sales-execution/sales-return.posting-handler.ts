@@ -17,6 +17,7 @@ import { AccountingPostingLineInput } from '../accounting-core/accounting-postin
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -51,6 +52,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
     private readonly inventory: InventoryLedgerService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -187,20 +189,34 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
 
     if (ret.returnType === 'PHYSICAL_RETURN' && ret.warehouseId) {
       for (const line of ret.lines) {
-        await this.inventory.recordMovement(
-          tenantId,
-          {
-            productId: line.productId,
-            warehouseId: ret.warehouseId,
-            quantity: line.quantity.toString(),
-            movementType: 'RECEIPT',
-            businessDate,
-            sourceDocumentType: SALES_RETURN_TYPE,
-            sourceDocumentId: ret.id,
-            sourceLineId: line.id,
-          },
-          tx,
-        );
+        const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, SALES_RETURN_TYPE, line.id, tx);
+
+        if (capturedSerials.length > 0) {
+          const serialIds = await this.batchSerial.returnSerials(tenantId, organizationId, line.productId, ret.warehouseId, undefined, SALES_RETURN_TYPE, line.id, tx);
+          for (const serialId of serialIds) {
+            await this.inventory.recordMovement(
+              tenantId,
+              { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'RECEIPT', businessDate, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
+              tx,
+            );
+          }
+        } else {
+          await this.inventory.recordMovement(
+            tenantId,
+            {
+              productId: line.productId,
+              warehouseId: ret.warehouseId,
+              quantity: line.quantity.toString(),
+              movementType: 'RECEIPT',
+              businessDate,
+              sourceDocumentType: SALES_RETURN_TYPE,
+              sourceDocumentId: ret.id,
+              sourceLineId: line.id,
+              batchId: line.batchId,
+            },
+            tx,
+          );
+        }
       }
     }
 
@@ -214,5 +230,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
+    const lineIds = (await tx.salesReturnLine.findMany({ where: { tenantId, salesReturnId: document.id }, select: { id: true } })).map((l) => l.id);
+    await this.batchSerial.undoReturnedSerials(tenantId, SALES_RETURN_TYPE, lineIds, tx);
   }
 }

@@ -1,4 +1,6 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+
+const TRACKING_MODES = ['NONE', 'OPTIONAL', 'REQUIRED'];
 
 export class CreateProductDto {
   @IsString() code!: string;
@@ -19,6 +21,10 @@ export class CreateProductDto {
   @IsOptional() @IsString() volumeUnitId?: string;
   @IsOptional() @IsBoolean() trackInventory?: boolean;
   @IsOptional() @IsBoolean() allowNegativeStock?: boolean;
+  // Phase 10 — batch/serial capture policy (spec sections 19-23), enforced
+  // by BatchSerialService.validateCapture on Goods Receipt/Shipment/Returns.
+  @IsOptional() @IsIn(TRACKING_MODES) batchTrackingMode?: string;
+  @IsOptional() @IsIn(TRACKING_MODES) serialTrackingMode?: string;
 }
 
 export class UpdateProductDto {
@@ -39,6 +45,8 @@ export class UpdateProductDto {
   @IsOptional() @IsString() volumeUnitId?: string;
   @IsOptional() @IsBoolean() trackInventory?: boolean;
   @IsOptional() @IsBoolean() allowNegativeStock?: boolean;
+  @IsOptional() @IsIn(TRACKING_MODES) batchTrackingMode?: string;
+  @IsOptional() @IsIn(TRACKING_MODES) serialTrackingMode?: string;
 
   @IsInt() @Min(1) expectedVersion!: number;
 }

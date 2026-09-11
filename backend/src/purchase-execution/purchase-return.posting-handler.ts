@@ -14,6 +14,7 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from '../sales-execution/inventory-ledger.service';
 import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -49,6 +50,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     private readonly mappings: AccountingMappingService,
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -189,11 +191,25 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     // known — always for a physical return (goods actually leave).
     if (ret.warehouseId) {
       for (const line of ret.lines) {
-        await this.inventory.recordMovement(
-          tenantId,
-          { productId: line.productId, warehouseId: ret.warehouseId, quantity: line.quantity.toString(), movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id },
-          tx,
-        );
+        const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, PURCHASE_RETURN_TYPE, line.id, tx);
+
+        if (capturedSerials.length > 0) {
+          const warehouse = await tx.warehouse.findFirst({ where: { id: ret.warehouseId, tenantId } });
+          const serialIds = await this.batchSerial.issueSerials(tenantId, organizationId, line.productId, ret.warehouseId, warehouse?.code ?? ret.warehouseId, PURCHASE_RETURN_TYPE, line.id, tx);
+          for (const serialId of serialIds) {
+            await this.inventory.recordMovement(
+              tenantId,
+              { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
+              tx,
+            );
+          }
+        } else {
+          await this.inventory.recordMovement(
+            tenantId,
+            { productId: line.productId, warehouseId: ret.warehouseId, quantity: line.quantity.toString(), movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId },
+            tx,
+          );
+        }
       }
     }
 
@@ -220,6 +236,11 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     await this.inventory.deleteMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
+    const ret = await tx.purchaseReturn.findFirst({ where: { id: document.id, tenantId } });
+    if (ret?.warehouseId) {
+      const lineIds = (await tx.purchaseReturnLine.findMany({ where: { tenantId, purchaseReturnId: document.id }, select: { id: true } })).map((l) => l.id);
+      await this.batchSerial.undoIssuedSerials(tenantId, PURCHASE_RETURN_TYPE, lineIds, ret.warehouseId, tx);
+    }
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: PURCHASE_RETURN_TYPE, targetDocumentId: document.id } });
   }
 }

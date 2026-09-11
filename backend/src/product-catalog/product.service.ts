@@ -26,6 +26,8 @@ export interface ProductInput {
   volumeUnitId?: string;
   trackInventory?: boolean;
   allowNegativeStock?: boolean;
+  batchTrackingMode?: string;
+  serialTrackingMode?: string;
 }
 
 /**

@@ -6,6 +6,7 @@ import { OrganizationAccessService } from '../org-structure/organization-access.
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { SHIPMENT_TYPE } from './shipment.repository';
 import { CreateShipmentDto } from './dto/sales-execution.dto';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'SHP';
 const CUSTOMER_TYPES = ['CUSTOMER', 'BOTH'];
@@ -23,6 +24,7 @@ export class ShipmentService {
     private readonly numbering: NumberingService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -71,8 +73,14 @@ export class ShipmentService {
       });
 
       for (const [index, line] of dto.lines.entries()) {
-        if (Number(line.quantity) <= 0) throw new ValidationAppError('Shipment line quantity must be positive');
-        await tx.shipmentLine.create({
+        const quantity = Number(line.quantity);
+        if (quantity <= 0) throw new ValidationAppError('Shipment line quantity must be positive');
+
+        const product = await tx.product.findFirst({ where: { id: line.productId, tenantId } });
+        if (!product) throw new ValidationAppError('Shipment line references an unknown product');
+        this.batchSerial.validateCapture(product, line.batchId, line.serialNumbers, quantity);
+
+        const created = await tx.shipmentLine.create({
           data: {
             tenantId,
             shipmentId: header.id,
@@ -82,9 +90,13 @@ export class ShipmentService {
             unitId: line.unitId,
             quantity: line.quantity,
             warehouseId: line.warehouseId ?? dto.warehouseId,
+            batchId: line.batchId,
             notes: line.notes,
           },
         });
+        if (line.serialNumbers?.length) {
+          await this.batchSerial.captureSerials(tenantId, SHIPMENT_TYPE, created.id, line.serialNumbers, tx);
+        }
       }
 
       await this.audit.record(

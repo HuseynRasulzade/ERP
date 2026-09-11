@@ -15,6 +15,8 @@ export interface InventoryMovementInput {
   sourceDocumentType: string;
   sourceDocumentId: string;
   sourceLineId?: string;
+  batchId?: string | null;
+  serialId?: string | null;
 }
 
 const MOVEMENT_TYPE_BY_SOURCE: Record<string, string> = {
@@ -63,6 +65,8 @@ export class InventoryLedgerService {
         warehouseId: input.warehouseId,
         productId: input.productId,
         unitId: product.baseUnitId,
+        batchId: input.batchId ?? undefined,
+        serialId: input.serialId ?? undefined,
         movementType: MOVEMENT_TYPE_BY_SOURCE[input.sourceDocumentType] ?? input.movementType,
         quantity: signed,
         effectiveDate: input.businessDate,

@@ -14,6 +14,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AppModule } from '../src/app.module';
+import { ChartOfAccountsService } from '../src/accounting-core/chart-of-accounts.service';
 import * as request from 'supertest';
 
 describe('Warehouse Inventory (e2e)', () => {
@@ -45,6 +46,9 @@ describe('Warehouse Inventory (e2e)', () => {
     token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
     const s2 = await setupTenant(`wh2-${run}@e2e.test`, `wh-t2-${run}`, 'WH2');
     token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
+
+    const charts = app.get(ChartOfAccountsService);
+    await charts.ensureAdopted(tenant1Id);
 
     const u = await auth1(request(app.getHttpServer()).post('/units-of-measure'))
       .send({ code: 'PCS10', name: 'Piece', symbol: 'pcs', unitType: 'QUANTITY' })
@@ -248,6 +252,107 @@ describe('Warehouse Inventory (e2e)', () => {
       expect(await availableStock(warehouseAId)).toBe(availableBefore - 4);
       const snapshotAfter = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/warehouses/${warehouseAId}/products/${productId}/stock`)).expect(200);
       expect(Number(snapshotAfter.body.physical)).toBe(Number(physicalBefore)); // total physical stock unchanged — only its status
+    });
+  });
+
+  describe('Batch/serial capture (Goods Receipt -> Shipment)', () => {
+    let batchProductId: string;
+    let serialProductId: string;
+    let supplierId: string;
+    let customerId: string;
+
+    beforeAll(async () => {
+      const batchProduct = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+        .send({ code: 'P10-BATCH-001', name: 'Batch Tracked Widget', productType: 'GOODS', baseUnitId: unitId, batchTrackingMode: 'REQUIRED' })
+        .expect(201);
+      batchProductId = batchProduct.body.id;
+
+      const serialProduct = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+        .send({ code: 'P10-SERIAL-001', name: 'Serial Tracked Widget', productType: 'GOODS', baseUnitId: unitId, serialTrackingMode: 'REQUIRED' })
+        .expect(201);
+      serialProductId = serialProduct.body.id;
+
+      const supplier = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+        .send({ counterpartyType: 'SUPPLIER', code: 'SUP-W10', name: 'Widget Supply Co', paymentTerms: 30 })
+        .expect(201);
+      supplierId = supplier.body.id;
+
+      const customer = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+        .send({ counterpartyType: 'CUSTOMER', code: 'CUS-W10', name: 'Widget Buyer Co', paymentTerms: 30 })
+        .expect(201);
+      customerId = customer.body.id;
+    });
+
+    it('rejects a Goods Receipt line for a batch-required product with no batch number', async () => {
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId: warehouseAId, documentDate: DOC_DATE, lines: [{ productId: batchProductId, unitId, quantity: 10, price: 5 }] })
+        .expect(400);
+    });
+
+    it('creates/reuses a Batch on receipt and the physical stock is tracked under it', async () => {
+      const gr = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId: warehouseAId, documentDate: DOC_DATE, lines: [{ productId: batchProductId, unitId, quantity: 10, price: 5, batchNumber: 'LOT-001' }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/documents/GOODS_RECEIPT/${gr.body.id}/post`)).send({ expectedVersion: gr.body.version }).expect(201);
+
+      const batches = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/inventory-reports/batches?productId=${batchProductId}`)).expect(200);
+      const lot = batches.body.find((b: any) => b.batchNumber === 'LOT-001');
+      expect(lot).toBeDefined();
+      expect(Number(lot.currentQuantity)).toBe(10);
+    });
+
+    it('rejects a serial-required receipt line whose serial count does not match quantity', async () => {
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId: warehouseAId, documentDate: DOC_DATE, lines: [{ productId: serialProductId, unitId, quantity: 3, price: 20, serialNumbers: ['SN-A', 'SN-B'] }] })
+        .expect(400);
+    });
+
+    it('receives serials one movement per unit and later issues them on shipment, validated end to end', async () => {
+      const run2 = Date.now();
+      const sn1 = `SN-${run2}-1`;
+      const sn2 = `SN-${run2}-2`;
+
+      const gr = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId: warehouseAId, documentDate: DOC_DATE, lines: [{ productId: serialProductId, unitId, quantity: 2, price: 50, serialNumbers: [sn1, sn2] }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/documents/GOODS_RECEIPT/${gr.body.id}/post`)).send({ expectedVersion: gr.body.version }).expect(201);
+
+      const serials = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/inventory-reports/serials?productId=${serialProductId}`)).expect(200);
+      const receivedSerial = serials.body.find((s: any) => s.serialNumber === sn1);
+      expect(receivedSerial.status).toBe('AVAILABLE');
+      expect(receivedSerial.currentWarehouseId).toBe(warehouseAId);
+
+      const history = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/inventory-reports/serials/${receivedSerial.id}/history`)).expect(200);
+      expect(history.body.length).toBe(1);
+      expect(history.body[0].movementType).toBe('PURCHASE_RECEIPT');
+
+      // Shipping a serial not at this warehouse (or not AVAILABLE) is rejected server-side.
+      const badShipment = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/shipments`))
+        .send({ documentDate: DOC_DATE, counterpartyId: customerId, warehouseId: warehouseAId, lines: [{ productId: serialProductId, unitId, quantity: '1', serialNumbers: ['SN-DOES-NOT-EXIST'] }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/documents/SHIPMENT/${badShipment.body.id}/post`))
+        .send({ expectedVersion: badShipment.body.version })
+        .expect(422);
+
+      const shipment = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/shipments`))
+        .send({ documentDate: DOC_DATE, counterpartyId: customerId, warehouseId: warehouseAId, lines: [{ productId: serialProductId, unitId, quantity: '1', serialNumbers: [sn1] }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/documents/SHIPMENT/${shipment.body.id}/post`)).send({ expectedVersion: shipment.body.version }).expect(201);
+
+      const afterIssue = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/inventory-reports/serials/${receivedSerial.id}/history`)).expect(200);
+      expect(afterIssue.body.length).toBe(2);
+      expect(afterIssue.body[1].movementType).toBe('SALES_SHIPMENT');
+      expect(Number(afterIssue.body[1].quantity)).toBe(-1);
+
+      // The other serial is still available and cannot be shipped twice for sn1.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/shipments`))
+        .send({ documentDate: DOC_DATE, counterpartyId: customerId, warehouseId: warehouseAId, lines: [{ productId: serialProductId, unitId, quantity: '1', serialNumbers: [sn1] }] })
+        .expect(201)
+        .then(async (repeat) => {
+          await auth1(request(app.getHttpServer()).post(`/documents/SHIPMENT/${repeat.body.id}/post`))
+            .send({ expectedVersion: repeat.body.version })
+            .expect(422);
+        });
     });
   });
 

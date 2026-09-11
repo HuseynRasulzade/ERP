@@ -7,6 +7,7 @@ import { OrganizationAccessService } from '../org-structure/organization-access.
 import { NotFoundAppError, ReturnQuantityExceedsSoldError, ValidationAppError } from '../common/errors/app-error';
 import { SALES_RETURN_TYPE } from './sales-return.repository';
 import { CreateSalesReturnDto } from './dto/sales-execution.dto';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'SRET';
 
@@ -25,6 +26,7 @@ export class SalesReturnService {
     private readonly numbering: NumberingService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -102,7 +104,7 @@ export class SalesReturnService {
       });
 
       for (const [index, line] of preparedLines.entries()) {
-        await tx.salesReturnLine.create({
+        const created = await tx.salesReturnLine.create({
           data: {
             tenantId,
             salesReturnId: header.id,
@@ -112,9 +114,13 @@ export class SalesReturnService {
             unitId: line.unitId,
             quantity: line.quantity.toString(),
             originalUnitPrice: line.originalUnitPrice.toString(),
+            batchId: line.batchId,
             reason: line.reason,
           },
         });
+        if (line.serialNumbers?.length) {
+          await this.batchSerial.captureSerials(tenantId, SALES_RETURN_TYPE, created.id, line.serialNumbers, tx);
+        }
       }
 
       await this.audit.record(

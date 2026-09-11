@@ -13,6 +13,7 @@ import { SALES_ORDER_TYPE } from '../sales-documents/sales-order.repository';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { ReservationService } from '../sales-preorder/reservation.service';
 import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
+import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -38,6 +39,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly reservations: ReservationService,
     private readonly fulfillment: OrderFulfillmentService,
+    private readonly batchSerial: BatchSerialService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -109,20 +111,35 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
 
     for (const line of shipment.lines) {
       const warehouseId = line.warehouseId ?? shipment.warehouseId;
-      await this.inventory.recordMovement(
-        tenantId,
-        {
-          productId: line.productId,
-          warehouseId,
-          quantity: line.quantity.toString(),
-          movementType: 'ISSUE',
-          businessDate,
-          sourceDocumentType: SHIPMENT_TYPE,
-          sourceDocumentId: shipment.id,
-          sourceLineId: line.id,
-        },
-        tx,
-      );
+      const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, SHIPMENT_TYPE, line.id, tx);
+
+      if (capturedSerials.length > 0) {
+        const warehouse = await tx.warehouse.findFirst({ where: { id: warehouseId, tenantId } });
+        const serialIds = await this.batchSerial.issueSerials(tenantId, shipment.organizationId, line.productId, warehouseId, warehouse?.code ?? warehouseId, SHIPMENT_TYPE, line.id, tx);
+        for (const serialId of serialIds) {
+          await this.inventory.recordMovement(
+            tenantId,
+            { productId: line.productId, warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceLineId: line.id, batchId: line.batchId, serialId },
+            tx,
+          );
+        }
+      } else {
+        await this.inventory.recordMovement(
+          tenantId,
+          {
+            productId: line.productId,
+            warehouseId,
+            quantity: line.quantity.toString(),
+            movementType: 'ISSUE',
+            businessDate,
+            sourceDocumentType: SHIPMENT_TYPE,
+            sourceDocumentId: shipment.id,
+            sourceLineId: line.id,
+            batchId: line.batchId,
+          },
+          tx,
+        );
+      }
 
       if (line.sourceOrderLineId) {
         await tx.documentLineLink.create({
@@ -163,6 +180,9 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     if (!shipment) return;
 
     await this.inventory.deleteMovementsFor(tenantId, SHIPMENT_TYPE, shipment.id, tx);
+    for (const line of shipment.lines) {
+      await this.batchSerial.undoIssuedSerials(tenantId, SHIPMENT_TYPE, [line.id], line.warehouseId ?? shipment.warehouseId, tx);
+    }
 
     for (const line of shipment.lines) {
       if (!line.sourceOrderLineId) continue;

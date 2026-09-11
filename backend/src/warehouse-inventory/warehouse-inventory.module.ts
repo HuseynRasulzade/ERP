@@ -8,6 +8,7 @@ import { AccountingCoreModule } from '../accounting-core/accounting-core.module'
 
 import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
+import { BatchSerialService } from './batch-serial.service';
 import { WarehouseInventoryReportingService } from './warehouse-inventory-reporting.service';
 import { WarehouseInventoryQueriesController } from './warehouse-inventory-queries.controller';
 
@@ -50,6 +51,7 @@ import { InventoryStatusTransferController } from './inventory-status-transfer.c
   providers: [
     InventoryMovementService,
     StockAvailabilityService,
+    BatchSerialService,
     WarehouseInventoryReportingService,
 
     WarehouseTransferRepository,
@@ -68,7 +70,7 @@ import { InventoryStatusTransferController } from './inventory-status-transfer.c
     InventoryStatusTransferPostingHandler,
     InventoryStatusTransferService,
   ],
-  exports: [InventoryMovementService, StockAvailabilityService],
+  exports: [InventoryMovementService, StockAvailabilityService, BatchSerialService],
 })
 export class WarehouseInventoryModule implements OnModuleInit {
   constructor(
