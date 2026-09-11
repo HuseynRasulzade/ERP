@@ -56,23 +56,32 @@ export class UpdateCounterpartyContractDto {
   @IsInt() @Min(1) expectedVersion!: number;
 }
 
+/** Not a free-form "add any product" input any more — a contract line can
+ * only ever be pulled back in from the contract's own source purchase
+ * order (spec: manual nomenclature entry outside the PO is not allowed).
+ * `quantity` defaults to that PO line's live remaining quantity when
+ * omitted. Product/unit/price are always derived server-side from the PO
+ * line — never accepted from the client. */
 export class CreateContractLineDto {
-  @IsString() productId!: string;
-  @IsString() unitId!: string;
-  @IsNumber() quantity!: number;
-  @IsOptional() @IsNumber() unitPrice?: number;
-  @IsOptional() @IsNumber() discountPercent?: number;
-  @IsOptional() @IsString() description?: string;
-  @IsOptional() @IsString() sourceOrderLineId?: string;
+  @IsString() sourceOrderLineId!: string;
+  @IsOptional() @IsNumber() quantity?: number;
 }
 
 export class UpdateContractLineDto {
-  @IsOptional() @IsString() unitId?: string;
+  // Note: productId/unitId are deliberately absent — nomenclature name,
+  // code, and unit always come from the source PO line and cannot be
+  // changed on the contract (spec section 11). Only quantity (capped at
+  // the PO line's remaining quantity) and pricing fields are editable.
   @IsOptional() @IsNumber() quantity?: number;
   @IsOptional() @IsNumber() unitPrice?: number;
   @IsOptional() @IsNumber() discountPercent?: number;
   @IsOptional() @IsString() description?: string;
 
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+export class SetContractSourcePurchaseOrderDto {
+  @IsString() purchaseOrderId!: string;
   @IsInt() @Min(1) expectedVersion!: number;
 }
 

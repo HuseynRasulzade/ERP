@@ -368,6 +368,47 @@ describe('Procurement (e2e)', () => {
     });
   });
 
+  describe('Purchase order lines with no resolvable price (spec: requirement -> order, blank price allowed as DRAFT)', () => {
+    it('creates a draft PO with a blank price when the requirement product has no purchase price list, blocks confirmation with a clear error, then confirms once every price is filled in', async () => {
+      const noPriceProduct = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+        .send({ code: `P8-NOPRICE-${run}`, name: 'No Purchase Price Widget', productType: 'GOODS', baseUnitId: unitId })
+        .expect(201);
+
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId: noPriceProduct.body.id, unitId, quantity: 8, description: 'Needed urgently' }] })
+        .expect(201);
+
+      const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
+        .send({ requirementIds: [req.body.id], counterpartyId: supplierId, documentDate: DOC_DATE })
+        .expect(201);
+
+      expect(order.body.lines).toHaveLength(1);
+      const line = order.body.lines[0];
+      expect(line.price).toBeNull();
+      expect(line.description).toBe('Needed urgently');
+      expect(line.requirementLineId).toBe(req.body.lines[0].id);
+      expect(order.body.status).toBe('DRAFT');
+
+      // Confirming (posting) is blocked while the price is missing, with a
+      // clear, itemized error rather than a generic 400.
+      const blocked = await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${order.body.id}/post`))
+        .send({ expectedVersion: order.body.version })
+        .expect(400);
+      expect(blocked.body.message).toMatch(/price/i);
+      expect(blocked.body.fieldErrors?.price).toEqual([line.id]);
+
+      // Filling in the price allows confirmation to succeed.
+      const priced = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/purchase-orders/${order.body.id}`))
+        .send({ expectedVersion: order.body.version, lines: [{ productId: noPriceProduct.body.id, unitId, quantity: 8, price: 42, description: 'Needed urgently', requirementLineId: req.body.lines[0].id }] })
+        .expect(200);
+      expect(priced.body.lines[0].price).toBe('42');
+
+      await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${order.body.id}/post`))
+        .send({ expectedVersion: priced.body.version })
+        .expect(201);
+    });
+  });
+
   describe('Purchase Order Payment Schedule (spec sections 70, 119)', () => {
     it('generates installments that sum exactly to the order total, rounding into the last line', async () => {
       const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))

@@ -6,6 +6,7 @@ import {
   CreateCounterpartyContractDto,
   GenerateContractPaymentScheduleDto,
   SetContractAdvanceDto,
+  SetContractSourcePurchaseOrderDto,
   SetContractStatusDto,
   UpdateContractLineDto,
   UpdateCounterpartyContractDto,
@@ -31,6 +32,20 @@ export class CounterpartyContractsForCounterpartyController {
     @Param('counterpartyId') counterpartyId: string,
   ) {
     return this.contracts.listForCounterparty(tenantId, membershipId, organizationId, counterpartyId);
+  }
+
+  /** Eligible sources for the contract form's mandatory "Alış sifarişini
+   * seç" field — POSTED purchase orders for this counterparty that still
+   * have remaining (uncontracted) quantity and no blank-price line. */
+  @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
+  @Get('eligible-purchase-orders')
+  eligiblePurchaseOrders(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('counterpartyId') counterpartyId: string,
+  ) {
+    return this.contracts.eligiblePurchaseOrdersForCounterparty(tenantId, membershipId, organizationId, counterpartyId);
   }
 
   @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
@@ -103,6 +118,24 @@ export class CounterpartyContractController {
     @Body() dto: VersionedCommandDto,
   ) {
     return this.contracts.approve(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion);
+  }
+
+  /** Changes a DRAFT contract's source purchase order, discarding and
+   * replacing every nomenclature line (spec: PO selection change ->
+   * lines are wiped and replaced). The frontend is responsible for
+   * warning the user first when the contract's `linesDirty` flag is
+   * true. */
+  @RequirePermissions(PermissionCodes.CONTRACT_EDIT)
+  @Post(':id/source-purchase-order')
+  setSourcePurchaseOrder(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: SetContractSourcePurchaseOrderDto,
+  ) {
+    return this.contracts.setSourcePurchaseOrder(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion, dto.purchaseOrderId);
   }
 
   @RequirePermissions(PermissionCodes.CONTRACT_EDIT)

@@ -150,6 +150,7 @@ export class ProcurementPlanningService {
         warehouseId: reqLine.warehouseId ?? requirement.warehouseId ?? undefined,
         expectedDeliveryDate: reqLine.requiredByDate ? new Date(reqLine.requiredByDate).toISOString().slice(0, 10) : undefined,
         requirementLineId: reqLine.id,
+        description: reqLine.description ?? undefined,
       });
     }
 
@@ -249,6 +250,12 @@ export class ProcurementPlanningService {
           warehouseId: line.warehouseId ?? (requirement as any).warehouseId ?? undefined,
           expectedDeliveryDate: line.requiredByDate ? new Date(line.requiredByDate).toISOString().slice(0, 10) : undefined,
           requirementLineId: line.id,
+          // No price: the requirement never carries one (spec: "Alış
+          // tələbində qiymət məlumatı yoxdursa, ... boş qiymətlə də
+          // yaradılıb Qaralama statusunda yadda saxlanıla bilsin") —
+          // PurchaseOrderService.resolveLines leaves the line's price
+          // blank when no PURCHASE price list match is found either.
+          description: line.description ?? undefined,
         });
       }
     }

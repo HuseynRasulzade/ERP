@@ -52,7 +52,49 @@ export class CounterpartyContractService {
       },
     });
     if (!contract) throw new NotFoundAppError('CounterpartyContract', id);
-    return contract;
+    return { ...contract, lines: await this.attachSourceChain(tenantId, (contract as any).lines) };
+  }
+
+  /** Attaches the full "Müqavilə sətri -> Alış sifarişi sətri -> Alış
+   * tələbi sətri" traceability chain to each contract line for display —
+   * one batched query per hop rather than per-line, since a contract can
+   * have many lines. */
+  private async attachSourceChain(tenantId: string, lines: any[]) {
+    const poLineIds = lines.map((l) => l.sourceOrderLineId).filter((v): v is string => !!v);
+    if (poLineIds.length === 0) return lines;
+
+    const poLines = await this.prisma.purchaseOrderLine.findMany({ where: { id: { in: poLineIds }, tenantId } });
+    const poIds = Array.from(new Set(poLines.map((l) => l.purchaseOrderId)));
+    const orders = await this.prisma.purchaseOrder.findMany({ where: { id: { in: poIds }, tenantId } });
+    const orderById = new Map(orders.map((o) => [o.id, o]));
+
+    const reqLineIds = poLines.map((l) => l.requirementLineId).filter((v): v is string => !!v);
+    const reqLines = reqLineIds.length > 0 ? await this.prisma.purchaseRequirementLine.findMany({ where: { id: { in: reqLineIds }, tenantId } }) : [];
+    const reqIds = Array.from(new Set(reqLines.map((l) => l.purchaseRequirementId)));
+    const requirements = reqIds.length > 0 ? await this.prisma.purchaseRequirement.findMany({ where: { id: { in: reqIds }, tenantId } }) : [];
+    const requirementById = new Map(requirements.map((r) => [r.id, r]));
+    const reqLineById = new Map(reqLines.map((l) => [l.id, l]));
+    const poLineById = new Map(poLines.map((l) => [l.id, l]));
+
+    return lines.map((line) => {
+      if (!line.sourceOrderLineId) return line;
+      const poLine = poLineById.get(line.sourceOrderLineId);
+      if (!poLine) return line;
+      const order = orderById.get(poLine.purchaseOrderId);
+      const reqLine = poLine.requirementLineId ? reqLineById.get(poLine.requirementLineId) : undefined;
+      const requirement = reqLine ? requirementById.get(reqLine.purchaseRequirementId) : undefined;
+      return {
+        ...line,
+        sourceChain: {
+          purchaseOrderId: order?.id ?? poLine.purchaseOrderId,
+          purchaseOrderNumber: order?.number ?? null,
+          purchaseOrderLineId: poLine.id,
+          purchaseRequirementId: requirement?.id ?? null,
+          purchaseRequirementNumber: requirement?.number ?? null,
+          purchaseRequirementLineId: reqLine?.id ?? null,
+        },
+      };
+    });
   }
 
   async create(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string, userId: string, input: any) {
@@ -122,40 +164,57 @@ export class CounterpartyContractService {
     // resolved rate for every line may now be different (spec section
     // 12: "sənədin tarixinə uyğun qüvvədə olan vergi dərəcəsi seçilsin").
     if (patch.signedDate !== undefined || patch.startDate !== undefined || patch.priceIncludesTax !== undefined) {
-      await this.recalculateContract(tenantId, id);
+      await this.recalculateContract(tenantId, id, userId);
     }
     return this.get(tenantId, membershipId, organizationId, id);
   }
 
   // -- Nomenclature lines (spec sections 11-13) --------------------------------
 
+  /**
+   * "Müqavilədə alış sifarişindən kənar yeni nomenklaturanın əl ilə əlavə
+   * edilməsinə icazə verilməsin" — every contract must have a source PO
+   * (spec section 11), and every line must trace back to one of ITS
+   * lines. This is not a free-form "add any product" command any more:
+   * `sourceOrderLineId` is mandatory, must belong to the contract's own
+   * `sourcePurchaseOrderId`, and product/unit/price are always derived
+   * from that PO line — a client-supplied productId/unitId/price is
+   * ignored, never trusted. Effectively "bring back a PO line that was
+   * removed (or never fully pulled in)"; quantity defaults to the PO
+   * line's live remaining quantity and is capped by it.
+   */
   async addLine(tenantId: string, membershipId: string, organizationId: string, contractId: string, userId: string, input: any) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     const contract = await this.requireEditable(tenantId, membershipId, organizationId, contractId);
-    const product = await this.prisma.product.findFirst({ where: { id: input.productId, organizationId } });
-    if (!product) throw new ValidationAppError('Product does not belong to this organization');
-    const unit = await this.prisma.unitOfMeasure.findFirst({ where: { id: input.unitId, tenantId } });
-    if (!unit) throw new ValidationAppError('Unit of measure not found');
-    const quantity = new Decimal(input.quantity.toString());
+    if (!contract.sourcePurchaseOrderId) throw new ValidationAppError('Select a source purchase order before adding nomenclature lines');
+    if (!input.sourceOrderLineId) throw new ValidationAppError('A contract line must reference a purchase order line — manual nomenclature entry is not allowed');
+
+    const poLine = await this.prisma.purchaseOrderLine.findFirst({ where: { id: input.sourceOrderLineId, tenantId, purchaseOrderId: contract.sourcePurchaseOrderId } });
+    if (!poLine) throw new ValidationAppError('That line does not belong to this contract\'s source purchase order');
+
+    const remaining = await this.remainingForPurchaseOrderLine(tenantId, poLine.id);
+    const quantity = input.quantity != null ? new Decimal(input.quantity.toString()) : remaining;
     if (!quantity.isFinite() || quantity.lte(0)) throw new ValidationAppError('Line quantity must be positive');
+    if (quantity.gt(remaining)) throw new ValidationAppError(`Requested quantity ${quantity.toString()} exceeds the purchase order line's remaining quantity ${remaining.toString()}`);
 
     const maxPosition = await this.prisma.counterpartyContractLine.aggregate({ where: { contractId }, _max: { position: true } });
 
     const line = await this.prisma.counterpartyContractLine.create({
       data: {
         tenantId, contractId, position: (maxPosition._max.position ?? -1) + 1,
-        productId: input.productId, description: input.description, quantity,
-        unitId: input.unitId, unitPrice: new Decimal((input.unitPrice ?? 0).toString()),
-        discountPercent: new Decimal((input.discountPercent ?? 0).toString()),
-        sourceOrderLineId: input.sourceOrderLineId,
+        productId: poLine.productId, description: poLine.description, quantity,
+        unitId: poLine.unitId, unitPrice: poLine.price ?? 0, discountPercent: 0,
+        sourceOrderLineId: poLine.id,
+        sourcePoTaxRatePercent: poLine.taxRate, sourcePoTaxAmount: poLine.taxAmount,
       },
     });
 
-    await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, line.id, contract);
+    await this.prisma.counterpartyContract.update({ where: { id: contractId }, data: { linesDirty: true } });
+    await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, line.id, contract, userId);
     await this.recalculateContractTotals(tenantId, contractId);
     await this.audit.record({
       tenantId, eventType: 'COUNTERPARTY_CONTRACT_LINE_ADDED', entityType: 'CounterpartyContract',
-      entityId: contractId, action: 'CREATE', userId, newValues: { lineId: line.id, productId: input.productId, quantity: quantity.toString() },
+      entityId: contractId, action: 'CREATE', userId, newValues: { lineId: line.id, productId: poLine.productId, quantity: quantity.toString(), sourceOrderLineId: poLine.id },
     });
     return this.prisma.counterpartyContractLine.findUnique({ where: { id: line.id } });
   }
@@ -166,12 +225,28 @@ export class CounterpartyContractService {
     const before = await this.prisma.counterpartyContractLine.findFirst({ where: { id: lineId, contractId } });
     if (!before) throw new NotFoundAppError('CounterpartyContractLine', lineId);
 
+    // Quantity may only be REDUCED to fit the source PO line's remaining
+    // quantity — never increased beyond it (spec section 11: "yalnız
+    // müqaviləyə daxil ediləcək miqdar ... qalıq miqdarı keçməmək şərti
+    // ilə azaldıla bilsin"). Name/code/unit come from the PO line and are
+    // never editable here — only pricing and quantity are.
+    if (patch.quantity !== undefined && before.sourceOrderLineId) {
+      const remainingExcludingThisLine = (await this.remainingForPurchaseOrderLine(tenantId, before.sourceOrderLineId)).plus(before.quantity.toString());
+      const requested = new Decimal(patch.quantity.toString());
+      if (!requested.isFinite() || requested.lte(0)) throw new ValidationAppError('Line quantity must be positive');
+      if (requested.gt(remainingExcludingThisLine)) {
+        throw new ValidationAppError(`Requested quantity ${requested.toString()} exceeds the purchase order line's remaining quantity ${remainingExcludingThisLine.toString()}`);
+      }
+    }
+
     const updateData: any = { updatedBy: userId, version: { increment: 1 } };
     if (patch.quantity !== undefined) updateData.quantity = new Decimal(patch.quantity.toString());
     if (patch.unitPrice !== undefined) updateData.unitPrice = new Decimal(patch.unitPrice.toString());
     if (patch.discountPercent !== undefined) updateData.discountPercent = new Decimal(patch.discountPercent.toString());
     if (patch.description !== undefined) updateData.description = patch.description;
-    if (patch.unitId !== undefined) updateData.unitId = patch.unitId;
+    // Note: productId/unitId are intentionally never accepted here — the
+    // nomenclature name, code, and unit always come from the source PO
+    // line and cannot be changed on the contract (spec section 11).
 
     const result = await this.prisma.counterpartyContractLine.updateMany({ where: { id: lineId, contractId, version: expectedVersion }, data: updateData });
     if (result.count === 0) throw new ConcurrencyConflictError();
@@ -182,7 +257,7 @@ export class CounterpartyContractService {
     // the fact that something changed.
     const oldValues: Record<string, unknown> = {};
     const newValues: Record<string, unknown> = {};
-    for (const key of ['quantity', 'unitPrice', 'discountPercent', 'description', 'unitId']) {
+    for (const key of ['quantity', 'unitPrice', 'discountPercent', 'description']) {
       if (patch[key] !== undefined) {
         oldValues[key] = (before as any)[key]?.toString?.() ?? (before as any)[key];
         newValues[key] = patch[key];
@@ -194,7 +269,8 @@ export class CounterpartyContractService {
       metadata: { lineId, sourceOrderLineId: before.sourceOrderLineId },
     });
 
-    await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, lineId, contract);
+    await this.prisma.counterpartyContract.update({ where: { id: contractId }, data: { linesDirty: true } });
+    await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, lineId, contract, userId);
     await this.recalculateContractTotals(tenantId, contractId);
     return this.prisma.counterpartyContractLine.findUnique({ where: { id: lineId } });
   }
@@ -206,6 +282,7 @@ export class CounterpartyContractService {
     if (!line) throw new NotFoundAppError('CounterpartyContractLine', lineId);
 
     await this.prisma.counterpartyContractLine.delete({ where: { id: lineId } });
+    await this.prisma.counterpartyContract.update({ where: { id: contractId }, data: { linesDirty: true } });
     await this.recalculateContractTotals(tenantId, contractId);
     await this.audit.record({
       tenantId, eventType: 'COUNTERPARTY_CONTRACT_LINE_REMOVED', entityType: 'CounterpartyContract',
@@ -223,7 +300,7 @@ export class CounterpartyContractService {
    * throws here — it's recorded on the line as `taxCalculationError` so
    * the line still saves (DRAFT stays editable) and the approval gate
    * is what actually blocks (spec section 14). */
-  private async recalculateLine(tenantId: string, organizationId: string, counterpartyId: string, lineId: string, contract: { priceIncludesTax: boolean; signedDate: Date | null; startDate: Date | null }) {
+  private async recalculateLine(tenantId: string, organizationId: string, counterpartyId: string, lineId: string, contract: { id?: string; priceIncludesTax: boolean; signedDate: Date | null; startDate: Date | null }, userId?: string) {
     const line = await this.prisma.counterpartyContractLine.findUnique({ where: { id: lineId } });
     if (!line) return;
     const counterparty = await this.prisma.counterparty.findFirst({ where: { id: counterpartyId } });
@@ -244,12 +321,30 @@ export class CounterpartyContractService {
         },
         { sourceLineId: line.id, amount: amountForTax, priceIncludesTax: contract.priceIncludesTax },
       );
+      const newTaxAmount = round2(result.taxAmount);
+
+      // The counterparty's tax status (rather than the PO's own snapshot
+      // tax) is what actually drives this recalculation — if it lands on
+      // a different rate than the source PO line had, surface it rather
+      // than silently overwrite (spec: PO-vs-contract tax difference
+      // warning, kept in history).
+      const taxMismatch = line.sourcePoTaxAmount != null && !round2(new Decimal(line.sourcePoTaxAmount.toString())).equals(newTaxAmount);
+      if (taxMismatch && userId && !line.taxMismatch) {
+        await this.audit.record({
+          tenantId, eventType: 'COUNTERPARTY_CONTRACT_LINE_TAX_MISMATCH', entityType: 'CounterpartyContract',
+          entityId: contract.id ?? line.contractId, action: 'UPDATE', userId,
+          oldValues: { sourcePoTaxRatePercent: line.sourcePoTaxRatePercent?.toString() ?? null, sourcePoTaxAmount: line.sourcePoTaxAmount?.toString() ?? null },
+          newValues: { taxRatePercent: result.rate.toString(), taxAmount: newTaxAmount.toString() },
+          metadata: { lineId },
+        });
+      }
+
       await this.prisma.counterpartyContractLine.update({
         where: { id: lineId },
         data: {
           lineAmount, discountAmount, taxBase: round2(result.taxableBase), taxCategoryCode,
-          taxRatePercent: result.rate, taxAmount: round2(result.taxAmount), lineTotal: round2(result.grossAmount),
-          taxCalculationError: null,
+          taxRatePercent: result.rate, taxAmount: newTaxAmount, lineTotal: round2(result.grossAmount),
+          taxCalculationError: null, taxMismatch,
         },
       });
     } catch (err) {
@@ -263,11 +358,11 @@ export class CounterpartyContractService {
 
   /** Recomputes every line (used when a tax-point-relevant contract field
    * changes) then the header totals. */
-  private async recalculateContract(tenantId: string, contractId: string) {
+  private async recalculateContract(tenantId: string, contractId: string, userId?: string) {
     const contract = await this.prisma.counterpartyContract.findUnique({ where: { id: contractId }, include: { lines: true } });
     if (!contract) return;
     for (const line of contract.lines) {
-      await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, line.id, contract);
+      await this.recalculateLine(tenantId, contract.organizationId, contract.counterpartyId, line.id, contract, userId);
     }
     await this.recalculateContractTotals(tenantId, contractId);
   }
@@ -433,6 +528,12 @@ export class CounterpartyContractService {
     const po = await this.prisma.purchaseOrder.findFirst({ where: { id: input.purchaseOrderId, organizationId }, include: { lines: { orderBy: { position: 'asc' } } } });
     if (!po) throw new NotFoundAppError('PurchaseOrder', input.purchaseOrderId);
     if (po.postingStatus !== 'POSTED') throw new ValidationAppError('Only a confirmed (posted) purchase order can be used to create a contract');
+    // Defense in depth — PurchaseOrderPostingHandler already refuses to
+    // confirm a PO with any blank-price line, so this can only trip on
+    // stale/tampered data, never through the normal UI flow.
+    if (po.lines.some((l) => l.price == null)) {
+      throw new ValidationAppError('This purchase order has lines with no price — enter every missing price before creating a contract from it');
+    }
 
     const existing = await this.prisma.counterpartyContract.findUnique({ where: { counterpartyId_number: { counterpartyId: po.counterpartyId, number: input.number } } });
     if (existing) throw new ConflictAppError(`A contract with number ${input.number} already exists for this counterparty`);
@@ -469,11 +570,15 @@ export class CounterpartyContractService {
         data: {
           tenantId, contractId: contract.id, position: index,
           productId: poLine.productId, description: poLine.description, quantity,
-          unitId: poLine.unitId, unitPrice: poLine.price, discountPercent: 0,
+          unitId: poLine.unitId, unitPrice: poLine.price ?? 0, discountPercent: 0,
           sourceOrderLineId: poLine.id,
+          // Snapshot of the PO's own tax, compared against the live
+          // recalculation below (and every later recalc) to surface a
+          // divergence to the user (spec: PO-vs-contract tax difference).
+          sourcePoTaxRatePercent: poLine.taxRate, sourcePoTaxAmount: poLine.taxAmount,
         },
       });
-      await this.recalculateLine(tenantId, organizationId, po.counterpartyId, line.id, contract);
+      await this.recalculateLine(tenantId, organizationId, po.counterpartyId, line.id, contract, userId);
     }
     await this.recalculateContractTotals(tenantId, contract.id);
 
@@ -483,6 +588,95 @@ export class CounterpartyContractService {
       newValues: { number: contract.number, purchaseOrderId: po.id, lineCount: resolvedLines.length },
     });
     return this.get(tenantId, membershipId, organizationId, contract.id);
+  }
+
+  /** Lists POSTED purchase orders for this counterparty that still have
+   * at least one line with a positive remaining (uncontracted) quantity
+   * and no blank-price line — i.e. eligible sources for the mandatory
+   * "Alış sifarişini seç" field on the contract form. */
+  async eligiblePurchaseOrdersForCounterparty(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where: { tenantId, organizationId, counterpartyId, postingStatus: 'POSTED' },
+      include: { lines: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const eligible: typeof orders = [];
+    for (const order of orders) {
+      if (order.lines.some((l) => l.price == null)) continue;
+      let anyRemaining = false;
+      for (const line of order.lines) {
+        if ((await this.remainingForPurchaseOrderLine(tenantId, line.id)).gt(0)) { anyRemaining = true; break; }
+      }
+      if (anyRemaining) eligible.push(order);
+    }
+    return eligible;
+  }
+
+  /** Changes a DRAFT contract's source purchase order (spec: "Alış
+   * sifarişinin seçimi dəyişdirildikdə əvvəl gətirilmiş nomenklatura
+   * məlumatları silinərək yeni seçilmiş alış sifarişinin məlumatları ilə
+   * əvəz edilsin") — every existing line is discarded and replaced with a
+   * fresh pull from the new PO's remaining quantities. The frontend is
+   * responsible for warning the user first when `linesDirty` is true (the
+   * contract has lines that were hand-edited since the last PO pull);
+   * this command itself always proceeds once called — it is the
+   * authoritative "replace" action, not a second confirmation gate. */
+  async setSourcePurchaseOrder(tenantId: string, membershipId: string, organizationId: string, contractId: string, userId: string, expectedVersion: number, purchaseOrderId: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const contract = await this.requireEditable(tenantId, membershipId, organizationId, contractId);
+    if (contract.version !== expectedVersion) throw new ConcurrencyConflictError();
+
+    const po = await this.prisma.purchaseOrder.findFirst({ where: { id: purchaseOrderId, organizationId }, include: { lines: { orderBy: { position: 'asc' } } } });
+    if (!po) throw new NotFoundAppError('PurchaseOrder', purchaseOrderId);
+    if (po.postingStatus !== 'POSTED') throw new ValidationAppError('Only a confirmed (posted) purchase order can be selected');
+    if (po.counterpartyId !== contract.counterpartyId) throw new ValidationAppError('The purchase order must belong to this contract\'s counterparty');
+    if (po.lines.some((l) => l.price == null)) {
+      throw new ValidationAppError('This purchase order has lines with no price — enter every missing price before selecting it');
+    }
+
+    const resolvedLines: { poLine: (typeof po.lines)[number]; quantity: Decimal }[] = [];
+    for (const poLine of po.lines) {
+      // Excludes this same contract's own current allocation on that PO
+      // line (about to be deleted) from "already contracted" so switching
+      // away and back doesn't self-block.
+      const remaining = (await this.remainingForPurchaseOrderLine(tenantId, poLine.id));
+      if (remaining.gt(0)) resolvedLines.push({ poLine, quantity: remaining });
+    }
+    if (resolvedLines.length === 0) throw new ValidationAppError('The selected purchase order has no remaining quantity to contract');
+
+    await this.prisma.counterpartyContractLine.deleteMany({ where: { contractId } });
+    const result = await this.prisma.counterpartyContract.updateMany({
+      where: { id: contractId, organizationId, version: expectedVersion },
+      data: {
+        sourcePurchaseOrderId: po.id, currencyId: po.currencyId, priceIncludesTax: po.priceIncludesTax,
+        linesDirty: false, updatedBy: userId, version: { increment: 1 },
+      },
+    });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+
+    const updatedContract = await this.prisma.counterpartyContract.findUnique({ where: { id: contractId } });
+    for (const [index, { poLine, quantity }] of resolvedLines.entries()) {
+      const line = await this.prisma.counterpartyContractLine.create({
+        data: {
+          tenantId, contractId, position: index,
+          productId: poLine.productId, description: poLine.description, quantity,
+          unitId: poLine.unitId, unitPrice: poLine.price ?? 0, discountPercent: 0,
+          sourceOrderLineId: poLine.id,
+          sourcePoTaxRatePercent: poLine.taxRate, sourcePoTaxAmount: poLine.taxAmount,
+        },
+      });
+      await this.recalculateLine(tenantId, organizationId, po.counterpartyId, line.id, updatedContract!, userId);
+    }
+    await this.recalculateContractTotals(tenantId, contractId);
+
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_CONTRACT_SOURCE_PURCHASE_ORDER_CHANGED', entityType: 'CounterpartyContract',
+      entityId: contractId, action: 'UPDATE', userId,
+      oldValues: { sourcePurchaseOrderId: contract.sourcePurchaseOrderId },
+      newValues: { sourcePurchaseOrderId: po.id, lineCount: resolvedLines.length },
+    });
+    return this.get(tenantId, membershipId, organizationId, contractId);
   }
 
   // -- Approval (spec sections 8, 14) ------------------------------------------

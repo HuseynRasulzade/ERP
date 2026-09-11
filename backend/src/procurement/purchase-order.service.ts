@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
 import { PurchasePriceResolverService } from './purchase-price-resolver.service';
-import { ConcurrencyConflictError, NoPurchasePriceFoundError, NotFoundAppError, SupplierNotEligibleError, ValidationAppError } from '../common/errors/app-error';
+import { ConcurrencyConflictError, NotFoundAppError, SupplierNotEligibleError, ValidationAppError } from '../common/errors/app-error';
 import { computeLineTotals, sumDocumentTotals } from '../sales-documents/sales-totals.util';
 import { PURCHASE_ORDER_TYPE } from './purchase-order.repository';
 import { CreatePurchaseOrderDto, PurchaseLineItemDto, UpdatePurchaseOrderDto } from './dto/procurement.dto';
@@ -19,7 +19,12 @@ interface ResolvedPOLine {
   productId: string;
   unitId: string;
   quantity: Decimal;
-  price: Decimal;
+  // Null: no explicit price given and no PURCHASE price list matched this
+  // product/supplier/date — the line still saves as an incomplete DRAFT
+  // line (spec: "qiymət məlumatı yoxdursa ... boş qiymətlə də yaradılıb
+  // Qaralama statusunda yadda saxlanıla bilsin"); only
+  // PurchaseOrderPostingHandler blocks on it, at confirmation time.
+  price: Decimal | null;
   taxRate: Decimal;
   lineTotal: Decimal;
   taxAmount: Decimal;
@@ -148,7 +153,9 @@ export class PurchaseOrderService {
       resolved = await this.resolveLines(tenantId, membershipId, organizationId, patch.lines, businessDate, counterpartyId, priceIncludesTax);
       totals = sumDocumentTotals(resolved);
     } else if (patch.priceIncludesTax !== undefined) {
-      const recomputed = current.lines.map((l: any) => computeLineTotals(new Decimal(l.quantity.toString()), new Decimal(l.price.toString()), new Decimal(l.taxRate.toString()), priceIncludesTax));
+      const recomputed = current.lines.map((l: any) => l.price == null
+        ? { quantity: new Decimal(l.quantity.toString()), price: null, taxRate: new Decimal(0), lineTotal: new Decimal(0), taxAmount: new Decimal(0), lineTotalWithTax: new Decimal(0) }
+        : computeLineTotals(new Decimal(l.quantity.toString()), new Decimal(l.price.toString()), new Decimal(l.taxRate.toString()), priceIncludesTax));
       totals = sumDocumentTotals(recomputed);
     }
 
@@ -259,7 +266,7 @@ export class PurchaseOrderService {
       const unit = await this.prisma.unitOfMeasure.findFirst({ where: { id: line.unitId, tenantId } });
       if (!unit) throw new ValidationAppError('Unit of measure not found');
 
-      let price: Decimal;
+      let price: Decimal | null;
       let priceListId: string | null = null;
       let productPriceId: string | null = null;
       if (line.price !== undefined) {
@@ -267,14 +274,26 @@ export class PurchaseOrderService {
         if (!price.isFinite() || price.lt(0)) throw new ValidationAppError('Line price must not be negative');
       } else {
         const found = await this.priceResolver.resolve(tenantId, membershipId, organizationId, line.productId, businessDate, Number(line.quantity), counterpartyId);
-        if (!found) throw new NoPurchasePriceFoundError(product.code);
-        price = new Decimal(found.price.toString());
-        priceListId = found.priceListId;
-        productPriceId = found.id;
+        if (found) {
+          price = new Decimal(found.price.toString());
+          priceListId = found.priceListId;
+          productPriceId = found.id;
+        } else {
+          // No explicit price and no PURCHASE price list match — leave the
+          // line's price blank rather than blocking the whole document
+          // (typically a line auto-filled from a Purchase Requirement,
+          // which never carries pricing). PurchaseOrderPostingHandler is
+          // the actual gate, at confirmation.
+          price = null;
+        }
       }
 
       let taxRate: Decimal;
-      if (line.taxRate !== undefined) {
+      if (price == null) {
+        // No tax preview without a price to apply it to — the line stays
+        // fully incomplete until a price is entered.
+        taxRate = new Decimal(0);
+      } else if (line.taxRate !== undefined) {
         taxRate = new Decimal(line.taxRate.toString());
         if (!taxRate.isFinite() || taxRate.lt(0)) throw new ValidationAppError('Line tax rate must not be negative');
       } else {
@@ -294,7 +313,9 @@ export class PurchaseOrderService {
       // order time even though the mapping master data may change later.
       const mapping = await this.prisma.supplierProductCode.findFirst({ where: { organizationId, counterpartyId, productId: line.productId, active: true } });
 
-      const computed = computeLineTotals(quantity, price, taxRate, priceIncludesTax);
+      const computed = price == null
+        ? { quantity, price: null as Decimal | null, taxRate: new Decimal(0), lineTotal: new Decimal(0), taxAmount: new Decimal(0), lineTotalWithTax: new Decimal(0) }
+        : computeLineTotals(quantity, price, taxRate, priceIncludesTax);
       resolved.push({
         productId: line.productId,
         unitId: line.unitId,

@@ -3124,8 +3124,13 @@ model PurchaseOrderLine {
   unitId               String    @map("unit_id")
   quantity             Decimal   @db.Decimal(18, 6)
   cancelledQuantity    Decimal   @default(0) @map("cancelled_quantity") @db.Decimal(18, 6)
-  price                Decimal   @db.Decimal(18, 6)
-  lineTotal            Decimal   @map("line_total") @db.Decimal(18, 2)
+  // Nullable: a line created from a Purchase Requirement with no resolvable
+  // purchase price is allowed to save as an incomplete DRAFT line (spec:
+  // "boş qiymətlə də yaradılıb Qaralama statusunda yadda saxlanıla bilsin")
+  // — PurchaseOrderPostingHandler is what actually blocks confirmation
+  // while any line still has a null price, never document create/update.
+  price                Decimal?  @db.Decimal(18, 6)
+  lineTotal            Decimal   @default(0) @map("line_total") @db.Decimal(18, 2)
   taxRate              Decimal   @default(0) @map("tax_rate") @db.Decimal(18, 2)
   taxAmount            Decimal   @default(0) @map("tax_amount") @db.Decimal(18, 2)
   lineTotalWithTax     Decimal   @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
@@ -4274,6 +4279,11 @@ model CounterpartyContract {
   // -- Nomenclature lines + live totals (spec sections 11-13) ---------------
   priceIncludesTax        Boolean  @default(false) @map("price_includes_tax")
   sourcePurchaseOrderId   String?  @map("source_purchase_order_id")
+  // Set whenever a line is added/edited/removed by hand after being pulled
+  // from the source PO — the frontend warns before a "change source PO"
+  // resync discards lines while this is true. Reset to false by every
+  // (re)pull from a PO (create-from-PO, change-source-PO).
+  linesDirty              Boolean  @default(false) @map("lines_dirty")
   subtotal                Decimal? @db.Decimal(18, 2) // pre-tax, post-discount sum of all lines
   totalDiscount           Decimal? @map("total_discount") @db.Decimal(18, 2)
   totalTax                Decimal? @map("total_tax") @db.Decimal(18, 2)
@@ -4334,6 +4344,14 @@ model CounterpartyContractLine {
   // but the contract cannot approve while any line carries this.
   taxCalculationError String? @map("tax_calculation_error")
   sourceOrderLineId   String? @map("source_order_line_id") // PurchaseOrderLine — soft reference
+  // Snapshot of the source PO line's own tax, captured once at creation —
+  // compared against the live-recalculated tax above every time the
+  // counterparty's tax status (or another tax-point field) changes so a
+  // divergence can be surfaced to the user and kept in history (spec
+  // section: "ƏDV-də fərq yarandıqda istifadəçiyə xəbərdarlıq göstərilsin").
+  sourcePoTaxRatePercent Decimal? @map("source_po_tax_rate_percent") @db.Decimal(9, 4)
+  sourcePoTaxAmount      Decimal? @map("source_po_tax_amount") @db.Decimal(18, 2)
+  taxMismatch            Boolean  @default(false) @map("tax_mismatch")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")

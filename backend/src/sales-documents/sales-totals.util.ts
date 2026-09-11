@@ -2,7 +2,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 export interface ComputedLine {
   quantity: Decimal;
-  price: Decimal;
+  // Nullable only so a PurchaseOrder line with no resolvable price (see
+  // PurchaseOrderService.resolveLines) can still flow through
+  // sumDocumentTotals, which never reads price itself.
+  price: Decimal | null;
   taxRate: Decimal;
   lineTotal: Decimal;
   taxAmount: Decimal;

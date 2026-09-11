@@ -373,4 +373,160 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
       expect(Number(after.body.amount)).toBeCloseTo(afterLineTotalSum, 2);
     });
   });
+
+  describe('Requirement -> Order -> Contract traceability, PO selection restrictions, and manual-line lockdown', () => {
+    it('carries the requirement -> PO -> contract line chain end to end and shows it on the contract', async () => {
+      const supplier = await createApprovedSupplier({ vatPayer: true, suffix: 'CHAIN' });
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 10, description: 'Chain test' }] })
+        .expect(201);
+      const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
+        .send({ requirementIds: [req.body.id], counterpartyId: supplier.id, documentDate: DOC_DATE })
+        .expect(201);
+      // Fill the price the requirement itself never carried, then confirm.
+      const priced = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/purchase-orders/${order.body.id}`))
+        .send({ expectedVersion: order.body.version, lines: [{ productId, unitId, quantity: 10, price: 30, requirementLineId: req.body.lines[0].id }] })
+        .expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${order.body.id}/post`))
+        .send({ expectedVersion: priced.body.version })
+        .expect(201);
+      const posted = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${order.body.id}`)).expect(200);
+
+      const contract = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/from-purchase-order`))
+        .send({ purchaseOrderId: posted.body.id, number: `C-CHAIN-${run}` })
+        .expect(201);
+
+      const line = contract.body.lines[0];
+      expect(line.sourceChain).toBeTruthy();
+      expect(line.sourceChain.purchaseOrderId).toBe(posted.body.id);
+      expect(line.sourceChain.purchaseOrderLineId).toBe(posted.body.lines[0].id);
+      expect(line.sourceChain.purchaseRequirementId).toBe(req.body.id);
+      expect(line.sourceChain.purchaseRequirementLineId).toBe(req.body.lines[0].id);
+    });
+
+    it('rejects a purchase order with a blank-price line as a contract source, and excludes it from the eligible-purchase-orders list', async () => {
+      const supplier = await createApprovedSupplier({ vatPayer: true, suffix: 'NOPRICE' });
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5 }] })
+        .expect(201);
+      const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
+        .send({ requirementIds: [req.body.id], counterpartyId: supplier.id, documentDate: DOC_DATE })
+        .expect(201);
+      expect(order.body.lines[0].price).toBeNull();
+      // A PO stuck DRAFT with a blank price can never be POSTED, so it can
+      // never reach createFromPurchaseOrder's "must be posted" gate either
+      // — confirm both fail the same way a user would encounter them.
+      await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${order.body.id}/post`))
+        .send({ expectedVersion: order.body.version })
+        .expect(400);
+      const rejected = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/from-purchase-order`))
+        .send({ purchaseOrderId: order.body.id, number: `C-NOPRICE-${run}` })
+        .expect(400);
+      expect(rejected.body.message).toMatch(/confirmed|posted/i);
+
+      const eligible = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${supplier.id}/contracts/eligible-purchase-orders`)).expect(200);
+      expect(eligible.body.find((o: any) => o.id === order.body.id)).toBeUndefined();
+    });
+
+    it('blocks manual nomenclature entry outside the source PO, but allows re-adding a source PO line capped at its remaining quantity', async () => {
+      const supplier = await createApprovedSupplier({ vatPayer: true, suffix: 'MANUAL' });
+      const po = await createConfirmedPO(supplier.id, 50, 10);
+      const otherPo = await createConfirmedPO(supplier.id, 50, 10);
+      const contract = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/from-purchase-order`))
+        .send({ purchaseOrderId: po.id, number: `C-MANUAL-${run}` })
+        .expect(201);
+
+      // No sourceOrderLineId at all -> rejected (manual nomenclature).
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contract.body.id}/lines`))
+        .send({ quantity: 5 })
+        .expect(400);
+
+      // A line belonging to a DIFFERENT purchase order -> rejected.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contract.body.id}/lines`))
+        .send({ sourceOrderLineId: otherPo.lines[0].id, quantity: 5 })
+        .expect(400);
+
+      // Remove the auto-pulled line, then re-add it — capped at remaining.
+      const lineId = contract.body.lines[0].id;
+      await auth1(request(app.getHttpServer()).delete(`/organizations/${org1Id}/contracts/${contract.body.id}/lines/${lineId}`)).expect(200);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contract.body.id}/lines`))
+        .send({ sourceOrderLineId: po.lines[0].id, quantity: 999 })
+        .expect(400);
+
+      const readded = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contract.body.id}/lines`))
+        .send({ sourceOrderLineId: po.lines[0].id, quantity: 30 })
+        .expect(201);
+      expect(readded.body.productId).toBe(productId);
+      expect(Number(readded.body.quantity)).toBe(30);
+
+      // Quantity may only be reduced within remaining, never increased past it.
+      const afterAdd = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/contracts/${contract.body.id}`)).expect(200);
+      const newLine = afterAdd.body.lines.find((l: any) => l.id === readded.body.id);
+      await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/contracts/${contract.body.id}/lines/${newLine.id}`))
+        .send({ expectedVersion: newLine.version, quantity: 100 })
+        .expect(400);
+      await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/contracts/${contract.body.id}/lines/${newLine.id}`))
+        .send({ expectedVersion: newLine.version, quantity: 20 })
+        .expect(200);
+    });
+
+    it('replaces every line when the source purchase order selection changes, and tracks linesDirty', async () => {
+      const supplier = await createApprovedSupplier({ vatPayer: true, suffix: 'SWITCH' });
+      const poA = await createConfirmedPO(supplier.id, 10, 12);
+      const poB = await createConfirmedPO(supplier.id, 40, 7);
+      const contract = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/from-purchase-order`))
+        .send({ purchaseOrderId: poA.id, number: `C-SWITCH-${run}` })
+        .expect(201);
+      expect(contract.body.linesDirty).toBe(false);
+
+      const lineId = contract.body.lines[0].id;
+      const dirtied = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/contracts/${contract.body.id}/lines/${lineId}`))
+        .send({ expectedVersion: contract.body.lines[0].version, discountPercent: 5 })
+        .expect(200);
+      void dirtied;
+      const afterEdit = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/contracts/${contract.body.id}`)).expect(200);
+      expect(afterEdit.body.linesDirty).toBe(true);
+
+      const switched = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contract.body.id}/source-purchase-order`))
+        .send({ purchaseOrderId: poB.id, expectedVersion: afterEdit.body.version })
+        .expect(201);
+      expect(switched.body.sourcePurchaseOrderId).toBe(poB.id);
+      expect(switched.body.linesDirty).toBe(false);
+      expect(switched.body.lines).toHaveLength(1);
+      expect(switched.body.lines[0].sourceOrderLineId).toBe(poB.lines[0].id);
+      expect(Number(switched.body.lines[0].quantity)).toBe(40);
+      expect(Number(switched.body.lines[0].unitPrice)).toBe(7);
+    });
+
+    it('flags a tax mismatch and records it in the audit trail when the counterparty\'s tax status changes after contract creation', async () => {
+      const supplier = await createApprovedSupplier({ vatPayer: true, suffix: 'MISMATCH' });
+      const po = await createConfirmedPO(supplier.id, 10, 100);
+      const contract = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/from-purchase-order`))
+        .send({ purchaseOrderId: po.id, number: `C-MISMATCH-${run}` })
+        .expect(201);
+      expect(contract.body.lines[0].taxMismatch).toBe(false);
+      const originalTaxAmount = Number(contract.body.lines[0].taxAmount);
+      expect(originalTaxAmount).toBeGreaterThan(0); // 18% VAT_STANDARD on an active VAT payer
+
+      // The supplier stops being a VAT payer -> the line's live-resolved
+      // category flips to VAT_EXEMPT (0%), diverging from the PO's own
+      // 18% snapshot.
+      await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/counterparties/${supplier.id}`))
+        .send({ expectedVersion: supplier.version, vatPayer: false })
+        .expect(200);
+
+      // Any tax-point-relevant contract update re-triggers recalculation.
+      const recalced = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/contracts/${contract.body.id}`))
+        .send({ expectedVersion: contract.body.version, priceIncludesTax: false })
+        .expect(200);
+      const line = recalced.body.lines[0];
+      expect(line.taxMismatch).toBe(true);
+      expect(Number(line.taxAmount)).toBe(0);
+
+      const events = await auth1(request(app.getHttpServer()).get(`/audit-events?entityType=CounterpartyContract&entityId=${contract.body.id}`)).expect(200);
+      const items = events.body.items ?? events.body;
+      expect(items.some((e: any) => e.eventType === 'COUNTERPARTY_CONTRACT_LINE_TAX_MISMATCH')).toBe(true);
+    });
+  });
 });

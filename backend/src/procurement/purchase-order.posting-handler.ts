@@ -34,12 +34,28 @@ export class PurchaseOrderPostingHandler implements DocumentPostingHandler {
     const order = await tx.purchaseOrder.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!order) throw new ValidationAppError('Document disappeared during posting');
     if (order.lines.length === 0) throw new ValidationAppError('Cannot confirm a purchase order with no lines');
+
+    // Collect EVERY problem across every line (never fail-fast on the
+    // first one) so the user sees the whole list of what to fix in one
+    // pass — same "draft can be incomplete, approval/posting is the gate"
+    // convention as CounterpartyContractService.approve.
+    const missingPriceLines: string[] = [];
     for (const line of order.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot confirm a purchase order with non-positive quantity');
+      if (line.price == null) {
+        missingPriceLines.push(line.id);
+        continue;
+      }
       if (line.price.lt(0)) throw new ValidationAppError('Cannot confirm a purchase order with negative price');
       if (!line.isService && !line.warehouseId && !order.warehouseId) {
         throw new ValidationAppError('A goods line requires a destination warehouse (header or line)');
       }
+    }
+    if (missingPriceLines.length > 0) {
+      throw new ValidationAppError(
+        'Cannot confirm — enter a price for every line first',
+        { price: missingPriceLines },
+      );
     }
 
     // Supplier eligibility (spec section 107): must be an active SUPPLIER
@@ -79,7 +95,9 @@ export class PurchaseOrderPostingHandler implements DocumentPostingHandler {
       },
       resources: {
         quantity: line.quantity.toString(),
-        price: line.price.toString(),
+        // validateForPosting already rejected any line with a null price
+        // before buildMovements can run — the fallback never fires.
+        price: line.price?.toString() ?? '0',
         lineTotal: line.lineTotal.toString(),
         taxAmount: line.taxAmount.toString(),
         lineTotalWithTax: line.lineTotalWithTax.toString(),
