@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { CounterpartyContract, CounterpartyContractAmendment, CounterpartyContractLine } from '../../api/types';
+import type { BizDoc, CounterpartyContract, CounterpartyContractAmendment, CounterpartyContractLine, Product } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -170,7 +170,6 @@ export function ContractDetailPage() {
             <dt>{t.counterparty.amount}</dt><dd className="numeric">{contract.amount ?? '—'}</dd>
             <dt>{t.counterparty.paymentTerms}</dt><dd>{contract.paymentTerms ?? '—'}</dd>
             <dt>{t.counterparty.responsiblePerson}</dt><dd>{contract.responsiblePersonId ?? '—'}</dd>
-            <dt>{t.contract.sourcePO}</dt><dd>{contract.sourcePurchaseOrderId ?? '—'}</dd>
             <dt>{t.contract.deliveryDate}</dt><dd>{contract.deliveryDate?.slice(0, 10) ?? '—'}</dd>
             <dt>{t.contract.deliveryTermDays}</dt><dd>{contract.deliveryTermDays ?? '—'}</dd>
             <dt>{t.contract.deliveryAddress}</dt><dd>{contract.deliveryAddress ?? '—'}</dd>
@@ -183,6 +182,10 @@ export function ContractDetailPage() {
           </dl>
         </section>
       )}
+
+      <section className="card">
+        <SourcePurchaseOrderSection orgId={orgId} counterpartyId={counterpartyId!} contract={contract} onChanged={load} />
+      </section>
 
       <section className="card">
         <AdvanceSection orgId={orgId} contract={contract} onChanged={load} />
@@ -203,6 +206,75 @@ export function ContractDetailPage() {
       <section className="card">
         <AmendmentsSection orgId={orgId} contractId={contract.id} onChanged={load} />
       </section>
+    </div>
+  );
+}
+
+/** The contract form's mandatory "Alış sifarişini seç" field — lists only
+ * POSTED purchase orders for this counterparty with remaining quantity
+ * and no blank-price line (spec section 11). Also doubles as the
+ * "change source PO" action on an existing DRAFT contract: switching
+ * discards and replaces every line, so the user is warned first when the
+ * contract's lines were hand-edited since the last pull (`linesDirty`). */
+function SourcePurchaseOrderSection({ orgId, counterpartyId, contract, onChanged }: { orgId: string; counterpartyId: string; contract: CounterpartyContract; onChanged: () => void }) {
+  const { hasPermission } = useAuth();
+  const { showError, showSuccess } = useToast();
+  const { t } = useLocale();
+  const [eligible, setEligible] = useState<BizDoc[]>([]);
+  const [selected, setSelected] = useState('');
+  const [busy, setBusy] = useState(false);
+  const editable = contract.status === 'DRAFT' || contract.status === 'PENDING_APPROVAL';
+
+  useEffect(() => {
+    if (!editable || !hasPermission('contract.edit')) return;
+    api.get<BizDoc[]>(`/organizations/${orgId}/counterparties/${counterpartyId}/contracts/eligible-purchase-orders`)
+      .then(setEligible)
+      .catch((err) => showError(err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, counterpartyId, editable]);
+
+  const currentPO = eligible.find((o) => o.id === contract.sourcePurchaseOrderId);
+
+  const change = async () => {
+    if (!selected) return;
+    if (contract.linesDirty && !window.confirm(t.contract.changeSourcePOConfirm)) return;
+    setBusy(true);
+    try {
+      await api.post(`/organizations/${orgId}/contracts/${contract.id}/source-purchase-order`, { purchaseOrderId: selected, expectedVersion: contract.version });
+      showSuccess(t.toast.updatedItem(contract.number));
+      setSelected('');
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <h2>{t.contract.selectPurchaseOrder}</h2>
+      <dl className="kv-grid">
+        <dt>{t.contract.sourcePO}</dt>
+        <dd>{contract.sourcePurchaseOrderId ? (currentPO?.number ?? contract.sourcePurchaseOrderId) : '—'}</dd>
+      </dl>
+      {editable && hasPermission('contract.edit') && (
+        eligible.length === 0 ? (
+          <p className="panel-note">{t.contract.noEligiblePurchaseOrders}</p>
+        ) : (
+          <div className="inline-form">
+            <label>{t.contract.changeSourcePO}
+              <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+                <option value="">{t.common.select}</option>
+                {eligible.map((o) => (
+                  <option key={o.id} value={o.id}>{o.number} — {o.grandTotal ?? ''}</option>
+                ))}
+              </select>
+            </label>
+            <button disabled={!selected || busy} onClick={change}>{busy ? t.common.saving : t.contract.changeSourcePO}</button>
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -284,27 +356,51 @@ function TotalsSection({ contract }: { contract: CounterpartyContract }) {
   );
 }
 
+/** Nomenclature lines are always PO-derived — no manual "any product"
+ * entry (spec section 11). Adding a line means picking one of the source
+ * PO's own lines that isn't fully on the contract yet (`availablePOLines`,
+ * fetched from the PO itself) and optionally a reduced quantity. */
 function LinesSection({ orgId, contract, onChanged }: { orgId: string; contract: CounterpartyContract; onChanged: () => void }) {
   const { hasPermission } = useAuth();
   const { showError, showSuccess } = useToast();
   const { t } = useLocale();
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [newLine, setNewLine] = useState({ productId: '', unitId: '', quantity: '', unitPrice: '', discountPercent: '' });
+  const [products, setProducts] = useState<Product[]>([]);
+  const [poLines, setPoLines] = useState<NonNullable<BizDoc['lines']>>([]);
+  const [selectedPoLineId, setSelectedPoLineId] = useState('');
+  const [quantity, setQuantity] = useState('');
 
   const lines = contract.lines ?? [];
+  const productName = (pid: string) => {
+    const p = products.find((x) => x.id === pid);
+    return p ? `${p.code} — ${p.name}` : pid.slice(0, 8);
+  };
+
+  useEffect(() => {
+    api.get<Product[]>(`/organizations/${orgId}/products`).then(setProducts).catch(() => {});
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!contract.sourcePurchaseOrderId) { setPoLines([]); return; }
+    api.get<BizDoc>(`/organizations/${orgId}/purchase-orders/${contract.sourcePurchaseOrderId}`)
+      .then((po) => setPoLines(po.lines ?? []))
+      .catch(() => setPoLines([]));
+  }, [orgId, contract.sourcePurchaseOrderId, lines.length]);
+
+  const usedPoLineIds = new Set(lines.map((l) => l.sourceOrderLineId).filter(Boolean));
+  const availablePoLines = poLines.filter((l) => l.id && !usedPoLineIds.has(l.id));
 
   const addLine = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
       await api.post(`/organizations/${orgId}/contracts/${contract.id}/lines`, {
-        productId: newLine.productId, unitId: newLine.unitId, quantity: Number(newLine.quantity),
-        unitPrice: newLine.unitPrice ? Number(newLine.unitPrice) : undefined,
-        discountPercent: newLine.discountPercent ? Number(newLine.discountPercent) : undefined,
+        sourceOrderLineId: selectedPoLineId,
+        quantity: quantity ? Number(quantity) : undefined,
       });
-      showSuccess(t.toast.createdItem(newLine.productId));
-      setNewLine({ productId: '', unitId: '', quantity: '', unitPrice: '', discountPercent: '' });
+      showSuccess(t.toast.createdItem(productName((poLines.find((l) => l.id === selectedPoLineId)?.productId as string) ?? '')));
+      setSelectedPoLineId(''); setQuantity('');
       setShowForm(false);
       onChanged();
     } catch (err) {
@@ -330,16 +426,23 @@ function LinesSection({ orgId, contract, onChanged }: { orgId: string; contract:
     <div>
       <div className="page-header">
         <h2>{t.contract.lines}</h2>
-        {hasPermission('contract.edit') && <button className="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? t.common.cancel : t.contract.addLine}</button>}
+        {hasPermission('contract.edit') && contract.sourcePurchaseOrderId && availablePoLines.length > 0 && (
+          <button className="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? t.common.cancel : t.contract.addLineFromPO}</button>
+        )}
       </div>
+      {!contract.sourcePurchaseOrderId && <p className="panel-note">{t.contract.manualLineBlockedHint}</p>}
       {showForm && (
         <form onSubmit={addLine} className="inline-form">
-          <label>{t.contract.product}<input required value={newLine.productId} onChange={(e) => setNewLine({ ...newLine, productId: e.target.value })} placeholder="product id" /></label>
-          <label>{t.contract.unit}<input required value={newLine.unitId} onChange={(e) => setNewLine({ ...newLine, unitId: e.target.value })} placeholder="unit id" /></label>
-          <label>{t.contract.quantity}<input required type="number" step="any" value={newLine.quantity} onChange={(e) => setNewLine({ ...newLine, quantity: e.target.value })} /></label>
-          <label>{t.contract.unitPrice}<input type="number" step="any" value={newLine.unitPrice} onChange={(e) => setNewLine({ ...newLine, unitPrice: e.target.value })} /></label>
-          <label>{t.contract.discountPercent}<input type="number" step="any" value={newLine.discountPercent} onChange={(e) => setNewLine({ ...newLine, discountPercent: e.target.value })} /></label>
-          <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
+          <label>{t.contract.product}
+            <select required value={selectedPoLineId} onChange={(e) => setSelectedPoLineId(e.target.value)}>
+              <option value="">{t.common.select}</option>
+              {availablePoLines.map((l) => (
+                <option key={l.id} value={l.id}>{productName(l.productId as string)} ({l.quantity})</option>
+              ))}
+            </select>
+          </label>
+          <label>{t.contract.quantity}<input type="number" step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder={t.contract.quantity} /></label>
+          <button type="submit" className="primary" disabled={busy || !selectedPoLineId}>{busy ? t.common.saving : t.common.save}</button>
         </form>
       )}
       {lines.length === 0 ? (
@@ -357,21 +460,26 @@ function LinesSection({ orgId, contract, onChanged }: { orgId: string; contract:
               <th>{t.contract.taxAmount}</th>
               <th>{t.contract.lineTotal}</th>
               <th>{t.contract.sourcePO}</th>
+              <th>{t.contract.sourceRequirement}</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {lines.map((line) => (
-              <tr key={line.id}>
-                <td>{line.productId}</td>
+              <tr key={line.id} className={line.taxCalculationError ? 'row-missing-price' : undefined}>
+                <td>{productName(line.productId)}{line.description ? <div className="panel-note">{line.description}</div> : null}</td>
                 <td className="numeric">{line.quantity} {line.unitId}</td>
                 <td className="numeric">{line.unitPrice}</td>
                 <td className="numeric">{line.discountAmount}</td>
                 <td className="numeric">{line.taxBase}</td>
                 <td className="numeric">{line.taxRatePercent ?? '—'}</td>
-                <td className="numeric">{line.taxAmount ?? '—'}</td>
+                <td className="numeric">
+                  {line.taxAmount ?? '—'}
+                  {line.taxMismatch && <span className="badge badge-generic-warn" title={t.contract.taxMismatchWarning}> ⚠</span>}
+                </td>
                 <td className="numeric">{line.lineTotal ?? '—'}</td>
-                <td>{line.sourceOrderLineId ? '✓' : '—'}</td>
+                <td>{line.sourceChain?.purchaseOrderNumber ?? (line.sourceOrderLineId ? '✓' : '—')}</td>
+                <td>{line.sourceChain?.purchaseRequirementNumber ?? '—'}</td>
                 <td>
                   {hasPermission('contract.edit') && <button className="small" disabled={busy} onClick={() => removeLine(line)}>{t.contract.removeLine}</button>}
                 </td>
@@ -384,6 +492,9 @@ function LinesSection({ orgId, contract, onChanged }: { orgId: string; contract:
         <p className="panel-note" style={{ color: 'var(--color-danger, #c0392b)' }}>
           {t.contract.taxError}: {lines.filter((l) => l.taxCalculationError).map((l) => l.taxCalculationError).join('; ')}
         </p>
+      )}
+      {lines.some((l) => l.taxMismatch) && (
+        <p className="panel-note" style={{ color: 'var(--color-warning, #b98900)' }}>{t.contract.taxMismatchWarning}</p>
       )}
     </div>
   );

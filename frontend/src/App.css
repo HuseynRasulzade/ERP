@@ -402,6 +402,10 @@
   opacity: 0.45;
 }
 
+.data-table tbody tr.row-missing-price {
+  background: rgba(217, 164, 6, 0.1);
+}
+
 /* Badges */
 .badge {
   display: inline-flex;

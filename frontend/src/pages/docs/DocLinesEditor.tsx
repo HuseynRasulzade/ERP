@@ -111,5 +111,8 @@ export function serializeDocLines(lines: LineDraft[], opts: { showPrice?: boolea
     ...(opts.showTax !== false && l.taxRate.trim() !== '' ? { taxRate: Number(l.taxRate) } : {}),
     ...(opts.showWarehouse && l.warehouseId ? { warehouseId: l.warehouseId } : {}),
     ...(l.description.trim() === '' ? {} : { description: l.description.trim() }),
+    // Never edited through this grid — carried through so a line re-saved
+    // after a manual price/tax fix keeps its Purchase Requirement link.
+    ...(l.requirementLineId ? { requirementLineId: l.requirementLineId } : {}),
   }));
 }

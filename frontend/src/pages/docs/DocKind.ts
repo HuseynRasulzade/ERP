@@ -47,6 +47,12 @@ export interface DocKind {
   headerWarehouse?: boolean;
   hasPriceIncludesTax?: boolean;
   priceHint?: string;
+  /** Opt-in "edit this document's lines after creation" capability
+   * (currently: Purchase Order, so a blank/auto price left over from a
+   * requirement-based creation can be filled in before confirmation).
+   * The permission code required to use it; omitted entirely for kinds
+   * that don't offer post-creation line editing. */
+  editLinesPerm?: string;
   extraFields?: DocExtraField[];
   createBasedOnTargets?: CreateBasedOnTarget[];
   requirementPicker?: RequirementPickerConfig;

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { AuditEvent, BizDoc, DocumentLink, SalesCounterpartyRef, SalesProductRef, SalesUnitRef, Warehouse } from '../../api/types';
+import type { AuditEvent, BizDoc, DocumentLink, LineDraft, SalesCounterpartyRef, SalesProductRef, SalesUnitRef, Warehouse } from '../../api/types';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
 import type { DocKind } from './DocKind';
+import { DocLinesEditor, serializeDocLines } from './DocLinesEditor';
 
 const ROUTE_BY_DOC_TYPE: Record<string, string> = {
   SALES_ORDER: 'sales-orders',
@@ -46,6 +47,8 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
   const [counterparties, setCounterparties] = useState<SalesCounterpartyRef[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editingLines, setEditingLines] = useState(false);
+  const [lineDrafts, setLineDrafts] = useState<LineDraft[]>([]);
 
   const orgId = currentOrganizationId;
 
@@ -117,6 +120,39 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
     }
   };
 
+  const startEditingLines = () => {
+    setLineDrafts(
+      (doc.lines ?? []).map((l) => ({
+        productId: (l.productId as string) ?? '',
+        unitId: (l.unitId as string) ?? '',
+        quantity: String(l.quantity ?? ''),
+        price: l.price != null ? String(l.price) : '',
+        taxRate: l.taxRate != null ? String(l.taxRate) : '',
+        warehouseId: (l.warehouseId as string) ?? '',
+        description: (l.description as string) ?? '',
+        lineType: (l.lineType as string) ?? 'INVENTORY',
+        requirementLineId: (l.requirementLineId as string) ?? undefined,
+      })),
+    );
+    setEditingLines(true);
+  };
+
+  const saveLines = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const lines = serializeDocLines(lineDrafts, { showPrice: kind.showPrice, showTax: kind.showTax, showWarehouse: kind.showLineWarehouse });
+      await api.patch(`/organizations/${orgId}/${kind.basePath}/${doc.id}`, { expectedVersion: doc.version, lines });
+      showSuccess(t.toast.updatedItem(doc.number ?? doc.id));
+      setEditingLines(false);
+      await load();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="document-detail">
       <div className="page-header">
@@ -131,6 +167,11 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
           <Link to={`/${kind.routePrefix}`} className="link-muted">
             {t.common.backToList}
           </Link>
+          {kind.editLinesPerm && hasPermission(kind.editLinesPerm) && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && !editingLines && (
+            <button disabled={busy} onClick={startEditingLines}>
+              {t.common.edit}
+            </button>
+          )}
           {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (
             <button className="primary" disabled={busy} onClick={() => runCommand('post')}>
               {t.common.post}
@@ -194,7 +235,25 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
 
       <section className="card">
         <h2>{t.common.lines}</h2>
-        {(doc.lines ?? []).length === 0 ? (
+        {editingLines ? (
+          <form onSubmit={saveLines}>
+            <DocLinesEditor
+              lines={lineDrafts}
+              setLines={setLineDrafts}
+              products={products}
+              units={units}
+              warehouses={warehouses}
+              showPrice={kind.showPrice}
+              showTax={kind.showTax}
+              showWarehouse={kind.showLineWarehouse}
+              priceHint={kind.priceHint}
+            />
+            <div className="inline-form">
+              <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
+              <button type="button" onClick={() => setEditingLines(false)}>{t.common.cancel}</button>
+            </div>
+          </form>
+        ) : (doc.lines ?? []).length === 0 ? (
           <p className="panel-note">{t.common.noLinesYet}</p>
         ) : (
           <table className="data-table">
@@ -217,13 +276,19 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
               </tr>
             </thead>
             <tbody>
-              {doc.lines!.map((l, i) => (
-                <tr key={l.id ?? i}>
+              {doc.lines!.map((l, i) => {
+                const missingPrice = kind.showPrice && (l.price === null || l.price === undefined);
+                return (
+                <tr key={l.id ?? i} className={missingPrice ? 'row-missing-price' : undefined}>
                   <td>{i + 1}</td>
                   <td>{productName(l.productId)}</td>
                   <td>{unitCode(l.unitId)}</td>
                   <td className="numeric">{l.quantity}</td>
-                  {kind.showPrice && <td className="numeric">{l.price ?? '—'}</td>}
+                  {kind.showPrice && (
+                    <td className="numeric">
+                      {missingPrice ? <span className="badge badge-generic-warn" title={t.common.missingPriceHint}>{t.common.missingPrice}</span> : l.price}
+                    </td>
+                  )}
                   {kind.showTax && <td className="numeric">{l.taxRate ?? '—'}</td>}
                   {kind.showLineWarehouse && <td>{whCode(l.warehouseId as string | undefined)}</td>}
                   {kind.showPrice && (
@@ -234,7 +299,8 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
                     </>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

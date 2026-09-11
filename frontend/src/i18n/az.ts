@@ -92,6 +92,8 @@ const az: Translations = {
     noAuditEvents: 'Audit hadisəsi yoxdur.',
     noPermissionView: 'Bunu görmək üçün icazəniz yoxdur.',
     pricesIncludeTax: 'Qiymətlərə vergi daxildir',
+    missingPrice: 'Qiymət yoxdur',
+    missingPriceHint: 'Bir və ya bir neçə sətirdə hələ qiymət yoxdur — sənəd rəsmiləşdirilməzdən əvvəl daxil edin.',
     addLine: '+ Sətir əlavə et',
     remove: 'Sil',
     reason: 'Səbəb',
@@ -353,6 +355,20 @@ const az: Translations = {
     createFromPO: 'Müqavilə yarat',
     createFromPOHint: 'Bu təsdiqlənmiş alış sifarişindən müqavilə yaradır və bütün qalıq sətirləri köçürür.',
     contractCreated: 'Müqavilə yaradıldı',
+
+    // Müqavilə formasında məcburi "Alış sifarişini seç" sahəsi
+    selectPurchaseOrder: 'Alış sifarişini seç',
+    selectPurchaseOrderRequired: 'Alış sifarişini seç (məcburi)',
+    noEligiblePurchaseOrders: 'Bu kontragent üçün qalıq miqdarı olan təsdiqlənmiş alış sifarişi yoxdur. Əvvəlcə hər sətirdə qiymət olmalı və sifariş rəsmiləşdirilməlidir.',
+    changeSourcePO: 'Mənbə sifarişi dəyiş',
+    changeSourcePOConfirm: 'Bu müqavilədə hələ alış sifarişinə əks olunmamış əl ilə edilmiş dəyişikliklər var. Mənbə alış sifarişini dəyişmək bu sətirləri siləcək və yeni sifarişin sətirləri ilə əvəz edəcək. Davam edilsin?',
+    addLineFromPO: 'Mənbə sifarişdən sətir geri əlavə et',
+    noRemainingPOLines: 'Mənbə alış sifarişinin bütün sətirləri artıq bu müqavilədədir.',
+    manualLineBlockedHint: 'Nomenklatura sətirləri yalnız mənbə alış sifarişindən gələ bilər — aşağıdan seçin.',
+    sourceRequirement: 'Tələbdən',
+    taxMismatchWarning: 'Bu sətrin vergisi artıq alış sifarişinin ilkin vergisi ilə üst-üstə düşmür — müqavilə yaradıldıqdan sonra kontragentin vergi statusu dəyişmiş ola bilər.',
+    missingPrice: 'Qiymət yoxdur',
+    missingPriceHint: 'Bu sətirdə hələ qiymət yoxdur — sənəd rəsmiləşdirilməzdən əvvəl daxil edin.',
   },
 };
 

@@ -492,6 +492,17 @@ export interface CounterpartyContractLine {
   lineTotal: string | null;
   taxCalculationError: string | null;
   sourceOrderLineId: string | null;
+  sourcePoTaxRatePercent: string | null;
+  sourcePoTaxAmount: string | null;
+  taxMismatch: boolean;
+  sourceChain?: {
+    purchaseOrderId: string;
+    purchaseOrderNumber: string | null;
+    purchaseOrderLineId: string;
+    purchaseRequirementId: string | null;
+    purchaseRequirementNumber: string | null;
+    purchaseRequirementLineId: string | null;
+  };
   version: number;
 }
 
@@ -545,6 +556,7 @@ export interface CounterpartyContract {
   otherTerms: string | null;
   priceIncludesTax: boolean;
   sourcePurchaseOrderId: string | null;
+  linesDirty: boolean;
   subtotal: string | null;
   totalDiscount: string | null;
   totalTax: string | null;
@@ -638,4 +650,8 @@ export interface LineDraft {
   warehouseId: string;
   description: string;
   lineType: string;
+  // Carried through untouched when editing an existing line (never set by
+  // the user) so a requirement-sourced Purchase Order line keeps its
+  // traceability link after a later manual price/tax edit.
+  requirementLineId?: string;
 }

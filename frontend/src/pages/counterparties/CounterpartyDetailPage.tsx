@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { Counterparty, CounterpartyContract } from '../../api/types';
+import type { BizDoc, Counterparty, CounterpartyContract } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -455,6 +455,8 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
   const [busy, setBusy] = useState(false);
   const [number, setNumber] = useState('');
   const [subject, setSubject] = useState('');
+  const [eligible, setEligible] = useState<BizDoc[]>([]);
+  const [purchaseOrderId, setPurchaseOrderId] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -470,13 +472,26 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!showForm) return;
+    api.get<BizDoc[]>(`/organizations/${orgId}/counterparties/${cp.id}/contracts/eligible-purchase-orders`)
+      .then(setEligible)
+      .catch((err) => showError(err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForm, orgId, cp.id]);
+
+  // Every contract must trace back to a confirmed purchase order (spec
+  // section 11: "Müqavilə formasında məcburi 'Alış sifarişini seç'
+  // sahəsi olsun") — this form is the ONLY way to create a contract; the
+  // generic bare-CRUD create endpoint still exists server-side but the
+  // UI never calls it any more.
   const create = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const created = await api.post<CounterpartyContract>(`/organizations/${orgId}/counterparties/${cp.id}/contracts`, { number, subject });
+      const created = await api.post<CounterpartyContract>(`/organizations/${orgId}/contracts/from-purchase-order`, { purchaseOrderId, number, subject: subject || undefined });
       showSuccess(t.toast.createdItem(number));
-      setNumber(''); setSubject('');
+      setNumber(''); setSubject(''); setPurchaseOrderId('');
       setShowForm(false);
       await load();
       navigate(`/counterparties/${cp.id}/contracts/${created.id}`);
@@ -494,11 +509,23 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
         {hasPermission('contract.create') && <button className="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? t.common.cancel : t.counterparty.addContract}</button>}
       </div>
       {showForm && (
-        <form onSubmit={create} className="inline-form">
-          <label>{t.counterparty.contractNumber}<input required value={number} onChange={(e) => setNumber(e.target.value)} /></label>
-          <label>{t.counterparty.subject}<input required value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
-          <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
-        </form>
+        eligible.length === 0 ? (
+          <p className="panel-note">{t.contract.noEligiblePurchaseOrders}</p>
+        ) : (
+          <form onSubmit={create} className="inline-form">
+            <label>{t.contract.selectPurchaseOrderRequired}
+              <select required value={purchaseOrderId} onChange={(e) => setPurchaseOrderId(e.target.value)}>
+                <option value="">{t.common.select}</option>
+                {eligible.map((o) => (
+                  <option key={o.id} value={o.id}>{o.number} — {o.grandTotal ?? ''}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t.counterparty.contractNumber}<input required value={number} onChange={(e) => setNumber(e.target.value)} /></label>
+            <label>{t.counterparty.subject}<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
+            <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
+          </form>
+        )
       )}
       {contracts.length === 0 ? (
         <p className="panel-note">{t.counterparty.noContractsYet}</p>

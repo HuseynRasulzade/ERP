@@ -90,6 +90,8 @@ const en = {
     noAuditEvents: 'No audit events.',
     noPermissionView: "You don't have permission to view this.",
     pricesIncludeTax: 'Prices include tax',
+    missingPrice: 'No price',
+    missingPriceHint: 'One or more lines have no price yet — enter it before this document can be confirmed.',
     addLine: '+ Add line',
     remove: 'Remove',
     reason: 'Reason',
@@ -351,6 +353,20 @@ const en = {
     createFromPO: 'Create Contract',
     createFromPOHint: 'Creates a contract from this confirmed purchase order, copying every remaining line.',
     contractCreated: 'Contract created',
+
+    // Mandatory PO picker on the contract creation form
+    selectPurchaseOrder: 'Select purchase order',
+    selectPurchaseOrderRequired: 'Select purchase order (required)',
+    noEligiblePurchaseOrders: 'No confirmed purchase orders with remaining quantity are available for this counterparty. Every line must have a price and be posted first.',
+    changeSourcePO: 'Change source PO',
+    changeSourcePOConfirm: 'This contract has hand-edited lines that have not been saved to the purchase order. Switching the source purchase order will discard them and replace every line with the new order\'s lines. Continue?',
+    addLineFromPO: 'Add a line back from the source PO',
+    noRemainingPOLines: 'Every line from the source purchase order is already fully on this contract.',
+    manualLineBlockedHint: 'Nomenclature lines can only come from the source purchase order — pick one below.',
+    sourceRequirement: 'From requirement',
+    taxMismatchWarning: 'This line\'s tax no longer matches the purchase order\'s original tax — the counterparty\'s tax status may have changed since the contract was created.',
+    missingPrice: 'No price',
+    missingPriceHint: 'This line has no price yet — enter one before the document can be confirmed.',
   },
 };
 
