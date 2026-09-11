@@ -37,6 +37,18 @@ import { PurchaseReturnListPage, PurchaseReturnDetailPage } from './pages/purcha
 import { AdditionalPurchaseCostListPage, AdditionalPurchaseCostDetailPage } from './pages/purchasing/AdditionalPurchaseCostPage';
 import { PurchaseReportsPage } from './pages/purchasing/PurchaseReportsPage';
 
+// Phase 10 — Warehouse / Stock Engine
+import {
+  WarehouseTransferListPage,
+  WarehouseTransferDetailPage,
+  InternalConsumptionListPage,
+  InternalConsumptionDetailPage,
+  InventoryAdjustmentListPage,
+  InventoryAdjustmentDetailPage,
+  InventoryStatusTransferListPage,
+  InventoryStatusTransferDetailPage,
+} from './pages/warehouse/WarehouseInventoryPages';
+
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="full-page-loading">Loading…</div>;
@@ -94,6 +106,15 @@ function AppRoutes() {
         <Route path="/additional-costs" element={<AdditionalPurchaseCostListPage />} />
         <Route path="/additional-costs/:id" element={<AdditionalPurchaseCostDetailPage />} />
         <Route path="/purchase-reports" element={<PurchaseReportsPage />} />
+
+        <Route path="/warehouse-transfers" element={<WarehouseTransferListPage />} />
+        <Route path="/warehouse-transfers/:id" element={<WarehouseTransferDetailPage />} />
+        <Route path="/internal-consumptions" element={<InternalConsumptionListPage />} />
+        <Route path="/internal-consumptions/:id" element={<InternalConsumptionDetailPage />} />
+        <Route path="/inventory-adjustments" element={<InventoryAdjustmentListPage />} />
+        <Route path="/inventory-adjustments/:id" element={<InventoryAdjustmentDetailPage />} />
+        <Route path="/inventory-status-transfers" element={<InventoryStatusTransferListPage />} />
+        <Route path="/inventory-status-transfers/:id" element={<InventoryStatusTransferDetailPage />} />
 
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />

@@ -144,6 +144,32 @@ export function Layout() {
             </NavLink>
           )}
 
+          <div className="nav-group-label">{t.nav.groupWarehouse}</div>
+          {hasPermission('inventory.view') && (
+            <NavLink to="/warehouse-transfers">
+              <span className="nav-icon">⇄</span>
+              {t.nav.warehouseTransfers}
+            </NavLink>
+          )}
+          {hasPermission('inventory.view') && (
+            <NavLink to="/internal-consumptions">
+              <span className="nav-icon">⚙</span>
+              {t.nav.internalConsumptions}
+            </NavLink>
+          )}
+          {hasPermission('inventory.view') && (
+            <NavLink to="/inventory-adjustments">
+              <span className="nav-icon">±</span>
+              {t.nav.inventoryAdjustments}
+            </NavLink>
+          )}
+          {hasPermission('inventory.view') && (
+            <NavLink to="/inventory-status-transfers">
+              <span className="nav-icon">◐</span>
+              {t.nav.inventoryStatusTransfers}
+            </NavLink>
+          )}
+
           <div className="nav-group-label">{t.nav.groupAdmin}</div>
           {hasPermission('organization.view') && (
             <NavLink to="/organizations">
