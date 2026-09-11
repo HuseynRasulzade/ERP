@@ -47,8 +47,8 @@ consequence (a Sales Invoice, a Manual Operation), adopt the chart and
 seed VAT localization once per tenant:
 `POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 155 tests, all
-passing (3 unit + 152 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 165 tests, all
+passing (3 unit + 162 e2e against a real Postgres instance).
 
 ---
 
@@ -230,6 +230,26 @@ against today's rule) and a contra GL entry.
 
 Full write-up: [`backend/docs/SALES_EXECUTION.md`](backend/docs/SALES_EXECUTION.md).
 
+### Procurement & Purchase Order Management
+
+`PurchaseRequirement` (demand capture, manual or SalesOrder-derived) →
+`PurchaseOrder` (supplier commercial commitment — `postingStatus=POSTED`
+IS `CONFIRMED`, same pattern as `SalesOrder`). Price snapshot via a
+purchase-scoped `PurchasePriceResolver` (never the sales price list) and
+a tax *preview* via the same Tax Engine — no `TaxMovement`, no GL, no AP,
+no physical stock, ever, on confirmation, structurally guaranteed by
+omitting the posting handler's optional `buildAccountingBatch` hook
+entirely rather than merely returning null. Supplier selection is a live,
+computed candidate comparison (price + tax preview + lead time + MOQ) off
+`SupplierProductCode` mappings, not a persisted comparison table.
+Multi-supplier partial ordering, requirement-to-order allocation tracked
+via `DocumentLineLink`, Expected Supply computed live from confirmed
+order lines (respecting split delivery schedules), a planned-only payment
+schedule, and demand-supply pegging linking a SalesOrderLine to a
+PurchaseOrderLine for traceability (never a physical reservation).
+
+Full write-up: [`backend/docs/PROCUREMENT.md`](backend/docs/PROCUREMENT.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -255,6 +275,7 @@ Policy, Tax Profile, Access).
 | `backend/test/tax-engine.e2e-spec.ts` | 18 | Idempotent VAT localization seed, exclusive/inclusive calculation, zero-rated/exempt/out-of-scope distinction, missing/ambiguous rule detection, legal rule versioning + repealed-rule exclusion, recoverability split, atomic Tax+GL posting, duplicate prevention, reversal, shared Period Guard, tax registrations, tenant isolation |
 | `backend/test/sales-preorder.e2e-spec.ts` | 17 | Customer Request create/cancel, Commercial Offer price resolution/discount/Tax Preview, offer lifecycle + derived expiry, Request⇒Offer and Offer⇒SalesOrder conversion with price preservation, order confirmation with credit check + hold gating and an explicit no-GL/no-tax-register assertion, reservation create/oversubscription/release, fulfillment computation, shipment plan limits, payment schedule rounding, tenant isolation |
 | `backend/test/sales-execution.e2e-spec.ts` | 8 | Order⇒Shipment defaulting to remaining quantity, draft-vs-posted fulfillment counting, partial shipment + over-shipment rejection, insufficient-stock rejection, reservation consumption on post + restoration on unpost, Shipment⇒Invoice with balanced GL + SettlementObligation + invoiceable-quantity cap, physical Sales Return with prorated historical tax + contra GL + inventory receipt + excessive-return rejection + invoice-unpost-blocked-by-return, tenant isolation |
+| `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -285,5 +306,10 @@ All run against a real PostgreSQL instance — no mocked database.
   (Costing doesn't exist yet — every COGS attempt is honestly skipped);
   AR is a clean SettlementObligation contract, not a full register. No
   frontend UI yet.
-- **Purchase, Inventory, Payroll, Banking, Fixed Assets, ...** — not
-  started. Later phases building on this foundation.
+- **Procurement & Purchase Order Management** — ✅ done, tested,
+  documented. No Agreement/Partner entities (reuses Counterparty directly,
+  same simplification as Sales); no persisted supplier comparison (live
+  query instead); no MOQ/order-multiple enforcement (captured, surfaced,
+  not yet validated); no frontend UI yet.
+- **Inventory, Payroll, Banking, Fixed Assets, ...** — not started. Later
+  phases building on this foundation.

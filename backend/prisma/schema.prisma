@@ -103,6 +103,15 @@ model Tenant {
   settlementObligations          SettlementObligation[]
   salesReturns                   SalesReturn[]
   salesReturnLines               SalesReturnLine[]
+  purchaseRequirements           PurchaseRequirement[]
+  purchaseRequirementLines       PurchaseRequirementLine[]
+  purchaseOrders                 PurchaseOrder[]
+  purchaseOrderLines             PurchaseOrderLine[]
+  purchaseDeliveryScheduleLines  PurchaseDeliveryScheduleLine[]
+  purchaseOrderHolds             PurchaseOrderHold[]
+  purchaseOrderPaymentSchedules  PurchaseOrderPaymentSchedule[]
+  supplierProductCodes           SupplierProductCode[]
+  supplyPegs                     SupplyPeg[]
 
   @@map("tenants")
 }
@@ -185,6 +194,9 @@ model Organization {
   shipments             Shipment[]
   settlementObligations SettlementObligation[]
   salesReturns          SalesReturn[]
+  purchaseRequirements  PurchaseRequirement[]
+  purchaseOrders        PurchaseOrder[]
+  supplierProductCodes  SupplierProductCode[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -247,6 +259,7 @@ model Department {
   parentDepartment Department?        @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
   children         Department[]       @relation("DepartmentHierarchy")
   manager          ResponsiblePerson? @relation(fields: [managerPersonId], references: [id])
+  purchaseRequirements PurchaseRequirement[]
 
   @@unique([organizationId, code])
   @@index([organizationId, parentDepartmentId])
@@ -279,6 +292,8 @@ model ResponsiblePerson {
   managedWarehouses  Warehouse[]
   managedCashboxes   Cashbox[]
   customerRequests   CustomerRequest[]
+  purchaseRequirementsRequested PurchaseRequirement[] @relation("PurchaseRequirementRequester")
+  purchaseOrdersAsBuyer         PurchaseOrder[]        @relation("PurchaseOrderBuyer")
 
   @@index([tenantId, active])
   @@map("responsible_persons")
@@ -315,6 +330,11 @@ model Warehouse {
   shipmentPlans           ShipmentPlan[]
   shipments               Shipment[]
   salesReturns            SalesReturn[]
+  purchaseRequirements         PurchaseRequirement[]
+  purchaseRequirementLines     PurchaseRequirementLine[]
+  purchaseOrders                PurchaseOrder[]
+  purchaseOrderLines            PurchaseOrderLine[]
+  purchaseDeliveryScheduleLines PurchaseDeliveryScheduleLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -678,6 +698,8 @@ model Currency {
   orderPaymentSchedules    OrderPaymentSchedule[]
   settlementObligations    SettlementObligation[]
   salesReturns             SalesReturn[]
+  purchaseOrders                PurchaseOrder[]
+  purchaseOrderPaymentSchedules PurchaseOrderPaymentSchedule[]
 
   @@map("currencies")
 }
@@ -1003,6 +1025,9 @@ model UnitOfMeasure {
   commercialOfferLines CommercialOfferLine[] @relation("CommercialOfferLineUnit")
   shipmentLines        ShipmentLine[]        @relation("ShipmentLineUnit")
   salesReturnLines     SalesReturnLine[]     @relation("SalesReturnLineUnit")
+  purchaseRequirementLines PurchaseRequirementLine[] @relation("PurchaseRequirementLineUnit")
+  purchaseOrderLines       PurchaseOrderLine[]       @relation("PurchaseOrderLineUnit")
+  supplierProductCodes     SupplierProductCode[]     @relation("SupplierProductCodeUnit")
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
@@ -1098,6 +1123,9 @@ model Product {
   stockReservations    StockReservation[]
   shipmentLines        ShipmentLine[]
   salesReturnLines     SalesReturnLine[]
+  purchaseRequirementLines PurchaseRequirementLine[]
+  purchaseOrderLines       PurchaseOrderLine[]
+  supplierProductCodes     SupplierProductCode[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1192,6 +1220,9 @@ model Counterparty {
   shipments             Shipment[]
   settlementObligations SettlementObligation[]
   salesReturns          SalesReturn[]
+  purchaseOrders                    PurchaseOrder[]
+  supplierProductCodes              SupplierProductCode[]
+  preferredForRequirementLines      PurchaseRequirementLine[] @relation("PreferredSupplierForRequirementLine")
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -2800,4 +2831,321 @@ model SalesReturnLine {
 
   @@index([salesReturnId, position])
   @@map("sales_return_lines")
+}
+
+// ============================================================================
+// PROCUREMENT & PURCHASE ORDER MANAGEMENT (docx spec Phase 8)
+//
+// Planning/commitment layer only (spec sections 94-97): PurchaseRequirement
+// captures demand, PurchaseOrder captures supplier commitment, Expected
+// Supply is computed live from confirmed PurchaseOrderLines + delivery
+// schedule (no persisted "ExpectedReceipt" table — see
+// docs/PROCUREMENT.md). None of this creates a GL posting, AP liability,
+// physical stock, or a TaxMovement — Goods Receipt/Purchase Invoice
+// (Phase 9) do. PurchaseOrder reuses the DocumentStatus/PostingStatus
+// pattern SalesOrder established in Phase 6: postingStatus=POSTED IS the
+// CONFIRMED commercial-commitment state (PurchaseOrderPostingHandler),
+// through the same generic /documents/PURCHASE_ORDER/:id/post|unpost|cancel
+// commands — no parallel confirmation state machine.
+// ============================================================================
+
+model PurchaseRequirement {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  documentType   String    @default("PURCHASE_REQUIREMENT") @map("document_type")
+  number         String?
+  documentDate   DateTime  @map("document_date") @db.Date
+  status         String    @default("DRAFT") // DRAFT|OPEN|PARTIALLY_ORDERED|FULLY_ORDERED|CANCELLED|CLOSED
+  warehouseId    String?   @map("warehouse_id")
+  departmentId   String?   @map("department_id")
+  requesterId    String?   @map("requester_id") // ResponsiblePerson (spec section 79)
+  requiredByDate DateTime? @map("required_by_date") @db.Date
+  priority       String    @default("NORMAL")
+  description    String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse?                @relation(fields: [warehouseId], references: [id])
+  department   Department?               @relation(fields: [departmentId], references: [id])
+  requester    ResponsiblePerson?        @relation("PurchaseRequirementRequester", fields: [requesterId], references: [id])
+  lines        PurchaseRequirementLine[]
+
+  @@unique([tenantId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, warehouseId])
+  @@index([organizationId, requiredByDate])
+  @@map("purchase_requirements")
+}
+
+model PurchaseRequirementLine {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  purchaseRequirementId String    @map("purchase_requirement_id")
+  position              Int       @default(0)
+  productId             String    @map("product_id")
+  unitId                String    @map("unit_id")
+  quantity              Decimal   @db.Decimal(18, 6)
+  cancelledQuantity     Decimal   @default(0) @map("cancelled_quantity") @db.Decimal(18, 6)
+  requiredByDate        DateTime? @map("required_by_date") @db.Date
+  warehouseId           String?   @map("warehouse_id")
+  // Demand source (spec sections 9-11, 72-76): a manually-entered line has
+  // no source; a line derived from a SalesOrder (this build's CustomerOrder,
+  // see docs/SALES_PREORDER.md) carries it here for pegging/traceability.
+  sourceDocumentType  String? @map("source_document_type")
+  sourceDocumentId    String? @map("source_document_id")
+  sourceLineId        String? @map("source_line_id")
+  preferredSupplierId String? @map("preferred_supplier_id")
+  description         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  tenant              Tenant              @relation(fields: [tenantId], references: [id])
+  purchaseRequirement PurchaseRequirement @relation(fields: [purchaseRequirementId], references: [id], onDelete: Cascade)
+  product             Product             @relation(fields: [productId], references: [id])
+  unit                UnitOfMeasure       @relation("PurchaseRequirementLineUnit", fields: [unitId], references: [id])
+  warehouse           Warehouse?          @relation(fields: [warehouseId], references: [id])
+  preferredSupplier   Counterparty?       @relation("PreferredSupplierForRequirementLine", fields: [preferredSupplierId], references: [id])
+
+  @@index([purchaseRequirementId, position])
+  @@index([tenantId, productId])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId, sourceLineId])
+  @@map("purchase_requirement_lines")
+}
+
+model PurchaseOrder {
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  organizationId   String         @map("organization_id")
+  counterpartyId   String         @map("counterparty_id") // supplier
+  documentType     String         @default("PURCHASE_ORDER") @map("document_type")
+  number           String?
+  documentDate     DateTime       @map("document_date") @db.Date
+  postingDate      DateTime?      @map("posting_date") @db.Date
+  status           DocumentStatus @default(DRAFT)
+  postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId       String?        @map("currency_id")
+  exchangeRate     Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+  subtotal         Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal         Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal       Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  priceIncludesTax Boolean        @default(false) @map("price_includes_tax")
+  description      String?
+
+  warehouseId          String?   @map("warehouse_id") // destination default (spec section 62)
+  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
+  supplierReference    String?   @map("supplier_reference") // supplier's own acknowledgement number (spec section 81)
+  purchaseChannel      String?   @map("purchase_channel") // LOCAL|IMPORT|FRAME_CONTRACT|SPOT_PURCHASE|OTHER
+  buyerId              String?   @map("buyer_id") // ResponsiblePerson (spec section 79)
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  tenant          Tenant                         @relation(fields: [tenantId], references: [id])
+  organization    Organization                   @relation(fields: [organizationId], references: [id])
+  counterparty    Counterparty                   @relation(fields: [counterpartyId], references: [id])
+  currency        Currency?                      @relation(fields: [currencyId], references: [id])
+  warehouse       Warehouse?                     @relation(fields: [warehouseId], references: [id])
+  buyer           ResponsiblePerson?             @relation("PurchaseOrderBuyer", fields: [buyerId], references: [id])
+  lines           PurchaseOrderLine[]
+  holds           PurchaseOrderHold[]
+  paymentSchedule PurchaseOrderPaymentSchedule[]
+
+  @@unique([tenantId, number])
+  @@index([organizationId, counterpartyId, status])
+  @@index([organizationId, expectedDeliveryDate])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  purchaseOrderId      String    @map("purchase_order_id")
+  position             Int       @default(0)
+  productId            String    @map("product_id")
+  unitId               String    @map("unit_id")
+  quantity             Decimal   @db.Decimal(18, 6)
+  cancelledQuantity    Decimal   @default(0) @map("cancelled_quantity") @db.Decimal(18, 6)
+  price                Decimal   @db.Decimal(18, 6)
+  lineTotal            Decimal   @map("line_total") @db.Decimal(18, 2)
+  taxRate              Decimal   @default(0) @map("tax_rate") @db.Decimal(18, 2)
+  taxAmount            Decimal   @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  lineTotalWithTax     Decimal   @default(0) @map("line_total_with_tax") @db.Decimal(18, 2)
+  priceListId          String?   @map("price_list_id")
+  productPriceId       String?   @map("product_price_id")
+  isService            Boolean   @default(false) @map("is_service")
+  warehouseId          String?   @map("warehouse_id") // line-level destination override (spec sections 62-63)
+  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
+  supplierProductCode  String?   @map("supplier_product_code") // snapshot at order time (spec section 130)
+  requirementLineId    String?   @map("requirement_line_id") // direct source — mirrors ShipmentLine.sourceOrderLineId
+  description          String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant           Tenant                         @relation(fields: [tenantId], references: [id])
+  purchaseOrder    PurchaseOrder                  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product          Product                        @relation(fields: [productId], references: [id])
+  unit             UnitOfMeasure                  @relation("PurchaseOrderLineUnit", fields: [unitId], references: [id])
+  warehouse        Warehouse?                     @relation(fields: [warehouseId], references: [id])
+  deliverySchedule PurchaseDeliveryScheduleLine[]
+
+  @@index([purchaseOrderId, position])
+  @@index([tenantId, productId])
+  @@index([tenantId, requirementLineId])
+  @@map("purchase_order_lines")
+}
+
+/// Split-date delivery within one PO line (spec sections 60-61, 63): "100
+/// units, 50 Monday / 50 next month" — Expected Supply reads this when
+/// present instead of representing the whole line quantity at one date.
+model PurchaseDeliveryScheduleLine {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  purchaseOrderLineId String   @map("purchase_order_line_id")
+  plannedDate         DateTime @map("planned_date") @db.Date
+  quantity            Decimal  @db.Decimal(18, 6)
+  warehouseId         String?  @map("warehouse_id") // multi-warehouse allocation (spec section 63)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  purchaseOrderLine PurchaseOrderLine @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Cascade)
+  warehouse         Warehouse?        @relation(fields: [warehouseId], references: [id])
+
+  @@index([purchaseOrderLineId, plannedDate])
+  @@map("purchase_delivery_schedule_lines")
+}
+
+/// Structured hold (spec section 83) — never encoded only in a comment.
+/// Mirrors OrderHold (Phase 6): multiple holds may coexist, the PO is only
+/// confirmable once every ACTIVE hold is RELEASED.
+model PurchaseOrderHold {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  purchaseOrderId String    @map("purchase_order_id")
+  holdType        String    @map("hold_type") // APPROVAL|SUPPLIER|PRICE|BUDGET|MANUAL|COMPLIANCE
+  reason          String?
+  status          String    @default("ACTIVE")
+  placedAt        DateTime  @default(now()) @map("placed_at")
+  placedBy        String?   @map("placed_by")
+  releasedAt      DateTime? @map("released_at")
+  releasedBy      String?   @map("released_by")
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId, status])
+  @@map("purchase_order_holds")
+}
+
+/// Planned obligation only (spec sections 70, 85-86, 119) — visible to a
+/// future Treasury Payment Calendar (Phase 14), never a Bank Payment.
+/// Mirrors OrderPaymentSchedule (Phase 6) with an added `basis` label.
+model PurchaseOrderPaymentSchedule {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  purchaseOrderId String   @map("purchase_order_id")
+  sequence        Int      @default(0)
+  dueDate         DateTime @map("due_date") @db.Date
+  basis           String   @default("AFTER_RECEIPT") @map("basis") // ADVANCE|AFTER_RECEIPT|AFTER_INVOICE
+  percentage      Decimal? @db.Decimal(9, 4)
+  amount          Decimal  @db.Decimal(18, 2)
+  currencyId      String?  @map("currency_id")
+  status          String   @default("PLANNED")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  currency      Currency?     @relation(fields: [currencyId], references: [id])
+
+  @@index([purchaseOrderId, sequence])
+  @@map("purchase_order_payment_schedules")
+}
+
+/// Supplier-specific product mapping (spec sections 45-50, 55-57, 108).
+/// Distinct external code plus MOQ/order-multiple/lead-time metadata per
+/// supplier: "different suppliers may use the same external code" is why
+/// the code uniqueness is scoped to (organization, supplier), and a second
+/// uniqueness on (organization, supplier, product) keeps exactly one
+/// active mapping per supplier+product pair — no cross-supplier ambiguity.
+model SupplierProductCode {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  organizationId String   @map("organization_id")
+  counterpartyId String   @map("counterparty_id") // supplier
+  productId      String   @map("product_id")
+  supplierCode   String   @map("supplier_code")
+  supplierUnitId String?  @map("supplier_unit_id")
+  moq            Decimal? @map("moq") @db.Decimal(18, 6)
+  orderMultiple  Decimal? @map("order_multiple") @db.Decimal(18, 6)
+  leadTimeDays   Int?     @map("lead_time_days")
+  active         Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty   @relation(fields: [counterpartyId], references: [id])
+  product      Product        @relation(fields: [productId], references: [id])
+  supplierUnit UnitOfMeasure? @relation("SupplierProductCodeUnit", fields: [supplierUnitId], references: [id])
+
+  @@unique([organizationId, counterpartyId, productId])
+  @@index([organizationId, counterpartyId, supplierCode])
+  @@map("supplier_product_codes")
+}
+
+/// Demand-supply pegging (spec sections 73-77) — planning linkage only,
+/// NEVER a physical reservation (do not confuse with StockReservation,
+/// spec section 75). Generic demand_type/supply_type strings rather than
+/// typed FKs, exactly as the spec's suggested field list, since either
+/// side may later be any document type (made-to-order procurement, spec
+/// section 76, pegs a SalesOrderLine demand to a PurchaseOrderLine supply
+/// today; production requirements, Phase 21, are a future demand type).
+model SupplyPeg {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  demandType   String   @map("demand_type")
+  demandId     String   @map("demand_id")
+  demandLineId String   @map("demand_line_id")
+  supplyType   String   @map("supply_type")
+  supplyId     String   @map("supply_id")
+  supplyLineId String   @map("supply_line_id")
+  quantity     Decimal  @db.Decimal(18, 6)
+  status       String   @default("ACTIVE") // ACTIVE|REMOVED
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdBy    String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, demandType, demandId, demandLineId])
+  @@index([tenantId, supplyType, supplyId, supplyLineId])
+  @@map("supply_pegs")
 }

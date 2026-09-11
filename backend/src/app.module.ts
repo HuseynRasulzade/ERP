@@ -31,6 +31,7 @@ import { AccountingCoreModule } from './accounting-core/accounting-core.module';
 import { TaxEngineModule } from './tax-engine/tax-engine.module';
 import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
 import { SalesExecutionModule } from './sales-execution/sales-execution.module';
+import { ProcurementModule } from './procurement/procurement.module';
 
 @Module({
   imports: [
@@ -80,6 +81,12 @@ import { SalesExecutionModule } from './sales-execution/sales-execution.module';
     // Sales Execution (docx spec Phase 7 — Shipment, extended Sales
     // Invoice with real AR/COGS interfaces, Sales Return).
     SalesExecutionModule,
+
+    // Procurement & Purchase Order Management (docx spec Phase 8 —
+    // Purchase Requirement, supplier selection, Purchase Order commercial
+    // commitment, expected supply, payment schedule, demand-supply
+    // pegging; no GL/AP/inventory/Tax Register consequence).
+    ProcurementModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,

@@ -74,6 +74,14 @@ export const ErrorCode = {
   RETURN_QUANTITY_EXCEEDS_SOLD: 'RETURN_QUANTITY_EXCEEDS_SOLD',
   RETURN_ORIGINAL_DOCUMENT_REQUIRED: 'RETURN_ORIGINAL_DOCUMENT_REQUIRED',
   SALES_COGS_NOT_AVAILABLE: 'SALES_COGS_NOT_AVAILABLE',
+
+  // Procurement & Purchase Order Management (docx spec Phase 8, section 92-93)
+  REQUIREMENT_ALLOCATION_EXCEEDS_REMAINING: 'REQUIREMENT_ALLOCATION_EXCEEDS_REMAINING',
+  SUPPLIER_NOT_ELIGIBLE: 'SUPPLIER_NOT_ELIGIBLE',
+  PURCHASE_ORDER_ON_HOLD: 'PURCHASE_ORDER_ON_HOLD',
+  PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS: 'PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS',
+  SUPPLY_PEG_EXCEEDS_DEMAND: 'SUPPLY_PEG_EXCEEDS_DEMAND',
+  NO_PURCHASE_PRICE_FOUND: 'NO_PURCHASE_PRICE_FOUND',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -421,6 +429,58 @@ export class ReturnQuantityExceedsSoldError extends AppError {
     super(
       ErrorCode.RETURN_QUANTITY_EXCEEDS_SOLD,
       `Return quantity ${requested} exceeds returnable quantity ${maxReturnable}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class RequirementAllocationExceedsRemainingError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.REQUIREMENT_ALLOCATION_EXCEEDS_REMAINING,
+      `Allocation quantity ${requested} exceeds remaining requirement quantity ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class SupplierNotEligibleError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.SUPPLIER_NOT_ELIGIBLE, `Supplier is not eligible: ${reason}`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class PurchaseOrderOnHoldError extends AppError {
+  constructor(holdTypes: string[]) {
+    super(
+      ErrorCode.PURCHASE_ORDER_ON_HOLD,
+      `Purchase order has active hold(s): ${holdTypes.join(', ')}`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class PurchaseOrderHasDownstreamLinksError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class SupplyPegExceedsDemandError extends AppError {
+  constructor(remaining: string, requested: string) {
+    super(
+      ErrorCode.SUPPLY_PEG_EXCEEDS_DEMAND,
+      `Peg quantity ${requested} exceeds remaining unpegged demand ${remaining}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class NoPurchasePriceFoundError extends AppError {
+  constructor(productCode: string) {
+    super(
+      ErrorCode.NO_PURCHASE_PRICE_FOUND,
+      `No purchase price found for product ${productCode} at this date/quantity/supplier`,
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }

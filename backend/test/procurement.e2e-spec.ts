@@ -1,0 +1,349 @@
+/**
+ * Procurement & Purchase Order Management E2E tests (docx spec Phase 8).
+ *
+ * Covers: manual Purchase Requirement create/cancel, demand aggregation,
+ * supplier eligibility (SUPPLIER role required), supplier product code +
+ * candidate comparison, PurchaseOrder create/confirm with NO GL/AP/
+ * TaxMovement consequence, expected supply computed from confirmed PO
+ * lines and reduced by line cancellation, requirement-to-PurchaseOrder
+ * multi-supplier partial allocation (PARTIALLY_ORDERED -> FULLY_ORDERED,
+ * over-allocation rejected), purchase order hold blocking confirmation,
+ * payment schedule generation with exact rounding, demand-supply pegging
+ * against a SalesOrderLine with over-peg rejection, and tenant isolation.
+ */
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { PrismaService } from '../src/prisma/prisma.service';
+import { AppModule } from '../src/app.module';
+import { PURCHASE_ORDER_TYPE } from '../src/procurement/purchase-order.repository';
+import * as request from 'supertest';
+
+describe('Procurement (e2e)', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  const run = Date.now();
+  let token1: string;
+  let token2: string;
+  let tenant1Id: string;
+  let tenant2Id: string;
+  let org1Id: string;
+  let org2Id: string;
+  let productId: string;
+  let unitId: string;
+  let supplierId: string;
+  let customerOnlyId: string; // ineligible as PO supplier
+  let customerId: string; // for the SalesOrder demand side of pegging
+  let warehouseId: string;
+  let currencyId: string;
+
+  const DOC_DATE = '2026-07-01';
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    await app.init();
+    prisma = app.get(PrismaService);
+
+    const s1 = await setupTenant(`proc1-${run}@e2e.test`, `proc-t1-${run}`, 'PRO1');
+    token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
+    const s2 = await setupTenant(`proc2-${run}@e2e.test`, `proc-t2-${run}`, 'PRO2');
+    token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
+
+    const u = await auth1(request(app.getHttpServer()).post('/units-of-measure'))
+      .send({ code: 'PCS8', name: 'Piece', symbol: 'pcs', unitType: 'QUANTITY' })
+      .expect(201);
+    unitId = u.body.id;
+
+    const p = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+      .send({ code: 'P8-PROD-001', name: 'Procurement Widget', productType: 'GOODS', baseUnitId: unitId })
+      .expect(201);
+    productId = p.body.id;
+
+    const supplier = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+      .send({ counterpartyType: 'SUPPLIER', code: 'SUP-001', name: 'Acme Supply Co', paymentTerms: 30 })
+      .expect(201);
+    supplierId = supplier.body.id;
+
+    const customerOnly = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+      .send({ counterpartyType: 'CUSTOMER', code: 'CUST-P8', name: 'Customer Only Co' })
+      .expect(201);
+    customerOnlyId = customerOnly.body.id;
+
+    const customer = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+      .send({ counterpartyType: 'CUSTOMER', code: 'CUST-PEG', name: 'Peg Demand Co', creditLimit: 1000000 })
+      .expect(201);
+    customerId = customer.body.id;
+
+    const wh = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/warehouses`))
+      .send({ code: 'WH-PROC', name: 'Procurement Warehouse' })
+      .expect(201);
+    warehouseId = wh.body.id;
+
+    const curRes = await auth1(request(app.getHttpServer()).get('/currencies')).expect(200);
+    currencyId = curRes.body.find((c: any) => c.code === 'USD')?.id;
+
+    const pl = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/price-lists`))
+      .send({ priceListType: 'PURCHASE', code: 'SUP-PL-001', name: 'Acme Purchase Prices', currencyId, validFrom: '2026-01-01', counterpartyId: supplierId })
+      .expect(201);
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/price-lists/${pl.body.id}/prices`))
+      .send({ productId, unitId, price: 20, minQuantity: 1 })
+      .expect(201);
+
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/supplier-product-codes`))
+      .send({ counterpartyId: supplierId, productId, supplierCode: 'ACME-WIDGET-001', moq: 10, orderMultiple: 5, leadTimeDays: 7 })
+      .expect(201);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  async function setupTenant(email: string, tenantCode: string, orgCode: string) {
+    const regRes = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Test User' }).expect(201);
+    const token = regRes.body.accessToken;
+    const tenantRes = await request(app.getHttpServer())
+      .post('/tenants')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ code: tenantCode, name: `${tenantCode} Corp`, baseCurrencyCode: 'USD' })
+      .expect(201);
+    const tenantId = tenantRes.body.id;
+    const orgRes = await request(app.getHttpServer())
+      .post('/organizations')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Tenant-Id', tenantId)
+      .send({ code: orgCode, name: `${orgCode} Org` })
+      .expect(201);
+    return { token, tenantId, orgId: orgRes.body.id };
+  }
+
+  function auth1(req: request.Test) {
+    return req.set('Authorization', `Bearer ${token1}`).set('X-Tenant-Id', tenant1Id);
+  }
+  function auth2(req: request.Test) {
+    return req.set('Authorization', `Bearer ${token2}`).set('X-Tenant-Id', tenant2Id);
+  }
+
+  describe('Purchase Requirement (spec sections 1-11, 105)', () => {
+    it('creates a manual requirement OPEN, cancels the remainder, and is tenant-isolated', async () => {
+      const created = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 30 }] })
+        .expect(201);
+      expect(created.body.number).toMatch(/^PR-2026-\d+$/);
+      expect(created.body.status).toBe('OPEN');
+
+      await auth2(request(app.getHttpServer()).get(`/organizations/${org2Id}/purchase-requirements/${created.body.id}`)).expect(404);
+
+      const cancelled = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${created.body.id}/cancel`))
+        .send({ expectedVersion: created.body.version })
+        .expect(201);
+      expect(cancelled.body.status).toBe('CANCELLED');
+      expect(Number(cancelled.body.lines[0].cancelledQuantity)).toBeCloseTo(30, 6);
+    });
+
+    it('aggregates demand across multiple open requirement lines for the same product', async () => {
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 30 }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 50 }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 20 }] })
+        .expect(201);
+
+      const coverage = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/procurement/demand-coverage`).query({ productId, warehouseId }),
+      ).expect(200);
+      expect(Number(coverage.body.totalRemaining)).toBeCloseTo(100, 6);
+    });
+  });
+
+  describe('Supplier selection & eligibility (spec sections 41-50, 92, 107-108)', () => {
+    it('lists the mapped supplier as a candidate with resolved price and tax preview', async () => {
+      const candidates = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/procurement/supplier-candidates`).query({ productId, quantity: 10, date: DOC_DATE }),
+      ).expect(200);
+      const acme = candidates.body.find((c: any) => c.counterpartyId === supplierId);
+      expect(acme).toBeDefined();
+      expect(Number(acme.price)).toBeCloseTo(20, 6);
+      expect(acme.supplierCode).toBe('ACME-WIDGET-001');
+      expect(acme.taxPreview).not.toBeNull();
+    });
+
+    it('rejects a customer-only counterparty as a purchase order supplier', async () => {
+      // Supplier eligibility (SUPPLIER/BOTH role, active) is enforced up
+      // front at create() — mirroring SalesOrderService.assertCustomer —
+      // so an ineligible counterparty never even produces a draft PO.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: customerOnlyId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 20 }] })
+        .expect(422);
+    });
+  });
+
+  describe('Purchase Order confirmation — no GL / AP / TaxMovement consequence (spec sections 94-97, 110-113)', () => {
+    it('confirms a purchase order and leaves the ledger and tax register untouched', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, expectedDeliveryDate: '2026-07-15', lines: [{ productId, unitId, quantity: 100 }] })
+        .expect(201);
+      expect(po.body.number).toMatch(/^PO-2026-\d+$/);
+      expect(Number(po.body.lines[0].price)).toBeCloseTo(20, 6); // resolved from PURCHASE price list
+
+      const confirmedPatch = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
+        .send({ expectedVersion: po.body.version })
+        .expect(201);
+      expect(confirmedPatch.body.postingStatus).toBe('POSTED');
+      const confirmed = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${po.body.id}`)).expect(200);
+
+      const journalCount = await prisma.journalEntry.count({ where: { tenantId: tenant1Id, sourceDocumentType: PURCHASE_ORDER_TYPE, sourceDocumentId: po.body.id } });
+      expect(journalCount).toBe(0);
+      const taxMovementCount = await prisma.taxMovement.count({ where: { tenantId: tenant1Id, sourceDocumentType: PURCHASE_ORDER_TYPE, sourceDocumentId: po.body.id } });
+      expect(taxMovementCount).toBe(0);
+
+      const expected = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/procurement/expected-stock`).query({ productId, warehouseId }),
+      ).expect(200);
+      const forThisPO = expected.body.filter((r: any) => r.purchaseOrderId === po.body.id);
+      expect(forThisPO).toHaveLength(1);
+      expect(Number(forThisPO[0].quantity)).toBeCloseTo(100, 6);
+
+      // Cancel 20 of the remaining line quantity — expected supply drops
+      // to 80, original ordered quantity is never rewritten (spec 121).
+      const line = confirmed.body.lines[0];
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/lines/${line.id}/cancel`))
+        .send({ cancelQuantity: 20 })
+        .expect(201);
+
+      const expectedAfter = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/procurement/expected-stock`).query({ productId, warehouseId }),
+      ).expect(200);
+      const afterCancel = expectedAfter.body.find((r: any) => r.purchaseOrderId === po.body.id);
+      expect(Number(afterCancel.quantity)).toBeCloseTo(80, 6);
+
+      const storedLine = await prisma.purchaseOrderLine.findUnique({ where: { id: line.id } });
+      expect(Number(storedLine!.quantity)).toBeCloseTo(100, 6); // original quantity untouched
+      expect(Number(storedLine!.cancelledQuantity)).toBeCloseTo(20, 6);
+    });
+
+    it('blocks confirmation while an active hold exists, and allows it once released', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 10 }] })
+        .expect(201);
+
+      const hold = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/holds`))
+        .send({ holdType: 'BUDGET', reason: 'Awaiting budget approval' })
+        .expect(201);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
+        .send({ expectedVersion: po.body.version })
+        .expect(409);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-order-holds/${hold.body.id}/release`)).expect(201);
+
+      const confirmed = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
+        .send({ expectedVersion: po.body.version })
+        .expect(201);
+      expect(confirmed.body.postingStatus).toBe('POSTED');
+    });
+  });
+
+  describe('Requirement -> PurchaseOrder allocation — multi-supplier partial ordering (spec sections 20, 53, 114, 122)', () => {
+    it('allocates a requirement across two suppliers and tracks OPEN -> PARTIALLY_ORDERED -> FULLY_ORDERED', async () => {
+      const supplierB = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+        .send({ counterpartyType: 'SUPPLIER', code: 'SUP-002', name: 'Beta Supply Co' })
+        .expect(201);
+
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 100 }] })
+        .expect(201);
+      const reqLineId = req.body.lines[0].id;
+
+      const poA = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, lines: [{ requirementLineId: reqLineId, quantity: 60, price: 20 }] })
+        .expect(201);
+      expect((poA.body.lines as any[])[0].requirementLineId).toBe(reqLineId);
+
+      const midway = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${req.body.id}`)).expect(200);
+      expect(midway.body.status).toBe('PARTIALLY_ORDERED');
+
+      // Over-allocating the remaining 40 is rejected.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
+        .send({ counterpartyId: supplierB.body.id, documentDate: DOC_DATE, lines: [{ requirementLineId: reqLineId, quantity: 41, price: 22 }] })
+        .expect(422);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
+        .send({ counterpartyId: supplierB.body.id, documentDate: DOC_DATE, lines: [{ requirementLineId: reqLineId, quantity: 40, price: 22 }] })
+        .expect(201);
+
+      const final = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${req.body.id}`)).expect(200);
+      expect(final.body.status).toBe('FULLY_ORDERED');
+    });
+  });
+
+  describe('Purchase Order Payment Schedule (spec sections 70, 119)', () => {
+    it('generates installments that sum exactly to the order total, rounding into the last line', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 3, price: 33.33 }] })
+        .expect(201);
+      const total = Number(po.body.grandTotal);
+
+      const schedule = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/payment-schedule`))
+        .send({ installments: [
+          { dueDate: '2026-07-01', basis: 'ADVANCE', percentage: 30 },
+          { dueDate: '2026-08-01', basis: 'AFTER_RECEIPT', percentage: 70 },
+        ] })
+        .expect(201);
+
+      const sum = schedule.body.reduce((s: number, i: any) => s + Number(i.amount), 0);
+      expect(sum).toBeCloseTo(total, 2);
+      expect(schedule.body[0].basis).toBe('ADVANCE');
+    });
+  });
+
+  describe('Demand-Supply Pegging (spec sections 73-77)', () => {
+    it('pegs a SalesOrderLine demand to a PurchaseOrderLine supply and rejects over-pegging', async () => {
+      const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/sales-orders`))
+        .send({ counterpartyId: customerId, documentDate: DOC_DATE, lines: [{ productId, unitId, quantity: 25, price: 99 }] })
+        .expect(201);
+      const demandLineId = order.body.lines[0].id;
+
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 25, price: 20 }] })
+        .expect(201);
+      const supplyLineId = po.body.lines[0].id;
+
+      const peg = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/supply-pegs`))
+        .send({ demandType: 'SALES_ORDER', demandId: order.body.id, demandLineId, supplyType: 'PURCHASE_ORDER', supplyId: po.body.id, supplyLineId, quantity: 25 })
+        .expect(201);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/supply-pegs`))
+        .send({ demandType: 'SALES_ORDER', demandId: order.body.id, demandLineId, supplyType: 'PURCHASE_ORDER', supplyId: po.body.id, supplyLineId, quantity: 1 })
+        .expect(422); // demand already fully pegged
+
+      const list = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/supply-pegs`).query({ demandType: 'SALES_ORDER', demandId: order.body.id, demandLineId }),
+      ).expect(200);
+      expect(list.body).toHaveLength(1);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/supply-pegs/${peg.body.id}/remove`)).expect(201);
+      const afterRemove = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/supply-pegs`).query({ demandType: 'SALES_ORDER', demandId: order.body.id, demandLineId }),
+      ).expect(200);
+      expect(afterRemove.body).toHaveLength(0);
+    });
+  });
+
+  describe('Tenant isolation (spec section 125)', () => {
+    it('tenant B cannot see tenant A supplier, requirement, or purchase order', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5 }] })
+        .expect(201);
+
+      await auth2(request(app.getHttpServer()).get(`/organizations/${org2Id}/purchase-orders/${po.body.id}`)).expect(404);
+      await auth2(request(app.getHttpServer()).post(`/organizations/${org2Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, lines: [{ productId, unitId, quantity: 5, price: 1 }] })
+        .expect(400); // counterparty does not belong to tenant B's organization
+    });
+  });
+});
