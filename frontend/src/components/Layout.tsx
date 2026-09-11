@@ -29,7 +29,7 @@ export function Layout() {
             value={currentTenantId ?? ''}
             onChange={(e) => {
               selectTenant(e.target.value);
-              navigate('/documents');
+              navigate('/sales-orders');
             }}
           >
             <option value="" disabled>
@@ -56,12 +56,6 @@ export function Layout() {
 
       <div className="app-body">
         <nav className="sidenav">
-          <div className="nav-group-label">{t.nav.groupCore}</div>
-          <NavLink to="/documents">
-            <span className="nav-icon">▤</span>
-            {t.nav.documents}
-          </NavLink>
-
           <div className="nav-group-label">{t.nav.groupSales}</div>
           {hasPermission('sales.customer_request.view') && (
             <NavLink to="/customer-requests">

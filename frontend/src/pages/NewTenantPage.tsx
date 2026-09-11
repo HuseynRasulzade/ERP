@@ -22,7 +22,7 @@ export function NewTenantPage() {
       await refreshTenants();
       await selectTenant(tenant.id);
       showSuccess(`Tenant "${tenant.name}" created — you are its Tenant Administrator.`);
-      navigate('/documents');
+      navigate('/sales-orders');
     } catch (err) {
       showError(err);
     } finally {

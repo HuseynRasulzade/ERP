@@ -20,7 +20,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate('/documents');
+      navigate('/sales-orders');
     } catch (err) {
       showError(err);
     } finally {

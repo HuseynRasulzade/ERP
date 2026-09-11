@@ -8,8 +8,6 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { NewTenantPage } from './pages/NewTenantPage';
-import { DocumentsListPage } from './pages/DocumentsListPage';
-import { DocumentDetailPage } from './pages/DocumentDetailPage';
 import { PeriodsPage } from './pages/PeriodsPage';
 import { RolesPage } from './pages/RolesPage';
 import { AuditPage } from './pages/AuditPage';
@@ -66,9 +64,6 @@ function AppRoutes() {
           </RequireAuth>
         }
       >
-        <Route path="/documents" element={<DocumentsListPage />} />
-        <Route path="/documents/:id" element={<DocumentDetailPage />} />
-
         <Route path="/sales-orders" element={<SalesDocumentListPage kind="order" />} />
         <Route path="/sales-orders/:id" element={<SalesDocumentDetailPage kind="order" />} />
         <Route path="/sales-invoices" element={<SalesDocumentListPage kind="invoice" />} />
@@ -107,7 +102,7 @@ function AppRoutes() {
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/members" element={<MembersPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/documents" replace />} />
+      <Route path="*" element={<Navigate to="/sales-orders" replace />} />
     </Routes>
   );
 }
