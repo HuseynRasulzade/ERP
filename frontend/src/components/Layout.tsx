@@ -63,6 +63,12 @@ export function Layout() {
               {t.nav.productCatalog}
             </NavLink>
           )}
+          {hasPermission('counterparty.view') && (
+            <NavLink to="/counterparties">
+              <span className="nav-icon">☍</span>
+              {t.nav.counterparties}
+            </NavLink>
+          )}
 
           <div className="nav-group-label">{t.nav.groupSales}</div>
           {hasPermission('sales.customer_request.view') && (

@@ -117,6 +117,34 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
   return body as T;
 }
 
+/** Multipart file upload — bypasses the JSON request() helper since the
+ * browser must set its own `Content-Type: multipart/form-data; boundary=…`
+ * header for a FormData body (never set it manually). */
+async function upload<T>(path: string, formData: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (storage.accessToken) headers.Authorization = `Bearer ${storage.accessToken}`;
+  if (storage.tenantId) headers['X-Tenant-Id'] = storage.tenantId;
+
+  const res = await fetch(`${API_URL}${path}`, { method: 'POST', headers, body: formData });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : undefined;
+  if (!res.ok) throw new ApiError(res.status, body ?? { code: 'UNKNOWN', message: 'Upload failed' });
+  return body as T;
+}
+
+/** Authenticated binary download — a plain `<a href>`/`<img src>` can't
+ * carry the Authorization header, so fetch as a Blob and let the caller
+ * open/save it via a temporary object URL. */
+async function downloadBlob(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (storage.accessToken) headers.Authorization = `Bearer ${storage.accessToken}`;
+  if (storage.tenantId) headers['X-Tenant-Id'] = storage.tenantId;
+
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) throw new ApiError(res.status, { code: 'UNKNOWN', message: 'Download failed' });
+  return res.blob();
+}
+
 export const api = {
   get: <T>(path: string, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     request<T>(path, { ...opts, method: 'GET' }),
@@ -126,6 +154,8 @@ export const api = {
     request<T>(path, { ...opts, method: 'PATCH', body }),
   delete: <T>(path: string, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     request<T>(path, { ...opts, method: 'DELETE' }),
+  upload,
+  downloadBlob,
 };
 
 export const session = storage;

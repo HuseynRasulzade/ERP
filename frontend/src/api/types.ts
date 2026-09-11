@@ -369,6 +369,145 @@ export interface SalesCounterpartyRef {
   counterpartyType: string;
 }
 
+// ---------------------------------------------------------------------------
+// "Kontragentlər" — Counterparty CRM (residency/VAT/approval, bank accounts,
+// contacts, contracts, amendments, documents).
+
+export type CounterpartyStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'EXPIRED' | 'CANCELLED';
+
+export interface CounterpartyAddress {
+  id: string;
+  addressType: 'LEGAL' | 'ACTUAL' | 'SHIPPING' | 'BILLING' | 'OTHER';
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  stateProvince: string | null;
+  postalCode: string | null;
+  countryCode: string;
+  isDefault: boolean;
+  active: boolean;
+  version: number;
+}
+
+export interface CounterpartyContact {
+  id: string;
+  counterpartyId: string;
+  firstName: string;
+  lastName: string;
+  position: string | null;
+  department: string | null;
+  phone: string | null;
+  mobile: string | null;
+  email: string | null;
+  isPrimary: boolean;
+  notes: string | null;
+  active: boolean;
+  version: number;
+}
+
+export interface CounterpartyBankAccount {
+  id: string;
+  counterpartyId: string;
+  bankName: string;
+  bankTaxId: string | null;
+  bankCode: string | null;
+  bankAddress: string | null;
+  accountNumber: string;
+  iban: string | null;
+  swiftBic: string | null;
+  correspondentAccount: string | null;
+  currencyId: string | null;
+  branchName: string | null;
+  isPrimary: boolean;
+  notes: string | null;
+  active: boolean;
+  version: number;
+}
+
+export interface Counterparty {
+  id: string;
+  organizationId: string;
+  counterpartyType: string;
+  code: string;
+  name: string;
+  fullLegalName: string | null;
+  residencyStatus: 'RESIDENT' | 'NON_RESIDENT';
+  taxId: string | null;
+  foreignTaxId: string | null;
+  vatPayer: boolean;
+  countryCode: string | null;
+  registrationNumber: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  paymentTerms: number | null;
+  creditLimit: string | null;
+  currencyId: string | null;
+  notes: string | null;
+  status: CounterpartyStatus;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  active: boolean;
+  version: number;
+  createdAt: string;
+  addresses?: CounterpartyAddress[];
+  contacts?: CounterpartyContact[];
+  bankAccounts?: CounterpartyBankAccount[];
+}
+
+export interface CounterpartyContractAmendment {
+  id: string;
+  contractId: string;
+  number: string;
+  subject: string;
+  amendmentDate: string | null;
+  effectiveDate: string | null;
+  endDate: string | null;
+  newAmount: string | null;
+  currencyId: string | null;
+  changeDescription: string | null;
+  notes: string | null;
+  status: CounterpartyStatus;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  version: number;
+}
+
+export interface CounterpartyContract {
+  id: string;
+  organizationId: string;
+  counterpartyId: string;
+  number: string;
+  subject: string;
+  contractType: string | null;
+  signedDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  amount: string | null;
+  currencyId: string | null;
+  paymentTerms: string | null;
+  responsiblePersonId: string | null;
+  notes: string | null;
+  status: CounterpartyStatus;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  version: number;
+  amendments?: CounterpartyContractAmendment[];
+}
+
+export interface CounterpartyDocument {
+  id: string;
+  ownerType: 'CONTRACT' | 'CONTRACT_AMENDMENT';
+  ownerId: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  documentVersion: number;
+  notes: string | null;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
 export interface SalesUnitRef {
   id: string;
   code: string;
