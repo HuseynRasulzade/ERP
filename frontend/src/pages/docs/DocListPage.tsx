@@ -11,6 +11,23 @@ import { useLocale } from '../../i18n/LocaleContext';
 import type { DocKind } from './DocKind';
 import { DocLinesEditor, emptyDocLine, serializeDocLines } from './DocLinesEditor';
 
+interface PickerSourceLine {
+  id: string;
+  productId: string;
+  unitId: string;
+  quantity: string;
+  cancelledQuantity: string;
+}
+interface PickerSource {
+  id: string;
+  number: string | null;
+  documentDate: string;
+  priority?: string;
+  departmentId: string | null;
+  department?: { id: string; name: string } | null;
+  lines: PickerSourceLine[];
+}
+
 /** Generic org-scoped list + create screen driven by a `DocKind` config
  * (see DocKind.ts) — one implementation backing every "priced document"
  * kind (Sales/Purchase Order, Sales/Purchase Invoice, Goods Receipt,
@@ -38,6 +55,9 @@ export function DocListPage({ kind }: { kind: DocKind }) {
   const [extra, setExtra] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LineDraft[]>([emptyDocLine()]);
 
+  const [pickerSources, setPickerSources] = useState<PickerSource[]>([]);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+
   const orgId = currentOrganizationId;
 
   const load = useCallback(async () => {
@@ -59,6 +79,10 @@ export function DocListPage({ kind }: { kind: DocKind }) {
       setProducts(prods);
       setUnits(uoms);
       setWarehouses(whs);
+      if (kind.requirementPicker) {
+        const sources = await api.get<PickerSource[]>(`/organizations/${orgId}/${kind.requirementPicker.queryPath}`).catch(() => []);
+        setPickerSources(sources);
+      }
     } catch (err) {
       showError(err);
     } finally {
@@ -67,41 +91,88 @@ export function DocListPage({ kind }: { kind: DocKind }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, kind.basePath]);
 
+  const lockedDepartmentId = (() => {
+    if (selectedSourceIds.length === 0) return null;
+    const first = pickerSources.find((s) => s.id === selectedSourceIds[0]);
+    return first?.departmentId ?? null;
+  })();
+
+  const toggleSource = (source: PickerSource) => {
+    const isSelected = selectedSourceIds.includes(source.id);
+    const next = isSelected ? selectedSourceIds.filter((id) => id !== source.id) : [...selectedSourceIds, source.id];
+    setSelectedSourceIds(next);
+
+    // Live preview: merge every remaining line (quantity minus already-
+    // cancelled) from every currently-selected source into the line
+    // editor — the exact quantities are always re-derived server-side
+    // from live remaining coverage at submit time, this is just a preview.
+    const selectedSources = pickerSources.filter((s) => next.includes(s.id));
+    if (selectedSources.length === 0) {
+      setLines([emptyDocLine()]);
+      return;
+    }
+    const preview = selectedSources.flatMap((s) =>
+      s.lines.map((l) => {
+        const draft = emptyDocLine(l.productId, l.unitId);
+        draft.quantity = String(Number(l.quantity) - Number(l.cancelledQuantity));
+        draft.description = `${t.procurement.from} ${s.number ?? s.id.slice(0, 8)}`;
+        return draft;
+      }),
+    );
+    setLines(preview.length > 0 ? preview : [emptyDocLine()]);
+  };
+
   useEffect(() => {
     load();
   }, [load]);
 
+  const fromRequirements = selectedSourceIds.length > 0 && !!kind.requirementPicker;
+
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
     if (!orgId) return;
-    if (lines.some((l) => !l.productId || !l.unitId)) {
+
+    if (!fromRequirements && lines.some((l) => !l.productId || !l.unitId)) {
       showError(new Error('Every line needs a product and a unit'));
       return;
     }
-    if (kind.headerWarehouse && !headerWarehouseId) {
+    if (!fromRequirements && kind.headerWarehouse && !headerWarehouseId) {
       showError(new Error('A warehouse is required'));
       return;
     }
     setSubmitting(true);
     try {
-      const payload: Record<string, unknown> = {
-        counterpartyId,
-        documentDate,
-        description: description || undefined,
-        lines: serializeDocLines(lines, { showPrice: kind.showPrice, showTax: kind.showTax, showWarehouse: kind.showLineWarehouse }),
-      };
-      if (kind.hasPriceIncludesTax) payload.priceIncludesTax = priceIncludesTax;
-      if (kind.headerWarehouse) payload.warehouseId = headerWarehouseId;
-      for (const f of kind.extraFields ?? []) {
-        if (extra[f.key]) payload[f.key] = f.type === 'checkbox' ? extra[f.key] === 'true' : extra[f.key];
+      let created: BizDoc;
+      if (fromRequirements && kind.requirementPicker) {
+        const payload: Record<string, unknown> = {
+          requirementIds: selectedSourceIds,
+          counterpartyId,
+          documentDate,
+          description: description || undefined,
+        };
+        if (kind.hasPriceIncludesTax) payload.priceIncludesTax = priceIncludesTax;
+        created = await api.post<BizDoc>(`/organizations/${orgId}/${kind.requirementPicker.createEndpoint}`, payload);
+      } else {
+        const payload: Record<string, unknown> = {
+          counterpartyId,
+          documentDate,
+          description: description || undefined,
+          lines: serializeDocLines(lines, { showPrice: kind.showPrice, showTax: kind.showTax, showWarehouse: kind.showLineWarehouse }),
+        };
+        if (kind.hasPriceIncludesTax) payload.priceIncludesTax = priceIncludesTax;
+        if (kind.headerWarehouse) payload.warehouseId = headerWarehouseId;
+        for (const f of kind.extraFields ?? []) {
+          if (extra[f.key]) payload[f.key] = f.type === 'checkbox' ? extra[f.key] === 'true' : extra[f.key];
+        }
+        created = await api.post<BizDoc>(`/organizations/${orgId}/${kind.basePath}`, payload);
       }
-      const created = await api.post<BizDoc>(`/organizations/${orgId}/${kind.basePath}`, payload);
       showSuccess(t.toast.createdItem(created.number ?? created.id.slice(0, 8)));
       setCounterpartyId('');
       setDescription('');
       setHeaderWarehouseId('');
       setExtra({});
       setLines([emptyDocLine()]);
+      setSelectedSourceIds([]);
       setShowForm(false);
       await load();
     } catch (err) {
@@ -148,6 +219,45 @@ export function DocListPage({ kind }: { kind: DocKind }) {
         <>
           {showForm && (
             <form onSubmit={onCreate} className="card">
+              {kind.requirementPicker && (
+                <div className="card" style={{ marginBottom: '1rem' }}>
+                  <h3>{kind.requirementPicker.label}</h3>
+                  <p className="panel-note">{kind.requirementPicker.helpText}</p>
+                  {pickerSources.length === 0 ? (
+                    <p className="panel-note">{t.procurement.noOpenRequirements}</p>
+                  ) : (
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th></th>
+                          <th>{t.common.number}</th>
+                          <th>{t.common.date}</th>
+                          <th>{t.procurement.department}</th>
+                          <th>{t.procurement.priority}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pickerSources.map((source) => {
+                          const selected = selectedSourceIds.includes(source.id);
+                          const blockedByDepartment = !selected && lockedDepartmentId !== null && source.departmentId !== lockedDepartmentId;
+                          return (
+                            <tr key={source.id} className={blockedByDepartment ? 'row-disabled' : undefined}>
+                              <td>
+                                <input type="checkbox" checked={selected} disabled={blockedByDepartment} onChange={() => toggleSource(source)} />
+                              </td>
+                              <td>{source.number ?? source.id.slice(0, 8)}</td>
+                              <td>{source.documentDate.slice(0, 10)}</td>
+                              <td>{source.department?.name ?? '—'}</td>
+                              <td>{source.priority ?? '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                  {lockedDepartmentId !== null && <p className="panel-note">{t.procurement.departmentLockedHint}</p>}
+                </div>
+              )}
               <div className="inline-form">
                 <label>
                   {kind.counterpartyLabel}
@@ -166,7 +276,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                   {t.common.documentDate}
                   <input type="date" required value={documentDate} onChange={(e) => setDocumentDate(e.target.value)} />
                 </label>
-                {kind.headerWarehouse && (
+                {kind.headerWarehouse && !fromRequirements && (
                   <label>
                     {t.common.warehouse}
                     <select required value={headerWarehouseId} onChange={(e) => setHeaderWarehouseId(e.target.value)}>
@@ -181,7 +291,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                     </select>
                   </label>
                 )}
-                {kind.extraFields?.map((f) =>
+                {!fromRequirements && kind.extraFields?.map((f) =>
                   f.type === 'checkbox' ? (
                     <label className="checkbox-row" key={f.key}>
                       <input type="checkbox" checked={extra[f.key] === 'true'} onChange={(e) => setExtra({ ...extra, [f.key]: String(e.target.checked) })} />
@@ -222,7 +332,34 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                   <input value={description} onChange={(e) => setDescription(e.target.value)} />
                 </label>
               </div>
-              <DocLinesEditor lines={lines} setLines={setLines} products={products} units={units} warehouses={warehouses} showPrice={kind.showPrice} showTax={kind.showTax} showWarehouse={kind.showLineWarehouse} priceHint={kind.priceHint} />
+              {fromRequirements ? (
+                <div>
+                  <h3>{t.common.lines}</h3>
+                  <p className="panel-note">{t.procurement.linesAutoFilledHint}</p>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>{t.common.product}</th>
+                        <th>{t.common.unit}</th>
+                        <th>{t.common.quantity}</th>
+                        <th>{t.procurement.source}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((l, i) => (
+                        <tr key={i}>
+                          <td>{products.find((p) => p.id === l.productId)?.name ?? l.productId.slice(0, 8)}</td>
+                          <td>{units.find((u) => u.id === l.unitId)?.code ?? l.unitId.slice(0, 8)}</td>
+                          <td className="numeric">{l.quantity}</td>
+                          <td>{l.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <DocLinesEditor lines={lines} setLines={setLines} products={products} units={units} warehouses={warehouses} showPrice={kind.showPrice} showTax={kind.showTax} showWarehouse={kind.showLineWarehouse} priceHint={kind.priceHint} />
+              )}
               <div className="inline-form">
                 <button type="submit" className="primary" disabled={submitting}>
                   {submitting ? t.common.saving : t.common.save}

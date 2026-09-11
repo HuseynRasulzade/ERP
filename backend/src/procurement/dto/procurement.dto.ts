@@ -144,6 +144,43 @@ export class AllocateRequirementLineDto {
   price?: number;
 }
 
+/**
+ * Bulk requirement -> PurchaseOrder creation (spec-adjacent extension):
+ * combines EVERY remaining line of one or more OPEN/PARTIALLY_ORDERED
+ * requirements into a single new PurchaseOrder, auto-filling
+ * product/unit/quantity per line (the full remaining quantity — never a
+ * partial allocation the caller has to compute) rather than requiring an
+ * explicit per-line allocation like `CreatePurchaseOrderFromRequirementDto`
+ * does. All requirements must share the same department — enforced
+ * server-side (ProcurementPlanningService) as the authority; the frontend
+ * blocks the same thing pre-submit purely for UX.
+ */
+export class CreatePurchaseOrderFromRequirementsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  requirementIds!: string[];
+
+  @IsString()
+  counterpartyId!: string;
+
+  @IsOptional()
+  @IsDateString()
+  documentDate?: string;
+
+  @IsOptional()
+  @IsString()
+  currencyId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  priceIncludesTax?: boolean;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
 export class CreatePurchaseOrderFromRequirementDto {
   @IsString()
   counterpartyId!: string;

@@ -281,6 +281,93 @@ describe('Procurement (e2e)', () => {
     });
   });
 
+  describe('Purchase Requirement department/creator auto-fill and multi-requirement PO creation', () => {
+    it('auto-fills department (from the caller\'s own org access) and creator name when not explicitly provided', async () => {
+      const dept = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/departments`))
+        .send({ code: `AUTO-${run}`, name: 'Auto-fill Department' })
+        .expect(201);
+
+      const myTenants = await auth1(request(app.getHttpServer()).get('/users/me/tenants')).expect(200);
+      const membershipId = myTenants.body.find((t: any) => t.tenantId === tenant1Id).membershipId;
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/access`))
+        .send({ membershipId, accessLevel: 'FULL', departmentId: dept.body.id })
+        .expect(201);
+
+      const mine = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/access/mine`)).expect(200);
+      expect(mine.body.departmentId).toBe(dept.body.id);
+
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 12 }] })
+        .expect(201);
+      expect(req.body.departmentId).toBe(dept.body.id);
+      expect(req.body.department?.name).toBe('Auto-fill Department');
+      expect(req.body.createdByName).toBe('Test User');
+
+      // An explicit departmentId on the request still wins over the default.
+      const otherDept = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/departments`))
+        .send({ code: `OTHER-${run}`, name: 'Other Department' })
+        .expect(201);
+      const reqExplicit = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, departmentId: otherDept.body.id, lines: [{ productId, unitId, quantity: 5 }] })
+        .expect(201);
+      expect(reqExplicit.body.departmentId).toBe(otherDept.body.id);
+    });
+
+    it('combines two same-department requirements into one purchase order, copying every remaining line and tracking each line\'s source requirement', async () => {
+      const deptA = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/departments`))
+        .send({ code: `DEPTA-${run}`, name: 'Department A' })
+        .expect(201);
+
+      const req1 = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, departmentId: deptA.body.id, lines: [{ productId, unitId, quantity: 15 }] })
+        .expect(201);
+      const req2 = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, departmentId: deptA.body.id, lines: [{ productId, unitId, quantity: 25 }] })
+        .expect(201);
+
+      const combined = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
+        .send({ requirementIds: [req1.body.id, req2.body.id], counterpartyId: supplierId, documentDate: DOC_DATE, priceIncludesTax: false })
+        .expect(201);
+
+      expect(combined.body.lines).toHaveLength(2);
+      const totalQty = combined.body.lines.reduce((s: number, l: any) => s + Number(l.quantity), 0);
+      expect(totalQty).toBeCloseTo(40, 6);
+      const requirementLineIds = combined.body.lines.map((l: any) => l.requirementLineId).sort();
+      expect(requirementLineIds).toEqual([req1.body.lines[0].id, req2.body.lines[0].id].sort());
+
+      const req1After = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${req1.body.id}`)).expect(200);
+      const req2After = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${req2.body.id}`)).expect(200);
+      expect(req1After.body.status).toBe('FULLY_ORDERED');
+      expect(req2After.body.status).toBe('FULLY_ORDERED');
+    });
+
+    it('blocks combining requirements from different departments, both request- and response-visibly', async () => {
+      const deptA = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/departments`))
+        .send({ code: `MIXA-${run}`, name: 'Mix Department A' })
+        .expect(201);
+      const deptB = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/departments`))
+        .send({ code: `MIXB-${run}`, name: 'Mix Department B' })
+        .expect(201);
+
+      const reqA = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, departmentId: deptA.body.id, lines: [{ productId, unitId, quantity: 10 }] })
+        .expect(201);
+      const reqB = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, departmentId: deptB.body.id, lines: [{ productId, unitId, quantity: 10 }] })
+        .expect(201);
+
+      const rejected = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
+        .send({ requirementIds: [reqA.body.id, reqB.body.id], counterpartyId: supplierId, documentDate: DOC_DATE })
+        .expect(400);
+      expect(rejected.body.code).toBe('REQUIREMENT_DEPARTMENT_MISMATCH');
+
+      // Neither requirement was touched by the rejected attempt.
+      const reqAAfter = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${reqA.body.id}`)).expect(200);
+      expect(reqAAfter.body.status).toBe('OPEN');
+    });
+  });
+
   describe('Purchase Order Payment Schedule (spec sections 70, 119)', () => {
     it('generates installments that sum exactly to the order total, rounding into the last line', async () => {
       const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))

@@ -71,4 +71,11 @@ export class GrantOrganizationAccessDto {
   @IsOptional()
   @IsIn(['FULL', 'READ'])
   accessLevel?: string;
+
+  /** This membership's home department within the organization — used to
+   * auto-fill the department on documents the user creates. Pass null to
+   * clear an existing assignment. */
+  @IsOptional()
+  @IsString()
+  departmentId?: string | null;
 }

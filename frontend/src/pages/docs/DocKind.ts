@@ -12,6 +12,20 @@ export interface CreateBasedOnTarget {
   label: string;
 }
 
+/** Opt-in "base this document on one or more source documents" capability
+ * (currently: Purchase Order from Purchase Requirement(s)). Declaring it
+ * on a `DocKind` adds a picker section to the shared creation form —
+ * every other kind that doesn't declare it is completely unaffected. */
+export interface RequirementPickerConfig {
+  // Relative to /organizations/:orgId/ — GET returns open source documents.
+  queryPath: string;
+  // Relative to /organizations/:orgId/ — POST { requirementIds, ...header }
+  // creates the target document from the selected source documents.
+  createEndpoint: string;
+  label: string;
+  helpText: string;
+}
+
 /** Central config a single generic list/detail page pair reads to render
  * any of the "priced document" kinds (Sales/Purchase Order, Sales/Purchase
  * Invoice, Goods Receipt, Shipment) without duplicating the page per kind
@@ -35,6 +49,7 @@ export interface DocKind {
   priceHint?: string;
   extraFields?: DocExtraField[];
   createBasedOnTargets?: CreateBasedOnTarget[];
+  requirementPicker?: RequirementPickerConfig;
   emptyHint: string;
   headerDisplayFields?: { key: string; label: string }[];
 }

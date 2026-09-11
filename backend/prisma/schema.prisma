@@ -298,6 +298,7 @@ model Department {
   purchaseRequirements PurchaseRequirement[]
   purchaseInvoiceLines PurchaseInvoiceLine[]
   internalConsumptions InternalConsumption[]
+  memberAccess         OrganizationAccess[]
 
   @@unique([organizationId, code])
   @@index([organizationId, parentDepartmentId])
@@ -526,16 +527,21 @@ model TaxProfile {
 /// NOT automatically have access to every organization in the tenant —
 /// access must be explicitly granted per organization.
 model OrganizationAccess {
-  id                 String @id @default(uuid())
-  tenantMembershipId String @map("tenant_membership_id")
-  organizationId     String @map("organization_id")
-  accessLevel        String @default("FULL") @map("access_level")
+  id                 String  @id @default(uuid())
+  tenantMembershipId String  @map("tenant_membership_id")
+  organizationId     String  @map("organization_id")
+  accessLevel        String  @default("FULL") @map("access_level")
+  // This membership's home department within this organization — used to
+  // auto-fill the department on documents the user creates (e.g. Purchase
+  // Requirement) without requiring the user to type their own org chart.
+  departmentId       String? @map("department_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
 
   membership   TenantMembership @relation(fields: [tenantMembershipId], references: [id])
   organization Organization     @relation(fields: [organizationId], references: [id])
+  department   Department?      @relation(fields: [departmentId], references: [id])
 
   @@unique([tenantMembershipId, organizationId])
   @@index([organizationId])
@@ -2955,6 +2961,10 @@ model PurchaseRequirement {
   warehouseId    String?   @map("warehouse_id")
   departmentId   String?   @map("department_id")
   requesterId    String?   @map("requester_id") // ResponsiblePerson (spec section 79)
+  // Snapshot of the creating user's display name at creation time — auto-
+  // filled from the logged-in user, never re-derived later (same
+  // never-let-it-drift convention as a Sales Order's price snapshot).
+  createdByName  String?   @map("created_by_name")
   requiredByDate DateTime? @map("required_by_date") @db.Date
   priority       String    @default("NORMAL")
   description    String?

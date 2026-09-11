@@ -171,6 +171,19 @@ const en = {
     noCategoriesYet: 'No categories yet.',
     noUnitsYet: 'No units of measure yet.',
   },
+
+  procurement: {
+    department: 'Department',
+    createdBy: 'Created by',
+    priority: 'Priority',
+    baseOnRequirements: 'Base on Purchase Requirement(s)',
+    baseOnRequirementsHint: 'Select one or more open purchase requirements to auto-fill this order’s lines. Only requirements from the same department can be combined.',
+    noOpenRequirements: 'No open purchase requirements.',
+    departmentLockedHint: 'Only requirements from the same department as your first selection can be added.',
+    linesAutoFilledHint: 'These lines were copied automatically from the selected purchase requirement(s) and will be re-verified on save.',
+    source: 'Source',
+    from: 'From',
+  },
 };
 
 export default en;

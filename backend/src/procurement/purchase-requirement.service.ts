@@ -35,6 +35,7 @@ export class PurchaseRequirementService {
       .then(() =>
         this.prisma.purchaseRequirement.findMany({
           where: { organizationId, ...(status ? { status } : {}) },
+          include: { department: true },
           orderBy: { createdAt: 'desc' },
         }),
       );
@@ -42,7 +43,7 @@ export class PurchaseRequirementService {
 
   async get(tenantId: string, membershipId: string, organizationId: string, id: string) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
-    const req = await this.prisma.purchaseRequirement.findFirst({ where: { id, organizationId }, include: { lines: { orderBy: { position: 'asc' } } } });
+    const req = await this.prisma.purchaseRequirement.findFirst({ where: { id, organizationId }, include: { lines: { orderBy: { position: 'asc' } }, department: true } });
     if (!req) throw new NotFoundAppError('PurchaseRequirement', id);
     return req;
   }
@@ -52,6 +53,16 @@ export class PurchaseRequirementService {
     const businessDate = this.parseDate(dto.documentDate);
     const lines = await this.validateLines(tenantId, organizationId, dto.lines);
     await this.ensureSequence(tenantId);
+
+    // Auto-fill (spec: department + creator name come from the logged-in
+    // user, never typed manually). An explicit `dto.departmentId` still
+    // wins — this only fills the gap when the caller omitted it.
+    let departmentId = dto.departmentId;
+    if (!departmentId) {
+      const ownGrant = await this.access.getOwnGrant(tenantId, membershipId, organizationId);
+      departmentId = ownGrant?.departmentId ?? undefined;
+    }
+    const creator = await this.prisma.user.findUnique({ where: { id: userId } });
 
     return this.prisma.runInTransaction(async (tx) => {
       const allocated = await this.numbering.allocateNumber(tenantId, PURCHASE_REQUIREMENT_TYPE, businessDate, tx);
@@ -64,8 +75,9 @@ export class PurchaseRequirementService {
           documentDate: businessDate,
           status: 'OPEN',
           warehouseId: dto.warehouseId,
-          departmentId: dto.departmentId,
+          departmentId,
           requesterId: dto.requesterId,
+          createdByName: creator?.displayName,
           requiredByDate: dto.requiredByDate ? new Date(dto.requiredByDate) : undefined,
           priority: dto.priority ?? 'NORMAL',
           description: dto.description,
@@ -101,7 +113,7 @@ export class PurchaseRequirementService {
         tx,
       );
 
-      return tx.purchaseRequirement.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
+      return tx.purchaseRequirement.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } }, department: true } });
     });
   }
 
@@ -160,7 +172,7 @@ export class PurchaseRequirementService {
         }
       }
 
-      return tx.purchaseRequirement.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
+      return tx.purchaseRequirement.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } }, department: true } });
     });
 
     await this.audit.record({ tenantId, eventType: 'PURCHASE_REQUIREMENT_UPDATED', entityType: PURCHASE_REQUIREMENT_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { ...patch, lines: patch.lines?.length } });
@@ -191,7 +203,7 @@ export class PurchaseRequirementService {
       }
 
       await this.audit.record({ tenantId, eventType: 'PURCHASE_REQUIREMENT_CANCELLED', entityType: PURCHASE_REQUIREMENT_TYPE, entityId: id, action: 'CANCEL', userId }, tx);
-      return tx.purchaseRequirement.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
+      return tx.purchaseRequirement.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } }, department: true } });
     });
   }
 

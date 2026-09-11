@@ -29,6 +29,12 @@ function usePurchaseOrderKind(): DocKind {
       { docType: 'GOODS_RECEIPT', routePrefix: 'goods-receipts', label: 'Create receipt' },
       { docType: 'PURCHASE_INVOICE', routePrefix: 'purchase-invoices', label: 'Create invoice' },
     ],
+    requirementPicker: {
+      queryPath: 'procurement/open-requirements',
+      createEndpoint: 'purchase-orders/from-requirements',
+      label: t.procurement.baseOnRequirements,
+      helpText: t.procurement.baseOnRequirementsHint,
+    },
     emptyHint: 'No purchase orders yet.',
     headerDisplayFields: [
       { key: 'expectedDeliveryDate', label: 'Expected delivery' },

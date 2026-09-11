@@ -113,6 +113,16 @@ export class OrganizationController {
     return this.access.listGrants(organizationId);
   }
 
+  /** The CALLING user's own grant for this organization (department
+   * included) — used to auto-fill "my department" on documents like
+   * Purchase Requirement. Any member with view access to the organization
+   * may read their own grant; this is not an access-management action. */
+  @RequirePermissions(PermissionCodes.ORGANIZATION_VIEW)
+  @Get(':id/access/mine')
+  myAccess(@CurrentTenantId() tenantId: string, @CurrentMembershipId() membershipId: string, @Param('id') organizationId: string) {
+    return this.access.getOwnGrant(tenantId, membershipId, organizationId);
+  }
+
   @RequirePermissions(PermissionCodes.ORGANIZATION_ACCESS_MANAGE)
   @Post(':id/access')
   async grantAccess(
@@ -121,7 +131,7 @@ export class OrganizationController {
     @CurrentUser() user: { userId: string },
     @Body() dto: GrantOrganizationAccessDto,
   ) {
-    const grant = await this.access.grant(organizationId, dto.membershipId, dto.accessLevel ?? 'FULL', user.userId);
+    const grant = await this.access.grant(organizationId, dto.membershipId, dto.accessLevel ?? 'FULL', user.userId, dto.departmentId);
     await this.audit.record({
       tenantId,
       eventType: 'ORGANIZATION_ACCESS_GRANTED',
@@ -129,7 +139,7 @@ export class OrganizationController {
       entityId: organizationId,
       action: 'GRANT',
       userId: user.userId,
-      newValues: { membershipId: dto.membershipId, accessLevel: dto.accessLevel ?? 'FULL' },
+      newValues: { membershipId: dto.membershipId, accessLevel: dto.accessLevel ?? 'FULL', departmentId: dto.departmentId },
     });
     return grant;
   }

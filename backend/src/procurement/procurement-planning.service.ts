@@ -3,11 +3,11 @@ import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
-import { NotFoundAppError, RequirementAllocationExceedsRemainingError, ValidationAppError } from '../common/errors/app-error';
+import { NotFoundAppError, RequirementAllocationExceedsRemainingError, RequirementDepartmentMismatchError, ValidationAppError } from '../common/errors/app-error';
 import { PurchaseRequirementService, PURCHASE_REQUIREMENT_TYPE } from './purchase-requirement.service';
 import { PurchaseOrderService } from './purchase-order.service';
 import { PURCHASE_ORDER_TYPE } from './purchase-order.repository';
-import { CreatePurchaseOrderFromRequirementDto } from './dto/procurement.dto';
+import { CreatePurchaseOrderFromRequirementDto, CreatePurchaseOrderFromRequirementsDto } from './dto/procurement.dto';
 import { PurchaseLineItemDto } from './dto/procurement.dto';
 
 const REQUIREMENT_TO_PO = 'REQUIREMENT_TO_PURCHASE_ORDER';
@@ -197,6 +197,111 @@ export class ProcurementPlanningService {
     return order;
   }
 
+  /**
+   * Bulk variant: combines EVERY remaining line of one or more
+   * requirements into a single new PurchaseOrder — auto-filling
+   * product/unit/quantity from each line's live remaining quantity
+   * (never a client-supplied allocation, so a stale UI can never
+   * over-order). Powers both "create an order from one requirement" and
+   * "combine several requirements from the same department into one
+   * order" — the caller just passes a `requirementIds` array of any
+   * length ≥ 1.
+   *
+   * The same-department rule is enforced HERE, as the authority — the
+   * frontend's requirement picker only mirrors it for UX, never as the
+   * actual guard (a client could otherwise bypass it by calling this
+   * endpoint directly).
+   */
+  async createPurchaseOrderFromRequirements(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    userId: string,
+    dto: CreatePurchaseOrderFromRequirementsDto,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const uniqueIds = Array.from(new Set(dto.requirementIds));
+    if (uniqueIds.length === 0) throw new ValidationAppError('Select at least one purchase requirement');
+
+    const requirements = [];
+    for (const id of uniqueIds) {
+      const requirement = await this.requirements.get(tenantId, membershipId, organizationId, id);
+      if (requirement.status === 'CANCELLED' || requirement.status === 'CLOSED') {
+        throw new ValidationAppError(`Requirement ${requirement.number ?? requirement.id} is ${requirement.status} and cannot be allocated`);
+      }
+      requirements.push(requirement);
+    }
+
+    const departmentIds = new Set(requirements.map((r: any) => r.departmentId ?? null));
+    if (departmentIds.size > 1) throw new RequirementDepartmentMismatchError();
+
+    const poLines: PurchaseLineItemDto[] = [];
+    const requirementIdByLineId = new Map<string, string>();
+    for (const requirement of requirements) {
+      for (const line of (requirement as any).lines) {
+        const remaining = await this.remainingForRequirementLine(tenantId, line.id);
+        if (remaining.lte(0)) continue;
+        requirementIdByLineId.set(line.id, requirement.id);
+        poLines.push({
+          productId: line.productId,
+          unitId: line.unitId,
+          quantity: remaining.toNumber(),
+          warehouseId: line.warehouseId ?? (requirement as any).warehouseId ?? undefined,
+          expectedDeliveryDate: line.requiredByDate ? new Date(line.requiredByDate).toISOString().slice(0, 10) : undefined,
+          requirementLineId: line.id,
+        });
+      }
+    }
+    if (poLines.length === 0) throw new ValidationAppError('The selected purchase requirements have no remaining quantity to order');
+
+    const order = await this.purchaseOrders.create(tenantId, membershipId, organizationId, userId, {
+      counterpartyId: dto.counterpartyId,
+      documentDate: dto.documentDate ?? new Date().toISOString().slice(0, 10),
+      currencyId: dto.currencyId,
+      priceIncludesTax: dto.priceIncludesTax,
+      warehouseId: (requirements[0] as any).warehouseId ?? undefined,
+      description: dto.description ?? `Based on requirements ${requirements.map((r: any) => r.number ?? r.id).join(', ')}`,
+      lines: poLines,
+    });
+
+    await this.prisma.runInTransaction(async (tx) => {
+      for (const line of (order as any).lines) {
+        if (!line.requirementLineId) continue;
+        const sourceRequirementId = requirementIdByLineId.get(line.requirementLineId);
+        if (!sourceRequirementId) continue;
+        await tx.documentLineLink.create({
+          data: {
+            tenantId,
+            sourceDocumentType: PURCHASE_REQUIREMENT_TYPE,
+            sourceDocumentId: sourceRequirementId,
+            sourceLineId: line.requirementLineId,
+            targetDocumentType: PURCHASE_ORDER_TYPE,
+            targetDocumentId: (order as any).id,
+            targetLineId: line.id,
+            quantity: line.quantity,
+            relationType: REQUIREMENT_TO_PO,
+            createdBy: userId,
+          },
+        });
+      }
+    });
+
+    for (const requirement of requirements) {
+      await this.recomputeRequirementStatus(tenantId, requirement.id);
+    }
+    await this.audit.record({
+      tenantId,
+      eventType: 'PURCHASE_REQUIREMENT_ALLOCATED',
+      entityType: PURCHASE_REQUIREMENT_TYPE,
+      entityId: requirements[0].id,
+      action: 'UPDATE',
+      userId,
+      newValues: { purchaseOrderId: (order as any).id, requirementIds: requirements.map((r) => r.id), lineCount: poLines.length },
+    });
+
+    return order;
+  }
+
   // -- read-only planning queries ---------------------------------------------
 
   /** Open Purchase Requirements (spec section 87): OPEN or
@@ -210,7 +315,7 @@ export class ProcurementPlanningService {
         ...(warehouseId ? { warehouseId } : {}),
         ...(productId ? { lines: { some: { productId } } } : {}),
       },
-      include: { lines: productId ? { where: { productId } } : true },
+      include: { lines: productId ? { where: { productId } } : true, department: true },
       orderBy: { requiredByDate: 'asc' },
     });
   }

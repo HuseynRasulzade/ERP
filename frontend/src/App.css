@@ -398,6 +398,10 @@
   font-size: 0.83rem;
 }
 
+.data-table tbody tr.row-disabled {
+  opacity: 0.45;
+}
+
 /* Badges */
 .badge {
   display: inline-flex;

@@ -12,12 +12,12 @@ import { NotFoundAppError } from '../common/errors/app-error';
 export class OrganizationAccessService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async grant(organizationId: string, membershipId: string, accessLevel: string, grantedBy?: string, tx?: PrismaTransactionClient) {
+  async grant(organizationId: string, membershipId: string, accessLevel: string, grantedBy?: string, departmentId?: string | null, tx?: PrismaTransactionClient) {
     const client = tx ?? this.prisma;
     return client.organizationAccess.upsert({
       where: { tenantMembershipId_organizationId: { tenantMembershipId: membershipId, organizationId } },
-      create: { tenantMembershipId: membershipId, organizationId, accessLevel, createdBy: grantedBy },
-      update: { accessLevel },
+      create: { tenantMembershipId: membershipId, organizationId, accessLevel, departmentId: departmentId ?? undefined, createdBy: grantedBy },
+      update: { accessLevel, ...(departmentId !== undefined ? { departmentId: departmentId ?? null } : {}) },
     });
   }
 
@@ -28,7 +28,19 @@ export class OrganizationAccessService {
   listGrants(organizationId: string) {
     return this.prisma.organizationAccess.findMany({
       where: { organizationId },
-      include: { membership: { include: { user: true } } },
+      include: { membership: { include: { user: true } }, department: true },
+    });
+  }
+
+  /** The calling membership's OWN grant for this organization — used to
+   * auto-fill a document's department from the logged-in user's own data
+   * (e.g. PurchaseRequirementService.create) without exposing anyone
+   * else's access/department. */
+  async getOwnGrant(tenantId: string, membershipId: string, organizationId: string) {
+    await this.assertAccess(tenantId, membershipId, organizationId);
+    return this.prisma.organizationAccess.findUnique({
+      where: { tenantMembershipId_organizationId: { tenantMembershipId: membershipId, organizationId } },
+      include: { department: true },
     });
   }
 

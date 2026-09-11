@@ -77,6 +77,7 @@ export const ErrorCode = {
 
   // Procurement & Purchase Order Management (docx spec Phase 8, section 92-93)
   REQUIREMENT_ALLOCATION_EXCEEDS_REMAINING: 'REQUIREMENT_ALLOCATION_EXCEEDS_REMAINING',
+  REQUIREMENT_DEPARTMENT_MISMATCH: 'REQUIREMENT_DEPARTMENT_MISMATCH',
   SUPPLIER_NOT_ELIGIBLE: 'SUPPLIER_NOT_ELIGIBLE',
   PURCHASE_ORDER_ON_HOLD: 'PURCHASE_ORDER_ON_HOLD',
   PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS: 'PURCHASE_ORDER_HAS_DOWNSTREAM_LINKS',
@@ -466,6 +467,16 @@ export class RequirementAllocationExceedsRemainingError extends AppError {
       ErrorCode.REQUIREMENT_ALLOCATION_EXCEEDS_REMAINING,
       `Allocation quantity ${requested} exceeds remaining requirement quantity ${remaining}`,
       HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class RequirementDepartmentMismatchError extends AppError {
+  constructor() {
+    super(
+      ErrorCode.REQUIREMENT_DEPARTMENT_MISMATCH,
+      'Selected purchase requirements belong to different departments — only requirements from the same department can be combined into one purchase order',
+      HttpStatus.BAD_REQUEST,
     );
   }
 }

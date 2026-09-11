@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { SalesProductRef, SalesUnitRef } from '../../api/types';
+import type { Department, SalesProductRef, SalesUnitRef } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -22,6 +22,9 @@ interface Requirement {
   status: string;
   priority: string;
   version: number;
+  departmentId: string | null;
+  department?: { id: string; name: string } | null;
+  createdByName?: string | null;
   lines: ReqLine[];
 }
 interface LineDraft {
@@ -41,11 +44,13 @@ export function PurchaseRequirementListPage() {
   const [items, setItems] = useState<Requirement[]>([]);
   const [products, setProducts] = useState<SalesProductRef[]>([]);
   const [units, setUnits] = useState<SalesUnitRef[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [priority, setPriority] = useState('NORMAL');
+  const [departmentId, setDepartmentId] = useState('');
   const [lines, setLines] = useState<LineDraft[]>([{ productId: '', unitId: '', quantity: '1' }]);
 
   const orgId = currentOrganizationId;
@@ -57,14 +62,21 @@ export function PurchaseRequirementListPage() {
     }
     setLoading(true);
     try {
-      const [reqs, prods, uoms] = await Promise.all([
+      const [reqs, prods, uoms, depts, mine] = await Promise.all([
         api.get<Requirement[]>(`/organizations/${orgId}/purchase-requirements`),
         api.get<SalesProductRef[]>(`/organizations/${orgId}/products`).catch(() => []),
         api.get<SalesUnitRef[]>('/units-of-measure').catch(() => []),
+        api.get<Department[]>(`/organizations/${orgId}/departments`).catch(() => []),
+        api.get<{ departmentId: string | null } | null>(`/organizations/${orgId}/access/mine`).catch(() => null),
       ]);
       setItems(reqs);
       setProducts(prods);
       setUnits(uoms);
+      setDepartments(depts);
+      // Department auto-fill: default the create form to the logged-in
+      // user's own department for this organization (spec requirement) —
+      // still freely changeable before submit.
+      setDepartmentId((current) => current || mine?.departmentId || '');
     } catch (err) {
       showError(err);
     } finally {
@@ -85,6 +97,7 @@ export function PurchaseRequirementListPage() {
       const created = await api.post<Requirement>(`/organizations/${orgId}/purchase-requirements`, {
         documentDate,
         priority,
+        departmentId: departmentId || undefined,
         lines: lines.map((l) => ({ productId: l.productId, unitId: l.unitId, quantity: Number(l.quantity) })),
       });
       showSuccess(t.toast.createdItem(created.number ?? created.id.slice(0, 8)));
@@ -144,6 +157,17 @@ export function PurchaseRequirementListPage() {
                     {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((p) => (
                       <option key={p} value={p}>
                         {p}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t.procurement.department}
+                  <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+                    <option value="">{t.common.select}</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.code} — {d.name}
                       </option>
                     ))}
                   </select>
@@ -208,6 +232,8 @@ export function PurchaseRequirementListPage() {
                   <th>{t.common.number}</th>
                   <th>{t.common.date}</th>
                   <th>Priority</th>
+                  <th>{t.procurement.department}</th>
+                  <th>{t.procurement.createdBy}</th>
                   <th>{t.common.status}</th>
                 </tr>
               </thead>
@@ -219,6 +245,8 @@ export function PurchaseRequirementListPage() {
                     </td>
                     <td>{r.documentDate.slice(0, 10)}</td>
                     <td>{r.priority}</td>
+                    <td>{r.department?.name ?? '—'}</td>
+                    <td>{r.createdByName ?? '—'}</td>
                     <td>
                       <span className={`badge badge-generic-${STATUS_CLASS[r.status] ?? 'neutral'}`}>{r.status}</span>
                     </td>
@@ -332,6 +360,20 @@ export function PurchaseRequirementDetailPage() {
           )}
         </div>
       </div>
+
+      <section className="card">
+        <h2>{t.common.header}</h2>
+        <dl className="kv-grid">
+          <dt>{t.common.documentDate}</dt>
+          <dd>{doc.documentDate.slice(0, 10)}</dd>
+          <dt>Priority</dt>
+          <dd>{doc.priority}</dd>
+          <dt>{t.procurement.department}</dt>
+          <dd>{doc.department?.name ?? '—'}</dd>
+          <dt>{t.procurement.createdBy}</dt>
+          <dd>{doc.createdByName ?? '—'}</dd>
+        </dl>
+      </section>
 
       <section className="card">
         <h2>{t.common.lines}</h2>

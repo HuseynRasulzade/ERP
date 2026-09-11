@@ -173,6 +173,19 @@ const az: Translations = {
     noCategoriesYet: 'Hələ kateqoriya yoxdur.',
     noUnitsYet: 'Hələ ölçü vahidi yoxdur.',
   },
+
+  procurement: {
+    department: 'Departament',
+    createdBy: 'Yaradan',
+    priority: 'Prioritet',
+    baseOnRequirements: 'Alış Tələbi Əsasında',
+    baseOnRequirementsHint: 'Bu sifarişin sətirlərini avtomatik doldurmaq üçün bir və ya bir neçə açıq alış tələbi seçin. Yalnız eyni departamentə aid tələblər birləşdirilə bilər.',
+    noOpenRequirements: 'Açıq alış tələbi yoxdur.',
+    departmentLockedHint: 'Yalnız ilk seçdiyiniz tələblə eyni departamentə aid tələblər əlavə edilə bilər.',
+    linesAutoFilledHint: 'Bu sətirlər seçilmiş alış tələb(lər)indən avtomatik köçürülüb və yadda saxlanarkən yenidən yoxlanılacaq.',
+    source: 'Mənbə',
+    from: 'Mənbə:',
+  },
 };
 
 export default az;
