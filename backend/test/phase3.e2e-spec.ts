@@ -130,7 +130,7 @@ describe('Phase 3 — Counterparty & Pricing (e2e)', () => {
     it('should create a customer', async () => {
       const res = await request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`)
         .set('Authorization', `Bearer ${token1}`).set('X-Tenant-Id', tenant1Id)
-        .send({ counterpartyType: 'CUSTOMER', code: 'CUST-001', name: 'Acme Buyer', taxId: 'TAX001' })
+        .send({ counterpartyType: 'CUSTOMER', code: 'CUST-001', name: 'Acme Buyer', taxId: '1234567890' })
         .expect(201);
       cpId = res.body.id;
       expect(res.body.code).toBe('CUST-001');

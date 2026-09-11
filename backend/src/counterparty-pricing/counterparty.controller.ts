@@ -1,12 +1,26 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { CounterpartyService } from './counterparty.service';
-import { CreateCounterpartyDto, UpdateCounterpartyDto, CreateCounterpartyAddressDto, CreateCounterpartyContactDto } from './dto/counterparty.dto';
+import {
+  CreateCounterpartyDto,
+  UpdateCounterpartyDto,
+  CreateCounterpartyAddressDto,
+  CreateCounterpartyContactDto,
+  UpdateCounterpartyContactDto,
+  CreateCounterpartyBankAccountDto,
+  UpdateCounterpartyBankAccountDto,
+} from './dto/counterparty.dto';
 import { VersionedCommandDto } from '../org-structure/dto/common.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PermissionCodes } from '../rbac/permission-codes';
+import { IsIn } from 'class-validator';
+
+class SetCounterpartyStatusDto extends VersionedCommandDto {
+  @IsIn(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRED', 'CANCELLED'])
+  status!: string;
+}
 
 @Controller('organizations/:organizationId/counterparties')
 export class CounterpartyController {
@@ -20,8 +34,9 @@ export class CounterpartyController {
     @Param('organizationId') organizationId: string,
     @Query('includeInactive') includeInactive?: string,
     @Query('type') type?: string,
+    @Query('status') status?: string,
   ) {
-    return this.service.list(tenantId, membershipId, organizationId, includeInactive === 'true', type);
+    return this.service.list(tenantId, membershipId, organizationId, includeInactive === 'true', type, status);
   }
 
   @RequirePermissions(PermissionCodes.COUNTERPARTY_VIEW)
@@ -86,6 +101,32 @@ export class CounterpartyController {
     return this.service.deactivate(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion);
   }
 
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: VersionedCommandDto,
+  ) {
+    return this.service.approve(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)
+  @Post(':id/status')
+  setStatus(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: SetCounterpartyStatusDto,
+  ) {
+    return this.service.setStatus(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion, dto.status);
+  }
+
   @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)
   @Post(':id/addresses')
   addAddress(
@@ -110,5 +151,60 @@ export class CounterpartyController {
     @Body() dto: CreateCounterpartyContactDto,
   ) {
     return this.service.addContact(tenantId, membershipId, organizationId, counterpartyId, user.userId, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)
+  @Patch(':id/contacts/:contactId')
+  updateContact(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') counterpartyId: string,
+    @Param('contactId') contactId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: UpdateCounterpartyContactDto,
+  ) {
+    return this.service.updateContact(tenantId, membershipId, organizationId, counterpartyId, contactId, user.userId, dto.expectedVersion, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)
+  @Post(':id/bank-accounts')
+  addBankAccount(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') counterpartyId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: CreateCounterpartyBankAccountDto,
+  ) {
+    return this.service.addBankAccount(tenantId, membershipId, organizationId, counterpartyId, user.userId, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)
+  @Patch(':id/bank-accounts/:accountId')
+  updateBankAccount(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') counterpartyId: string,
+    @Param('accountId') accountId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: UpdateCounterpartyBankAccountDto,
+  ) {
+    return this.service.updateBankAccount(tenantId, membershipId, organizationId, counterpartyId, accountId, user.userId, dto.expectedVersion, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)
+  @Post(':id/bank-accounts/:accountId/deactivate')
+  deactivateBankAccount(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') counterpartyId: string,
+    @Param('accountId') accountId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: VersionedCommandDto,
+  ) {
+    return this.service.deactivateBankAccount(tenantId, membershipId, organizationId, counterpartyId, accountId, user.userId, dto.expectedVersion);
   }
 }

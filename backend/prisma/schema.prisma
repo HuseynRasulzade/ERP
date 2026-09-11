@@ -128,6 +128,10 @@ model Tenant {
   serialNumbers                            SerialNumber[]
   inventoryMovements                        InventoryMovement[]
   documentLineSerials                        DocumentLineSerial[]
+  counterpartyBankAccounts                     CounterpartyBankAccount[]
+  counterpartyContracts                        CounterpartyContract[]
+  counterpartyContractAmendments               CounterpartyContractAmendment[]
+  counterpartyDocuments                        CounterpartyDocument[]
   warehouseTransfers                         WarehouseTransfer[]
   warehouseTransferLines                      WarehouseTransferLine[]
   internalConsumptions                         InternalConsumption[]
@@ -199,6 +203,7 @@ model Organization {
   productCategories     ProductCategory[]
   products              Product[]
   counterparties        Counterparty[]
+  counterpartyContracts CounterpartyContract[]
   priceLists            PriceList[]
   salesOrders           SalesOrder[]
   salesInvoices         SalesInvoice[]
@@ -333,6 +338,7 @@ model ResponsiblePerson {
   customerRequests   CustomerRequest[]
   purchaseRequirementsRequested PurchaseRequirement[] @relation("PurchaseRequirementRequester")
   purchaseOrdersAsBuyer         PurchaseOrder[]        @relation("PurchaseOrderBuyer")
+  counterpartyContractsResponsibleFor CounterpartyContract[]
 
   @@index([tenantId, active])
   @@map("responsible_persons")
@@ -756,6 +762,9 @@ model Currency {
   salesReturns             SalesReturn[]
   purchaseOrders                PurchaseOrder[]
   purchaseOrderPaymentSchedules PurchaseOrderPaymentSchedule[]
+  counterpartyBankAccounts      CounterpartyBankAccount[]
+  counterpartyContracts         CounterpartyContract[]
+  counterpartyContractAmendments CounterpartyContractAmendment[]
   goodsReceipts                  GoodsReceipt[]
   purchaseInvoices                PurchaseInvoice[]
   supplierPayables                 SupplierPayable[]
@@ -1287,6 +1296,20 @@ model Counterparty {
   notes              String?
   active             Boolean          @default(true)
 
+  // "Kontragentlər" module (residency/VAT/approval workflow) — see
+  // docs/COUNTERPARTY_MANAGEMENT.md. `taxId` here is always the LOCAL VÖEN
+  // (residents only, uniquely enforced per organization below);
+  // non-residents use `foreignTaxId` instead — never both required.
+  residencyStatus String  @default("RESIDENT") @map("residency_status") // RESIDENT|NON_RESIDENT
+  vatPayer        Boolean @default(false) @map("vat_payer")
+  countryCode     String? @map("country_code") // ISO-3166 alpha-2, e.g. AZ
+  foreignTaxId    String? @map("foreign_tax_id") // non-resident: foreign tax/registration number
+
+  // DRAFT|PENDING_APPROVAL|APPROVED|ACTIVE|EXPIRED|CANCELLED (spec section 9)
+  status      String    @default("DRAFT")
+  approvedBy  String?   @map("approved_by")
+  approvedAt  DateTime? @map("approved_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1298,6 +1321,8 @@ model Counterparty {
   currency              Currency?               @relation(fields: [currencyId], references: [id])
   addresses             CounterpartyAddress[]
   contacts              CounterpartyContact[]
+  bankAccounts          CounterpartyBankAccount[]
+  contracts             CounterpartyContract[]
   priceLists            PriceList[]
   salesOrders           SalesOrder[]
   salesInvoices         SalesInvoice[]
@@ -1318,14 +1343,17 @@ model Counterparty {
   inventoryMovementsAsOwner               InventoryMovement[]
 
   @@unique([organizationId, code])
+  @@unique([organizationId, taxId])
   @@index([organizationId, active])
   @@index([organizationId, counterpartyType])
+  @@index([organizationId, status])
   @@index([tenantId, taxId])
   @@map("counterparties")
 }
 
 enum AddressType {
   LEGAL // Legal/registered address
+  ACTUAL // Actual/physical address (Faktiki ünvan)
   SHIPPING // Shipping address
   BILLING // Billing address
   OTHER // Other
@@ -1368,8 +1396,9 @@ model CounterpartyContact {
   firstName      String  @map("first_name")
   lastName       String  @map("last_name")
   position       String?
-  phone          String?
-  mobile         String?
+  department     String? // Şöbə/departament (free text — a contact may belong to a department outside this tenant's own org chart)
+  phone          String? // primary contact number
+  mobile         String? // alternative contact number
   email          String?
   isPrimary      Boolean @default(false) @map("is_primary")
   notes          String?
@@ -4148,4 +4177,161 @@ model DocumentLineSerial {
 
   @@index([tenantId, documentType, lineId])
   @@map("document_line_serials")
+}
+
+// =============================================================================
+// Kontragentlər (Counterparty CRM extension) — bank accounts, contracts,
+// contract amendments, and document attachments. See
+// docs/COUNTERPARTY_MANAGEMENT.md.
+// =============================================================================
+
+/// A counterparty's OWN bank account (their payment details for us to pay
+/// into, or receive from) — distinct from `BankAccount` (this tenant's own
+/// organization's accounts, Phase 1). Multiple accounts allowed; exactly
+/// the accounts marked `isPrimary` are "the" default for a given currency
+/// scope — enforced one-primary-overall for simplicity (a counterparty
+/// picks one main account regardless of currency; disclosed simplification
+/// in docs/COUNTERPARTY_MANAGEMENT.md).
+model CounterpartyBankAccount {
+  id                   String   @id @default(uuid())
+  tenantId             String   @map("tenant_id")
+  counterpartyId       String   @map("counterparty_id")
+  bankName             String   @map("bank_name")
+  bankTaxId            String?  @map("bank_tax_id")
+  bankCode             String?  @map("bank_code")
+  bankAddress          String?  @map("bank_address")
+  accountNumber        String   @map("account_number")
+  iban                 String?
+  swiftBic             String?  @map("swift_bic")
+  correspondentAccount String?  @map("correspondent_account")
+  currencyId           String?  @map("currency_id")
+  branchName           String?  @map("branch_name") // the counterparty's own bank branch (free text)
+  isPrimary            Boolean  @default(false) @map("is_primary")
+  notes                String?
+  active               Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@index([counterpartyId, active])
+  @@index([counterpartyId, isPrimary])
+  @@map("counterparty_bank_accounts")
+}
+
+/// Contract with a counterparty (spec section 5). Plain CRUD + a bespoke
+/// approval gate (never document-framework: no GL, no posting) — mirrors
+/// PurchaseRequirement's own non-posting shape.
+model CounterpartyContract {
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  organizationId String  @map("organization_id")
+  counterpartyId String  @map("counterparty_id")
+  number         String
+  subject        String
+  contractType   String? @map("contract_type")
+  signedDate     DateTime? @map("signed_date") @db.Date
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  amount         Decimal?  @db.Decimal(18, 2)
+  currencyId     String?   @map("currency_id")
+  paymentTerms   String?   @map("payment_terms")
+  responsiblePersonId String? @map("responsible_person_id")
+  notes          String?
+
+  // DRAFT|PENDING_APPROVAL|APPROVED|ACTIVE|EXPIRED|CANCELLED
+  status     String    @default("DRAFT")
+  approvedBy String?   @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant              Tenant                         @relation(fields: [tenantId], references: [id])
+  organization        Organization                   @relation(fields: [organizationId], references: [id])
+  counterparty        Counterparty                   @relation(fields: [counterpartyId], references: [id])
+  currency            Currency?                      @relation(fields: [currencyId], references: [id])
+  responsiblePerson   ResponsiblePerson?              @relation(fields: [responsiblePersonId], references: [id])
+  amendments          CounterpartyContractAmendment[]
+
+  @@unique([counterpartyId, number])
+  @@index([organizationId, status])
+  @@map("counterparty_contracts")
+}
+
+/// Amendment ("əlavə") to a CounterpartyContract (spec section 6) — always
+/// belongs to exactly one parent contract; number is unique within that
+/// contract (not globally).
+model CounterpartyContractAmendment {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  contractId        String    @map("contract_id")
+  number            String
+  subject           String
+  amendmentDate     DateTime? @map("amendment_date") @db.Date
+  effectiveDate     DateTime? @map("effective_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  newAmount         Decimal?  @map("new_amount") @db.Decimal(18, 2)
+  currencyId        String?   @map("currency_id")
+  changeDescription String?   @map("change_description")
+  notes             String?
+
+  // DRAFT|PENDING_APPROVAL|APPROVED|ACTIVE|EXPIRED|CANCELLED
+  status     String    @default("DRAFT")
+  approvedBy String?   @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant   Tenant               @relation(fields: [tenantId], references: [id])
+  contract CounterpartyContract @relation(fields: [contractId], references: [id])
+  currency Currency?            @relation(fields: [currencyId], references: [id])
+
+  @@unique([contractId, number])
+  @@map("counterparty_contract_amendments")
+}
+
+/// File attached directly to a CounterpartyContract or a
+/// CounterpartyContractAmendment (spec section 7) — `ownerType` +
+/// `ownerId` is a soft reference (same convention as
+/// `DocumentLineSerial`/`ShipmentLine.sourceOrderLineId`) rather than two
+/// nullable FK columns, since a document belongs to exactly one of the two
+/// owner kinds. The file itself lives on local disk under a per-tenant
+/// upload root; this row is its metadata + an opaque `storageKey` used to
+/// resolve the path (never trust a client-supplied path).
+model CounterpartyDocument {
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  organizationId String @map("organization_id")
+  ownerType      String @map("owner_type") // CONTRACT | CONTRACT_AMENDMENT
+  ownerId        String @map("owner_id")
+
+  fileName        String  @map("file_name")
+  fileType        String  @map("file_type") // MIME type
+  fileSize        Int     @map("file_size") // bytes
+  storageKey      String  @map("storage_key")
+  documentVersion Int     @default(1) @map("document_version")
+  notes           String?
+  active          Boolean @default(true) // soft-delete
+
+  uploadedBy String   @map("uploaded_by")
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, ownerType, ownerId, active])
+  @@map("counterparty_documents")
 }

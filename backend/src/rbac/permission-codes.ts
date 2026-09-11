@@ -97,6 +97,17 @@ export const PermissionCodes = {
   COUNTERPARTY_CREATE: 'counterparty.create',
   COUNTERPARTY_EDIT: 'counterparty.edit',
   COUNTERPARTY_DEACTIVATE: 'counterparty.deactivate',
+  COUNTERPARTY_APPROVE: 'counterparty.approve',
+
+  // Counterparty contracts / amendments / documents ("Kontragentlər" module)
+  CONTRACT_VIEW: 'contract.view',
+  CONTRACT_CREATE: 'contract.create',
+  CONTRACT_EDIT: 'contract.edit',
+  CONTRACT_APPROVE: 'contract.approve',
+  CONTRACT_AMENDMENT_CREATE: 'contract.amendment.create',
+  CONTRACT_AMENDMENT_EDIT: 'contract.amendment.edit',
+  CONTRACT_AMENDMENT_APPROVE: 'contract.amendment.approve',
+  CONTRACT_DOCUMENT_MANAGE: 'contract.document.manage',
 
   PRICE_LIST_VIEW: 'price_list.view',
   PRICE_LIST_CREATE: 'price_list.create',
@@ -349,6 +360,16 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.COUNTERPARTY_CREATE, module: 'counterparty', description: 'Create counterparties' },
   { code: PermissionCodes.COUNTERPARTY_EDIT, module: 'counterparty', description: 'Edit counterparties' },
   { code: PermissionCodes.COUNTERPARTY_DEACTIVATE, module: 'counterparty', description: 'Deactivate counterparties' },
+  { code: PermissionCodes.COUNTERPARTY_APPROVE, module: 'counterparty', description: 'Approve counterparties' },
+
+  { code: PermissionCodes.CONTRACT_VIEW, module: 'contract', description: 'View counterparty contracts' },
+  { code: PermissionCodes.CONTRACT_CREATE, module: 'contract', description: 'Create counterparty contracts' },
+  { code: PermissionCodes.CONTRACT_EDIT, module: 'contract', description: 'Edit counterparty contracts' },
+  { code: PermissionCodes.CONTRACT_APPROVE, module: 'contract', description: 'Approve counterparty contracts' },
+  { code: PermissionCodes.CONTRACT_AMENDMENT_CREATE, module: 'contract', description: 'Create contract amendments' },
+  { code: PermissionCodes.CONTRACT_AMENDMENT_EDIT, module: 'contract', description: 'Edit contract amendments' },
+  { code: PermissionCodes.CONTRACT_AMENDMENT_APPROVE, module: 'contract', description: 'Approve contract amendments' },
+  { code: PermissionCodes.CONTRACT_DOCUMENT_MANAGE, module: 'contract', description: 'Upload/download/delete contract and amendment documents' },
 
   { code: PermissionCodes.PRICE_LIST_VIEW, module: 'price_list', description: 'View price lists' },
   { code: PermissionCodes.PRICE_LIST_CREATE, module: 'price_list', description: 'Create price lists' },

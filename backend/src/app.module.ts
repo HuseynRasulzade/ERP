@@ -34,6 +34,7 @@ import { SalesExecutionModule } from './sales-execution/sales-execution.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
+import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 
 @Module({
   imports: [
@@ -99,6 +100,10 @@ import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-invent
     // Engine every other module reads from, plus WarehouseTransfer,
     // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
     WarehouseInventoryModule,
+
+    // "Kontragentlər" — counterparty contracts, amendments, and document
+    // attachments (extends Phase 3's CounterpartyPricingModule).
+    CounterpartyContractsModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,
