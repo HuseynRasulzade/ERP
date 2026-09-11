@@ -301,6 +301,56 @@ const en = {
     delete: 'Delete',
     noDocumentsYet: 'No documents yet.',
     allowedFileHint: 'Allowed: PDF, Word, Excel, JPEG, PNG — max 20MB.',
+
+    // Commercial / delivery terms (spec section 10)
+    terms: 'Commercial & Delivery Terms',
+    hasAdvance: 'Advance payment required',
+    advancePercent: 'Advance %',
+    advanceAmount: 'Advance amount',
+    advanceAuto: 'auto-calculated',
+    advanceManual: 'manually overridden',
+    saveAdvance: 'Save advance',
+    remainingPaymentDueDays: 'Remaining payment due (days)',
+    deliveryDate: 'Delivery date',
+    deliveryTermDays: 'Delivery term (days)',
+    deliveryAddress: 'Delivery address',
+    deliveryTerms: 'Delivery terms',
+    warrantyPeriod: 'Warranty period',
+    penaltyTerms: 'Penalty / late payment terms',
+    otherTerms: 'Other special terms',
+    priceIncludesTax: 'Prices include tax',
+
+    // Nomenclature lines (spec sections 11-13)
+    lines: 'Nomenclature Lines',
+    addLine: '+ Add line',
+    product: 'Product',
+    quantity: 'Quantity',
+    unit: 'Unit',
+    unitPrice: 'Unit price',
+    discountPercent: 'Discount %',
+    discountAmount: 'Discount amt.',
+    taxBase: 'Tax base',
+    taxCategory: 'Tax category',
+    taxRate: 'Tax %',
+    taxAmount: 'Tax amount',
+    lineTotal: 'Line total',
+    noLinesYet: 'No nomenclature lines yet.',
+    removeLine: 'Remove',
+    taxError: 'Tax calc. error',
+    sourcePO: 'From PO',
+
+    // Totals
+    totals: 'Totals',
+    subtotal: 'Pre-tax subtotal',
+    totalDiscount: 'Total discount',
+    totalTax: 'Total tax',
+    grandTotal: 'Grand total',
+    remainingPayable: 'Remaining payable',
+
+    // Create from Purchase Order (spec section 11)
+    createFromPO: 'Create Contract',
+    createFromPOHint: 'Creates a contract from this confirmed purchase order, copying every remaining line.',
+    contractCreated: 'Contract created',
   },
 };
 

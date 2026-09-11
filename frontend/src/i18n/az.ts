@@ -303,6 +303,56 @@ const az: Translations = {
     delete: 'Sil',
     noDocumentsYet: 'Hələ sənəd yoxdur.',
     allowedFileHint: 'İcazə verilən: PDF, Word, Excel, JPEG, PNG — maks. 20MB.',
+
+    // Kommersiya və çatdırılma şərtləri (bölmə 10)
+    terms: 'Kommersiya və çatdırılma şərtləri',
+    hasAdvance: 'Avans tələb olunur',
+    advancePercent: 'Avans %',
+    advanceAmount: 'Avans məbləği',
+    advanceAuto: 'avtomatik hesablanıb',
+    advanceManual: 'əl ilə dəyişdirilib',
+    saveAdvance: 'Avansı saxla',
+    remainingPaymentDueDays: 'Qalıq ödənişin müddəti (gün)',
+    deliveryDate: 'Çatdırılma tarixi',
+    deliveryTermDays: 'Çatdırılma müddəti (gün)',
+    deliveryAddress: 'Çatdırılma ünvanı',
+    deliveryTerms: 'Çatdırılma şərtləri',
+    warrantyPeriod: 'Zəmanət müddəti',
+    penaltyTerms: 'Cərimə / gecikmə şərtləri',
+    otherTerms: 'Digər xüsusi şərtlər',
+    priceIncludesTax: 'Qiymətlərə vergi daxildir',
+
+    // Nomenklatura sətirləri (bölmə 11-13)
+    lines: 'Nomenklatura sətirləri',
+    addLine: '+ Sətir əlavə et',
+    product: 'Məhsul',
+    quantity: 'Miqdar',
+    unit: 'Vahid',
+    unitPrice: 'Vahid qiyməti',
+    discountPercent: 'Endirim %',
+    discountAmount: 'Endirim məbləği',
+    taxBase: 'Vergi bazası',
+    taxCategory: 'Vergi kateqoriyası',
+    taxRate: 'Vergi %',
+    taxAmount: 'Vergi məbləği',
+    lineTotal: 'Sətir yekunu',
+    noLinesYet: 'Hələ nomenklatura sətri yoxdur.',
+    removeLine: 'Sil',
+    taxError: 'Vergi hesablama xətası',
+    sourcePO: 'Sifarişdən',
+
+    // Yekunlar
+    totals: 'Yekunlar',
+    subtotal: 'Vergisiz məbləğ',
+    totalDiscount: 'Ümumi endirim',
+    totalTax: 'Ümumi vergi',
+    grandTotal: 'Ümumi yekun',
+    remainingPayable: 'Qalıq ödəniləcək məbləğ',
+
+    // Alış sifarişindən yaratma (bölmə 11)
+    createFromPO: 'Müqavilə yarat',
+    createFromPOHint: 'Bu təsdiqlənmiş alış sifarişindən müqavilə yaradır və bütün qalıq sətirləri köçürür.',
+    contractCreated: 'Müqavilə yaradıldı',
   },
 };
 

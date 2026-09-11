@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { CounterpartyContract, CounterpartyContractAmendment } from '../../api/types';
+import type { CounterpartyContract, CounterpartyContractAmendment, CounterpartyContractLine } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -24,6 +24,9 @@ export function ContractDetailPage() {
   const [form, setForm] = useState({
     subject: '', contractType: '', signedDate: '', startDate: '', endDate: '',
     amount: '', currencyId: '', paymentTerms: '', responsiblePersonId: '',
+    hasAdvance: false, advancePercent: '', remainingPaymentDueDays: '',
+    deliveryDate: '', deliveryTermDays: '', deliveryAddress: '', deliveryTerms: '',
+    warrantyPeriod: '', penaltyTerms: '', otherTerms: '', priceIncludesTax: false,
   });
 
   const load = useCallback(async () => {
@@ -35,6 +38,10 @@ export function ContractDetailPage() {
         subject: data.subject, contractType: data.contractType ?? '',
         signedDate: data.signedDate?.slice(0, 10) ?? '', startDate: data.startDate?.slice(0, 10) ?? '', endDate: data.endDate?.slice(0, 10) ?? '',
         amount: data.amount ?? '', currencyId: data.currencyId ?? '', paymentTerms: data.paymentTerms ?? '', responsiblePersonId: data.responsiblePersonId ?? '',
+        hasAdvance: data.hasAdvance, advancePercent: data.advancePercent ?? '', remainingPaymentDueDays: data.remainingPaymentDueDays != null ? String(data.remainingPaymentDueDays) : '',
+        deliveryDate: data.deliveryDate?.slice(0, 10) ?? '', deliveryTermDays: data.deliveryTermDays != null ? String(data.deliveryTermDays) : '',
+        deliveryAddress: data.deliveryAddress ?? '', deliveryTerms: data.deliveryTerms ?? '',
+        warrantyPeriod: data.warrantyPeriod ?? '', penaltyTerms: data.penaltyTerms ?? '', otherTerms: data.otherTerms ?? '', priceIncludesTax: data.priceIncludesTax,
       });
     } catch (err) {
       showError(err);
@@ -57,6 +64,11 @@ export function ContractDetailPage() {
         signedDate: form.signedDate || undefined, startDate: form.startDate || undefined, endDate: form.endDate || undefined,
         amount: form.amount ? Number(form.amount) : undefined, currencyId: form.currencyId || undefined,
         paymentTerms: form.paymentTerms || undefined, responsiblePersonId: form.responsiblePersonId || undefined,
+        hasAdvance: form.hasAdvance, remainingPaymentDueDays: form.remainingPaymentDueDays ? Number(form.remainingPaymentDueDays) : undefined,
+        deliveryDate: form.deliveryDate || undefined, deliveryTermDays: form.deliveryTermDays ? Number(form.deliveryTermDays) : undefined,
+        deliveryAddress: form.deliveryAddress || undefined, deliveryTerms: form.deliveryTerms || undefined,
+        warrantyPeriod: form.warrantyPeriod || undefined, penaltyTerms: form.penaltyTerms || undefined,
+        otherTerms: form.otherTerms || undefined, priceIncludesTax: form.priceIncludesTax,
       });
       showSuccess(t.toast.updatedItem(contract.number));
       setEditing(false);
@@ -116,9 +128,32 @@ export function ContractDetailPage() {
             <label>{t.counterparty.endDate}<input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></label>
           </div>
           <div className="inline-form">
-            <label>{t.counterparty.amount}<input type="number" step="any" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></label>
+            <label>{t.counterparty.amount}<input type="number" step="any" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} disabled={(contract.lines?.length ?? 0) > 0} /></label>
             <label>{t.counterparty.currency}<input value={form.currencyId} onChange={(e) => setForm({ ...form, currencyId: e.target.value })} placeholder="currency id" /></label>
             <label>{t.counterparty.paymentTerms}<input value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })} placeholder="e.g. NET 30" /></label>
+          </div>
+          <h3>{t.contract.terms}</h3>
+          <div className="inline-form">
+            <label className="checkbox-label"><input type="checkbox" checked={form.hasAdvance} onChange={(e) => setForm({ ...form, hasAdvance: e.target.checked })} /> {t.contract.hasAdvance}</label>
+            <label>{t.contract.remainingPaymentDueDays}<input type="number" value={form.remainingPaymentDueDays} onChange={(e) => setForm({ ...form, remainingPaymentDueDays: e.target.value })} /></label>
+            <label className="checkbox-label"><input type="checkbox" checked={form.priceIncludesTax} onChange={(e) => setForm({ ...form, priceIncludesTax: e.target.checked })} /> {t.contract.priceIncludesTax}</label>
+          </div>
+          <div className="inline-form">
+            <label>{t.contract.deliveryDate}<input type="date" value={form.deliveryDate} onChange={(e) => setForm({ ...form, deliveryDate: e.target.value })} /></label>
+            <label>{t.contract.deliveryTermDays}<input type="number" value={form.deliveryTermDays} onChange={(e) => setForm({ ...form, deliveryTermDays: e.target.value })} /></label>
+            <label>{t.contract.warrantyPeriod}<input value={form.warrantyPeriod} onChange={(e) => setForm({ ...form, warrantyPeriod: e.target.value })} /></label>
+          </div>
+          <div className="inline-form">
+            <label style={{ flex: 1 }}>{t.contract.deliveryAddress}<input value={form.deliveryAddress} onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })} /></label>
+          </div>
+          <div className="inline-form">
+            <label style={{ flex: 1 }}>{t.contract.deliveryTerms}<input value={form.deliveryTerms} onChange={(e) => setForm({ ...form, deliveryTerms: e.target.value })} /></label>
+          </div>
+          <div className="inline-form">
+            <label style={{ flex: 1 }}>{t.contract.penaltyTerms}<input value={form.penaltyTerms} onChange={(e) => setForm({ ...form, penaltyTerms: e.target.value })} /></label>
+          </div>
+          <div className="inline-form">
+            <label style={{ flex: 1 }}>{t.contract.otherTerms}<input value={form.otherTerms} onChange={(e) => setForm({ ...form, otherTerms: e.target.value })} /></label>
           </div>
           <div className="inline-form">
             <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
@@ -135,10 +170,31 @@ export function ContractDetailPage() {
             <dt>{t.counterparty.amount}</dt><dd className="numeric">{contract.amount ?? '—'}</dd>
             <dt>{t.counterparty.paymentTerms}</dt><dd>{contract.paymentTerms ?? '—'}</dd>
             <dt>{t.counterparty.responsiblePerson}</dt><dd>{contract.responsiblePersonId ?? '—'}</dd>
+            <dt>{t.contract.sourcePO}</dt><dd>{contract.sourcePurchaseOrderId ?? '—'}</dd>
+            <dt>{t.contract.deliveryDate}</dt><dd>{contract.deliveryDate?.slice(0, 10) ?? '—'}</dd>
+            <dt>{t.contract.deliveryTermDays}</dt><dd>{contract.deliveryTermDays ?? '—'}</dd>
+            <dt>{t.contract.deliveryAddress}</dt><dd>{contract.deliveryAddress ?? '—'}</dd>
+            <dt>{t.contract.deliveryTerms}</dt><dd>{contract.deliveryTerms ?? '—'}</dd>
+            <dt>{t.contract.warrantyPeriod}</dt><dd>{contract.warrantyPeriod ?? '—'}</dd>
+            <dt>{t.contract.penaltyTerms}</dt><dd>{contract.penaltyTerms ?? '—'}</dd>
+            <dt>{t.contract.otherTerms}</dt><dd>{contract.otherTerms ?? '—'}</dd>
+            <dt>{t.contract.priceIncludesTax}</dt><dd>{contract.priceIncludesTax ? t.common.yes : t.common.no}</dd>
             <dt>{t.common.version}</dt><dd>{contract.version}</dd>
           </dl>
         </section>
       )}
+
+      <section className="card">
+        <AdvanceSection orgId={orgId} contract={contract} onChanged={load} />
+      </section>
+
+      <section className="card">
+        <TotalsSection contract={contract} />
+      </section>
+
+      <section className="card">
+        <LinesSection orgId={orgId} contract={contract} onChanged={load} />
+      </section>
 
       <section className="card">
         <DocumentManager orgId={orgId} ownerType="CONTRACT" ownerId={contract.id} />
@@ -147,6 +203,188 @@ export function ContractDetailPage() {
       <section className="card">
         <AmendmentsSection orgId={orgId} contractId={contract.id} onChanged={load} />
       </section>
+    </div>
+  );
+}
+
+function AdvanceSection({ orgId, contract, onChanged }: { orgId: string; contract: CounterpartyContract; onChanged: () => void }) {
+  const { hasPermission } = useAuth();
+  const { showError, showSuccess } = useToast();
+  const { t } = useLocale();
+  const [busy, setBusy] = useState(false);
+  const [percent, setPercent] = useState(contract.advancePercent ?? '');
+  const [amount, setAmount] = useState(contract.advanceAmount ?? '');
+
+  useEffect(() => {
+    setPercent(contract.advancePercent ?? '');
+    setAmount(contract.advanceAmount ?? '');
+  }, [contract.advancePercent, contract.advanceAmount]);
+
+  const save = async (overrideAmount: boolean) => {
+    setBusy(true);
+    try {
+      await api.post(`/organizations/${orgId}/contracts/${contract.id}/advance`, {
+        expectedVersion: contract.version,
+        advancePercent: percent !== '' ? Number(percent) : null,
+        advanceAmount: overrideAmount && amount !== '' ? Number(amount) : undefined,
+      });
+      showSuccess(t.toast.updatedItem(contract.number));
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <h2>{t.contract.hasAdvance}</h2>
+      <dl className="kv-grid">
+        <dt>{t.contract.advancePercent}</dt>
+        <dd>
+          {hasPermission('contract.edit') ? (
+            <input type="number" step="any" style={{ width: '6rem' }} value={percent} onChange={(e) => setPercent(e.target.value)} />
+          ) : (percent || '—')}
+        </dd>
+        <dt>{t.contract.advanceAmount}</dt>
+        <dd>
+          {hasPermission('contract.edit') ? (
+            <input type="number" step="any" style={{ width: '8rem' }} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          ) : (contract.advanceAmount ?? '—')}
+          {' '}
+          <span className="panel-note">{contract.advanceAmountManual ? t.contract.advanceManual : t.contract.advanceAuto}</span>
+        </dd>
+      </dl>
+      {hasPermission('contract.edit') && (
+        <div className="inline-form">
+          <button disabled={busy} onClick={() => save(false)}>{t.contract.saveAdvance} ({t.contract.advanceAuto})</button>
+          <button disabled={busy} onClick={() => save(true)}>{t.contract.saveAdvance} ({t.contract.advanceManual})</button>
+        </div>
+      )}
+      <dl className="kv-grid">
+        <dt>{t.contract.remainingPayable}</dt><dd className="numeric">{contract.remainingPayableAmount ?? '—'}</dd>
+      </dl>
+    </div>
+  );
+}
+
+function TotalsSection({ contract }: { contract: CounterpartyContract }) {
+  const { t } = useLocale();
+  return (
+    <div>
+      <h2>{t.contract.totals}</h2>
+      <dl className="kv-grid">
+        <dt>{t.contract.subtotal}</dt><dd className="numeric">{contract.subtotal ?? '—'}</dd>
+        <dt>{t.contract.totalDiscount}</dt><dd className="numeric">{contract.totalDiscount ?? '—'}</dd>
+        <dt>{t.contract.totalTax}</dt><dd className="numeric">{contract.totalTax ?? '—'}</dd>
+        <dt>{t.contract.grandTotal}</dt><dd className="numeric">{contract.amount ?? '—'} {contract.currencyId ?? ''}</dd>
+      </dl>
+    </div>
+  );
+}
+
+function LinesSection({ orgId, contract, onChanged }: { orgId: string; contract: CounterpartyContract; onChanged: () => void }) {
+  const { hasPermission } = useAuth();
+  const { showError, showSuccess } = useToast();
+  const { t } = useLocale();
+  const [busy, setBusy] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [newLine, setNewLine] = useState({ productId: '', unitId: '', quantity: '', unitPrice: '', discountPercent: '' });
+
+  const lines = contract.lines ?? [];
+
+  const addLine = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.post(`/organizations/${orgId}/contracts/${contract.id}/lines`, {
+        productId: newLine.productId, unitId: newLine.unitId, quantity: Number(newLine.quantity),
+        unitPrice: newLine.unitPrice ? Number(newLine.unitPrice) : undefined,
+        discountPercent: newLine.discountPercent ? Number(newLine.discountPercent) : undefined,
+      });
+      showSuccess(t.toast.createdItem(newLine.productId));
+      setNewLine({ productId: '', unitId: '', quantity: '', unitPrice: '', discountPercent: '' });
+      setShowForm(false);
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeLine = async (line: CounterpartyContractLine) => {
+    setBusy(true);
+    try {
+      await api.delete(`/organizations/${orgId}/contracts/${contract.id}/lines/${line.id}`);
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <h2>{t.contract.lines}</h2>
+        {hasPermission('contract.edit') && <button className="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? t.common.cancel : t.contract.addLine}</button>}
+      </div>
+      {showForm && (
+        <form onSubmit={addLine} className="inline-form">
+          <label>{t.contract.product}<input required value={newLine.productId} onChange={(e) => setNewLine({ ...newLine, productId: e.target.value })} placeholder="product id" /></label>
+          <label>{t.contract.unit}<input required value={newLine.unitId} onChange={(e) => setNewLine({ ...newLine, unitId: e.target.value })} placeholder="unit id" /></label>
+          <label>{t.contract.quantity}<input required type="number" step="any" value={newLine.quantity} onChange={(e) => setNewLine({ ...newLine, quantity: e.target.value })} /></label>
+          <label>{t.contract.unitPrice}<input type="number" step="any" value={newLine.unitPrice} onChange={(e) => setNewLine({ ...newLine, unitPrice: e.target.value })} /></label>
+          <label>{t.contract.discountPercent}<input type="number" step="any" value={newLine.discountPercent} onChange={(e) => setNewLine({ ...newLine, discountPercent: e.target.value })} /></label>
+          <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
+        </form>
+      )}
+      {lines.length === 0 ? (
+        <p className="panel-note">{t.contract.noLinesYet}</p>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>{t.contract.product}</th>
+              <th>{t.contract.quantity}</th>
+              <th>{t.contract.unitPrice}</th>
+              <th>{t.contract.discountAmount}</th>
+              <th>{t.contract.taxBase}</th>
+              <th>{t.contract.taxRate}</th>
+              <th>{t.contract.taxAmount}</th>
+              <th>{t.contract.lineTotal}</th>
+              <th>{t.contract.sourcePO}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((line) => (
+              <tr key={line.id}>
+                <td>{line.productId}</td>
+                <td className="numeric">{line.quantity} {line.unitId}</td>
+                <td className="numeric">{line.unitPrice}</td>
+                <td className="numeric">{line.discountAmount}</td>
+                <td className="numeric">{line.taxBase}</td>
+                <td className="numeric">{line.taxRatePercent ?? '—'}</td>
+                <td className="numeric">{line.taxAmount ?? '—'}</td>
+                <td className="numeric">{line.lineTotal ?? '—'}</td>
+                <td>{line.sourceOrderLineId ? '✓' : '—'}</td>
+                <td>
+                  {hasPermission('contract.edit') && <button className="small" disabled={busy} onClick={() => removeLine(line)}>{t.contract.removeLine}</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {lines.some((l) => l.taxCalculationError) && (
+        <p className="panel-note" style={{ color: 'var(--color-danger, #c0392b)' }}>
+          {t.contract.taxError}: {lines.filter((l) => l.taxCalculationError).map((l) => l.taxCalculationError).join('; ')}
+        </p>
+      )}
     </div>
   );
 }

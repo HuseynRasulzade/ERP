@@ -473,6 +473,40 @@ export interface CounterpartyContractAmendment {
   version: number;
 }
 
+export interface CounterpartyContractLine {
+  id: string;
+  contractId: string;
+  position: number;
+  productId: string;
+  description: string | null;
+  quantity: string;
+  unitId: string;
+  unitPrice: string;
+  discountPercent: string;
+  discountAmount: string;
+  lineAmount: string;
+  taxBase: string;
+  taxCategoryCode: string | null;
+  taxRatePercent: string | null;
+  taxAmount: string | null;
+  lineTotal: string | null;
+  taxCalculationError: string | null;
+  sourceOrderLineId: string | null;
+  version: number;
+}
+
+export interface CounterpartyContractPaymentInstallment {
+  id: string;
+  contractId: string;
+  sequence: number;
+  dueDate: string;
+  basis: string;
+  percentage: string | null;
+  amount: string;
+  currencyId: string | null;
+  status: string;
+}
+
 export interface CounterpartyContract {
   id: string;
   organizationId: string;
@@ -493,6 +527,28 @@ export interface CounterpartyContract {
   approvedAt: string | null;
   version: number;
   amendments?: CounterpartyContractAmendment[];
+  lines?: CounterpartyContractLine[];
+  paymentInstallments?: CounterpartyContractPaymentInstallment[];
+
+  // Commercial / delivery terms (spec section 10)
+  hasAdvance: boolean;
+  advancePercent: string | null;
+  advanceAmount: string | null;
+  advanceAmountManual: boolean;
+  remainingPaymentDueDays: number | null;
+  deliveryDate: string | null;
+  deliveryTermDays: number | null;
+  deliveryAddress: string | null;
+  deliveryTerms: string | null;
+  warrantyPeriod: string | null;
+  penaltyTerms: string | null;
+  otherTerms: string | null;
+  priceIncludesTax: boolean;
+  sourcePurchaseOrderId: string | null;
+  subtotal: string | null;
+  totalDiscount: string | null;
+  totalTax: string | null;
+  remainingPayableAmount: string | null;
 }
 
 export interface CounterpartyDocument {

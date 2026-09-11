@@ -1,8 +1,10 @@
 import { DocListPage } from '../docs/DocListPage';
 import { DocDetailPage } from '../docs/DocDetailPage';
 import { HoldsPanel } from '../docs/HoldsPanel';
+import { CreateContractFromPOPanel } from '../counterparties/CreateContractFromPOPanel';
 import type { DocKind } from '../docs/DocKind';
 import { useLocale } from '../../i18n/LocaleContext';
+import { useOrganization } from '../../context/OrganizationContext';
 
 function usePurchaseOrderKind(): DocKind {
   const { t } = useLocale();
@@ -49,5 +51,16 @@ export function PurchaseOrderListPage() {
 
 export function PurchaseOrderDetailPage() {
   const kind = usePurchaseOrderKind();
-  return <DocDetailPage kind={kind} renderExtras={(doc) => <HoldsPanel docBasePath="purchase-orders" docId={doc.id} releaseBasePath="purchase-order-holds" holdTypes={['APPROVAL', 'SUPPLIER', 'PRICE', 'BUDGET', 'MANUAL', 'COMPLIANCE']} permission="purchase.order_hold.manage" />} />;
+  const { currentOrganizationId } = useOrganization();
+  return (
+    <DocDetailPage
+      kind={kind}
+      renderExtras={(doc) => (
+        <>
+          <HoldsPanel docBasePath="purchase-orders" docId={doc.id} releaseBasePath="purchase-order-holds" holdTypes={['APPROVAL', 'SUPPLIER', 'PRICE', 'BUDGET', 'MANUAL', 'COMPLIANCE']} permission="purchase.order_hold.manage" />
+          {currentOrganizationId && <CreateContractFromPOPanel orgId={currentOrganizationId} doc={doc} />}
+        </>
+      )}
+    />
+  );
 }
