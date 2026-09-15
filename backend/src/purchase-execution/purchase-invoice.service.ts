@@ -8,6 +8,7 @@ import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
 import { ConcurrencyConflictError, DuplicateSupplierInvoiceError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { PURCHASE_INVOICE_TYPE } from './purchase-invoice.repository';
 import { CreatePurchaseInvoiceDto, PurchaseInvoiceLineItemDto, UpdatePurchaseInvoiceDto } from './dto/purchase-execution.dto';
+import { PurchaseOrderContractGateService } from '../counterparty-contracts/purchase-order-contract-gate.service';
 
 const SEQUENCE_PREFIX = 'PI';
 const SUPPLIER_TYPES = ['SUPPLIER', 'BOTH'];
@@ -53,6 +54,7 @@ export class PurchaseInvoiceService {
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
     private readonly taxCalculation: TaxCalculationService,
+    private readonly contractGate: PurchaseOrderContractGateService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -73,6 +75,7 @@ export class PurchaseInvoiceService {
     const businessDate = this.parseDate(dto.documentDate);
     await this.assertSupplier(tenantId, organizationId, dto.counterpartyId);
     if (dto.supplierInvoiceNumber) await this.assertNoDuplicate(organizationId, dto.counterpartyId, dto.supplierInvoiceNumber);
+    if (dto.supplierOrderId) await this.contractGate.assertApprovedContractExists(tenantId, dto.supplierOrderId);
 
     const priceIncludesTax = dto.priceIncludesTax ?? false;
     const lines = await this.resolveLines(tenantId, organizationId, dto.lines, businessDate, priceIncludesTax);

@@ -360,6 +360,8 @@ const az: Translations = {
     createFromPO: 'Müqavilə yarat',
     createFromPOHint: 'Bu təsdiqlənmiş alış sifarişindən müqavilə yaradır və bütün qalıq sətirləri köçürür.',
     contractCreated: 'Müqavilə yaradıldı',
+    remainingQuantity: 'Qalıq',
+    alreadyFullyContracted: 'Artıq tam müqaviləyə köçürülüb',
 
     // Müqavilə formasında məcburi "Alış sifarişini seç" sahəsi
     selectPurchaseOrder: 'Alış sifarişini seç',

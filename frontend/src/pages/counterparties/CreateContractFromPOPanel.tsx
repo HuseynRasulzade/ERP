@@ -26,29 +26,70 @@ export function CreateContractFromPOPanel({ orgId, doc }: { orgId: string; doc: 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [quantities, setQuantities] = useState<Record<string, string>>({});
 
+  const [remainingByLine, setRemainingByLine] = useState<Record<string, number> | null>(null);
+  const [loadingRemaining, setLoadingRemaining] = useState(false);
+
   if (!hasPermission('contract.create') || doc.postingStatus !== 'POSTED') return null;
 
   const lines = doc.lines ?? [];
 
-  const openPanel = () => {
-    const nextSelected: Record<string, boolean> = {};
-    const nextQty: Record<string, string> = {};
-    for (const line of lines) {
-      const remaining = Number(line.quantity ?? 0) - Number((line as { cancelledQuantity?: string }).cancelledQuantity ?? 0);
-      if (line.id && remaining > 0) {
-        nextSelected[line.id] = true;
-        nextQty[line.id] = String(remaining);
-      }
-    }
-    setSelected(nextSelected);
-    setQuantities(nextQty);
+  const openPanel = async () => {
     setNumber('');
     setSubject('');
     setOpen(true);
+    setLoadingRemaining(true);
+    try {
+      // The server (CounterpartyContractService.remainingForPurchaseOrderLine)
+      // is the only source of truth for "how much of this PO line is
+      // still uncontracted" — it accounts for quantity ALREADY consumed
+      // by other contracts, which a naive quantity-minus-cancelled
+      // calculation here can't see. Pre-filling from that naive figure
+      // used to offer a quantity the server would then reject outright
+      // (e.g. "exceeds the purchase order line's remaining quantity 0"
+      // when an earlier contract had already claimed the whole line).
+      const remainingRows = await api.get<{ purchaseOrderLineId: string; remaining: string }[]>(
+        `/organizations/${orgId}/contracts/purchase-orders/${doc.id}/remaining-lines`,
+      );
+      const remainingMap: Record<string, number> = {};
+      for (const row of remainingRows) remainingMap[row.purchaseOrderLineId] = Number(row.remaining);
+      setRemainingByLine(remainingMap);
+
+      const nextSelected: Record<string, boolean> = {};
+      const nextQty: Record<string, string> = {};
+      for (const line of lines) {
+        const remaining = line.id ? (remainingMap[line.id] ?? 0) : 0;
+        if (line.id && remaining > 0) {
+          nextSelected[line.id] = true;
+          nextQty[line.id] = String(remaining);
+        }
+      }
+      setSelected(nextSelected);
+      setQuantities(nextQty);
+    } catch (err) {
+      showError(err);
+      setOpen(false);
+    } finally {
+      setLoadingRemaining(false);
+    }
   };
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
+
+    // Re-check against the last-fetched remaining figures before ever
+    // submitting — catches a value typed over the input's own `max` (not
+    // every browser enforces that on free typing) with an inline error
+    // instead of a round-trip to the server.
+    for (const line of lines) {
+      if (!line.id || !selected[line.id]) continue;
+      const requested = Number(quantities[line.id] ?? 0);
+      const remaining = remainingByLine?.[line.id] ?? 0;
+      if (requested > remaining) {
+        showError(new Error(`${t.contract.remainingQuantity}: ${remaining} — ${requested} ${t.contract.quantity.toLowerCase()}`));
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       const chosenLines = lines
@@ -83,7 +124,9 @@ export function CreateContractFromPOPanel({ orgId, doc }: { orgId: string; doc: 
             <label>{t.counterparty.contractNumber}<input required value={number} onChange={(e) => setNumber(e.target.value)} /></label>
             <label>{t.counterparty.subject}<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
           </div>
-          {lines.length === 0 ? (
+          {loadingRemaining ? (
+            <p className="panel-note">{t.common.loading}</p>
+          ) : lines.length === 0 ? (
             <p className="panel-note">{t.contract.noLinesYet}</p>
           ) : (
             <table className="data-table">
@@ -91,27 +134,34 @@ export function CreateContractFromPOPanel({ orgId, doc }: { orgId: string; doc: 
                 <tr>
                   <th></th>
                   <th>{t.contract.product}</th>
+                  <th>{t.contract.remainingQuantity}</th>
                   <th>{t.contract.quantity}</th>
                 </tr>
               </thead>
               <tbody>
                 {lines.map((line) => {
                   if (!line.id) return null;
+                  const remaining = remainingByLine?.[line.id] ?? 0;
+                  const fullyContracted = remaining <= 0;
                   return (
-                    <tr key={line.id}>
+                    <tr key={line.id} className={fullyContracted ? 'row-disabled' : undefined}>
                       <td>
                         <input
                           type="checkbox"
+                          disabled={fullyContracted}
                           checked={!!selected[line.id]}
                           onChange={(e) => setSelected({ ...selected, [line.id as string]: e.target.checked })}
                         />
                       </td>
                       <td>{line.productId}</td>
+                      <td>{fullyContracted ? t.contract.alreadyFullyContracted : remaining}</td>
                       <td>
                         <input
                           type="number"
                           step="any"
-                          disabled={!selected[line.id]}
+                          min={0}
+                          max={remaining}
+                          disabled={!selected[line.id] || fullyContracted}
                           value={quantities[line.id] ?? ''}
                           onChange={(e) => setQuantities({ ...quantities, [line.id as string]: e.target.value })}
                         />

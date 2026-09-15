@@ -13,6 +13,8 @@ import { ContractAmendmentsForContractController, ContractAmendmentController } 
 import { CounterpartyDocumentService } from './counterparty-document.service';
 import { CounterpartyDocumentController } from './counterparty-document.controller';
 
+import { PurchaseOrderContractGateService } from './purchase-order-contract-gate.service';
+
 /**
  * "Kontragentlər" module extension: contracts, contract amendments, and
  * their document attachments (spec sections 5-7). Builds on
@@ -29,7 +31,7 @@ import { CounterpartyDocumentController } from './counterparty-document.controll
     ContractAmendmentController,
     CounterpartyDocumentController,
   ],
-  providers: [CounterpartyContractService, CounterpartyContractAmendmentService, CounterpartyDocumentService],
-  exports: [CounterpartyContractService, CounterpartyContractAmendmentService, CounterpartyDocumentService],
+  providers: [CounterpartyContractService, CounterpartyContractAmendmentService, CounterpartyDocumentService, PurchaseOrderContractGateService],
+  exports: [CounterpartyContractService, CounterpartyContractAmendmentService, CounterpartyDocumentService, PurchaseOrderContractGateService],
 })
 export class CounterpartyContractsModule {}

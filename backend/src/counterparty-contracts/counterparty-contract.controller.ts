@@ -75,6 +75,19 @@ export class CounterpartyContractController {
    * per-line quantity allocation the mapper's 1:1 interface has no room
    * for, same reasoning as ProcurementPlanningService's own requirement
    * -> PurchaseOrder command. */
+  /** Per-line remaining-to-contract quantities for a Purchase Order —
+   * the "Create Contract" panel calls this before pre-filling its form so
+   * it never offers a quantity the server would reject (spec section 11's
+   * own live-remaining-quantity rule). */
+  @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
+  @Get('purchase-orders/:purchaseOrderId/remaining-lines')
+  remainingForPurchaseOrder(
+    @CurrentTenantId() tenantId: string,
+    @Param('purchaseOrderId') purchaseOrderId: string,
+  ) {
+    return this.contracts.remainingForPurchaseOrder(tenantId, purchaseOrderId);
+  }
+
   @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
   @Post('from-purchase-order')
   createFromPurchaseOrder(

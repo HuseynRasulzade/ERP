@@ -358,6 +358,8 @@ const en = {
     createFromPO: 'Create Contract',
     createFromPOHint: 'Creates a contract from this confirmed purchase order, copying every remaining line.',
     contractCreated: 'Contract created',
+    remainingQuantity: 'Remaining',
+    alreadyFullyContracted: 'Already fully contracted',
 
     // Mandatory PO picker on the contract creation form
     selectPurchaseOrder: 'Select purchase order',

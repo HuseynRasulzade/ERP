@@ -513,6 +513,24 @@ export class CounterpartyContractService {
     return remaining;
   }
 
+  /** Per-line remaining-to-contract quantities for a whole Purchase Order
+   * — the "Create Contract from PO" panel's own pre-fill needs this
+   * BEFORE the user ever submits, otherwise it can only guess (and
+   * guessing wrong — e.g. defaulting to the PO line's full ordered
+   * quantity when an earlier contract has already claimed all of it —
+   * is exactly the confusing late "exceeds remaining quantity 0" error
+   * this fixes). The server, via `remainingForPurchaseOrderLine`, is
+   * always the actual source of truth; this just exposes it up front. */
+  async remainingForPurchaseOrder(tenantId: string, purchaseOrderId: string): Promise<{ purchaseOrderLineId: string; remaining: string }[]> {
+    const lines = await this.prisma.purchaseOrderLine.findMany({ where: { tenantId, purchaseOrderId }, orderBy: { position: 'asc' } });
+    const result = [];
+    for (const line of lines) {
+      const remaining = await this.remainingForPurchaseOrderLine(tenantId, line.id);
+      result.push({ purchaseOrderLineId: line.id, remaining: remaining.toString() });
+    }
+    return result;
+  }
+
   /** Creates a contract from a CONFIRMED (posted) Purchase Order (spec
    * section 11): counterparty, product/description/quantity/unit/price/
    * currency are copied straight onto contract lines, each keeping
