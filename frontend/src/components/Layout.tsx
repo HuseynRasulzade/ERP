@@ -184,6 +184,32 @@ export function Layout() {
             </NavLink>
           )}
 
+          <div className="nav-group-label">{t.nav.groupAccounting}</div>
+          {hasPermission('accounting.account.view') && (
+            <NavLink to="/chart-of-accounts">
+              <span className="nav-icon">📒</span>
+              {t.nav.chartOfAccounts}
+            </NavLink>
+          )}
+          {hasPermission('accounting.trial_balance.view') && (
+            <NavLink to="/trial-balance">
+              <span className="nav-icon">⚖</span>
+              {t.nav.trialBalance}
+            </NavLink>
+          )}
+          {hasPermission('accounting.general_ledger.view') && (
+            <NavLink to="/general-ledger">
+              <span className="nav-icon">📖</span>
+              {t.nav.generalLedger}
+            </NavLink>
+          )}
+          {hasPermission('accounting.manual_operation.view') && (
+            <NavLink to="/manual-journal">
+              <span className="nav-icon">✎</span>
+              {t.nav.manualJournal}
+            </NavLink>
+          )}
+
           <div className="nav-group-label">{t.nav.groupAdmin}</div>
           {hasPermission('organization.view') && (
             <NavLink to="/organizations">

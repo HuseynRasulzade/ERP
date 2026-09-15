@@ -53,6 +53,12 @@ import { CounterpartyListPage } from './pages/counterparties/CounterpartyListPag
 import { CounterpartyDetailPage } from './pages/counterparties/CounterpartyDetailPage';
 import { ContractDetailPage } from './pages/counterparties/ContractDetailPage';
 
+// Accounting Core / Financial Reports
+import { ChartOfAccountsPage } from './pages/accounting/ChartOfAccountsPage';
+import { TrialBalancePage } from './pages/accounting/TrialBalancePage';
+import { GeneralLedgerPage } from './pages/accounting/GeneralLedgerPage';
+import { ManualJournalPage } from './pages/accounting/ManualJournalPage';
+
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="full-page-loading">Loading…</div>;
@@ -125,6 +131,11 @@ function AppRoutes() {
         <Route path="/counterparties" element={<CounterpartyListPage />} />
         <Route path="/counterparties/:id" element={<CounterpartyDetailPage />} />
         <Route path="/counterparties/:id/contracts/:contractId" element={<ContractDetailPage />} />
+
+        <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
+        <Route path="/trial-balance" element={<TrialBalancePage />} />
+        <Route path="/general-ledger" element={<GeneralLedgerPage />} />
+        <Route path="/manual-journal" element={<ManualJournalPage />} />
 
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />
