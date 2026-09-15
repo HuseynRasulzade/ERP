@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../api/client';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
+import { useStickyToolbarHeight } from '../../hooks/useStickyToolbarHeight';
 
 interface Movement {
   id: string;
@@ -28,6 +29,7 @@ export function GeneralLedgerPage() {
   const [toDate, setToDate] = useState(today());
   const [rows, setRows] = useState<Movement[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const { containerRef, toolbarRef } = useStickyToolbarHeight<HTMLFormElement>();
 
   const run = async () => {
     if (!currentOrganizationId) return;
@@ -53,9 +55,10 @@ export function GeneralLedgerPage() {
       {organizations.length === 0 ? (
         <p className="empty-hint">Create an organization first.</p>
       ) : (
-        <>
+        <div ref={containerRef}>
           <form
-            className="inline-form"
+            ref={toolbarRef}
+            className="inline-form report-toolbar"
             onSubmit={(e) => {
               e.preventDefault();
               run();
@@ -75,7 +78,7 @@ export function GeneralLedgerPage() {
           </form>
 
           {rows !== null && (
-            <table className="data-table">
+            <table className="data-table report-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -111,7 +114,7 @@ export function GeneralLedgerPage() {
               </tbody>
             </table>
           )}
-        </>
+        </div>
       )}
     </div>
   );
