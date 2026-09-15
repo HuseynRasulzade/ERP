@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DocumentPostingHandler } from './document-posting-handler.interface';
 import { DocumentRepositoryAdapter } from './document-repository.interface';
 import { CreateBasedOnMapper } from '../document-link/create-based-on.interfaces';
+import { SourceEligibilityAdapter } from './source-eligibility-adapter.interface';
 
 /**
  * Handler registry / strategy pattern (section 12): each future document
@@ -62,5 +63,27 @@ export class DocumentFrameworkRegistry {
 
   private mapperKey(source: string, target: string) {
     return `${source}=>${target}`;
+  }
+
+  // -- Source eligibility adapter registry (Phase 27, docs/DOCUMENT_CHAIN.md
+  // section C) — deliberately separate from `DocumentRepositoryAdapter`,
+  // which only knows how to load/create a whole document. This registry
+  // answers the narrower, per-line question "how much of this source line
+  // is still eligible to flow into a given transformation" without any
+  // business module being forced to implement it just to get posting
+  // support. No adapters are pre-registered in this build; a source type
+  // with no registered adapter simply cannot participate in the governed
+  // Create Based On engine yet (a real, reported gap, not a silent 0).
+  private readonly eligibilityAdapters = new Map<string, SourceEligibilityAdapter>();
+
+  registerEligibilityAdapter(adapter: SourceEligibilityAdapter) {
+    if (this.eligibilityAdapters.has(adapter.sourceDocumentType)) {
+      throw new Error(`Eligibility adapter already registered for ${adapter.sourceDocumentType}`);
+    }
+    this.eligibilityAdapters.set(adapter.sourceDocumentType, adapter);
+  }
+
+  getEligibilityAdapter(sourceDocumentType: string): SourceEligibilityAdapter | undefined {
+    return this.eligibilityAdapters.get(sourceDocumentType);
   }
 }

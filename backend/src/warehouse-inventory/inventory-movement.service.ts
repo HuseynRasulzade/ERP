@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
+import { assertNotFrozenForMovement } from '../inventory-count/inventory-freeze.guard';
 
 /** Physical stock statuses (spec section 6-7) — everything actually
  * sitting in a warehouse, whatever its quality state. IN_TRANSIT is
@@ -59,6 +60,13 @@ export class InventoryMovementService {
   }
 
   async recordMovement(tenantId: string, input: RecordMovementInput, tx: PrismaTransactionClient) {
+    // Phase 12 hard-freeze check (spec section 12) — the single choke
+    // point every stock-affecting movement in the platform passes
+    // through, so every document type gets this for free with no
+    // per-handler wiring (see inventory-count/inventory-freeze.guard.ts
+    // for why this is a plain function call, not an injected service).
+    await assertNotFrozenForMovement(tx, tenantId, { organizationId: input.organizationId, warehouseId: input.warehouseId, locationId: input.locationId, productId: input.productId, batchId: input.batchId });
+
     return tx.inventoryMovement.create({
       data: {
         tenantId,

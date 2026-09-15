@@ -7,6 +7,7 @@ import { TransferUnpostBlockedError, ValidationAppError } from '../common/errors
 import { WAREHOUSE_TRANSFER_TYPE } from './warehouse-transfer.repository';
 import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
  * Posting handler for WarehouseTransfer (spec sections 11-13). Never
@@ -39,6 +40,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
     private readonly prisma: PrismaService,
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -83,7 +85,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
       const product = await tx.product.findFirst({ where: { id: line.productId, tenantId } });
       if (!product) throw new ValidationAppError('Transfer line references an unknown product');
 
-      await this.movements.recordMovement(
+      const outMovement = await this.movements.recordMovement(
         tenantId,
         {
           organizationId: transfer.organizationId,
@@ -104,7 +106,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
         tx,
       );
 
-      await this.movements.recordMovement(
+      const inMovement = await this.movements.recordMovement(
         tenantId,
         {
           organizationId: transfer.organizationId,
@@ -124,6 +126,36 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
         },
         tx,
       );
+
+      // Phase 11 cost preservation (spec sections 30-32): the SAME unit
+      // cost moves from the source costing key to the destination one —
+      // never a fresh average, never a new economic value. A no-op when
+      // the policy doesn't cost by warehouse (both sides already share
+      // one costing key). IN_TRANSIT vs AVAILABLE at the destination is a
+      // Phase 10 quantity-status concept only; this build moves the cost
+      // immediately rather than modeling a separate transit cost pool
+      // (disclosed simplification of spec section 31's "Transit
+      // Inventory" account).
+      if (transfer.sourceWarehouseId !== transfer.destinationWarehouseId) {
+        await this.costing.transferCost(
+          tenantId,
+          {
+            organizationId: transfer.organizationId,
+            productId: line.productId,
+            batchId: line.batchId,
+            sourceWarehouseId: transfer.sourceWarehouseId,
+            destinationWarehouseId: transfer.destinationWarehouseId,
+            quantity: line.quantity.toString(),
+            effectiveDate: businessDate,
+            sourceDocumentType: WAREHOUSE_TRANSFER_TYPE,
+            sourceDocumentId: transfer.id,
+            sourceLineId: line.id,
+            sourceOutMovementId: outMovement.id,
+            destInMovementId: inMovement.id,
+          },
+          tx,
+        );
+      }
     }
 
     // Never a financial consequence — see class doc.
@@ -139,6 +171,11 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
           : 'Cannot unpost a transfer that has already been partially received — the destination has already consumed part of the in-transit stock',
       );
     }
+    if (await this.costing.hasDownstreamConsumption(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx)) {
+      throw new TransferUnpostBlockedError('the destination cost layer this transfer created has already been consumed by a later inventory movement — unpost that movement first');
+    }
+    await this.costing.reverseOutgoing(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx);
+    await this.costing.reverseIncoming(tenantId, transfer?.organizationId ?? document.organizationId!, WAREHOUSE_TRANSFER_TYPE, document.id, document.postingDate ?? document.documentDate, tx);
     await this.movements.deleteMovementsFor(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx);
     // Reset any partial receivedQuantity progress written before this unpost.
     await tx.warehouseTransferLine.updateMany({ where: { warehouseTransferId: document.id, tenantId }, data: { receivedQuantity: '0' } });

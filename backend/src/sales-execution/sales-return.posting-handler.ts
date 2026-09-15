@@ -18,6 +18,8 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { OpenItemService } from '../settlement/open-item.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -53,6 +55,8 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     private readonly mappings: AccountingMappingService,
     private readonly inventory: InventoryLedgerService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
+    private readonly openItems: OpenItemService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -191,17 +195,30 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
       for (const line of ret.lines) {
         const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, SALES_RETURN_TYPE, line.id, tx);
 
+        // Phase 11 return costing (spec section 26): restore the ORIGINAL
+        // shipment's realized cost, never today's current/average cost.
+        let originalShipmentLineId: string | null = null;
+        if (line.sourceInvoiceLineId) {
+          const invoiceLine = await tx.salesInvoiceLine.findFirst({ where: { id: line.sourceInvoiceLineId, tenantId } });
+          originalShipmentLineId = invoiceLine?.sourceShipmentLineId ?? null;
+        }
+
         if (capturedSerials.length > 0) {
           const serialIds = await this.batchSerial.returnSerials(tenantId, organizationId, line.productId, ret.warehouseId, undefined, SALES_RETURN_TYPE, line.id, tx);
           for (const serialId of serialIds) {
-            await this.inventory.recordMovement(
+            const movement = await this.inventory.recordMovement(
               tenantId,
               { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'RECEIPT', businessDate, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
               tx,
             );
+            await this.costing.receiveReturnMovement(
+              tenantId,
+              { organizationId, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, quantity: '1', effectiveDate: businessDate, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, sourceMovementId: movement.id, originalShipmentLineId },
+              tx,
+            );
           }
         } else {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             {
               productId: line.productId,
@@ -216,6 +233,11 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
             },
             tx,
           );
+          await this.costing.receiveReturnMovement(
+            tenantId,
+            { organizationId, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, sourceMovementId: movement.id, originalShipmentLineId },
+            tx,
+          );
         }
       }
     }
@@ -225,10 +247,25 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
       data: { taxTotal: taxResults.reduce((s, r) => s.plus(r.taxAmount), new Decimal(0)).toString(), grandTotal: grossTotal.toString() },
     });
 
+    // Phase 13 settlement (spec sections 34-35, 156): reduces the
+    // original invoice's open item(s), and diverts any amount beyond
+    // what was still open into a customer credit/advance — this is
+    // independent of the GL entry above, which (a pre-existing, disclosed
+    // Sales Execution simplification) always credits AR the full
+    // `grossTotal` regardless of how much was actually open; see
+    // docs/SETTLEMENT.md section on this exact edge case.
+    if (ret.originalSalesInvoiceId) {
+      await this.openItems.reduceForReturn(tenantId, organizationId, ret.counterpartyId, 'CUSTOMER', SALES_INVOICE_TYPE, ret.originalSalesInvoiceId, grossTotal, currencyId, SALES_RETURN_TYPE, ret.id, businessDate, tx);
+    }
+
     return { description: `Sales return ${ret.number ?? ret.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    if (await this.costing.hasDownstreamConsumption(tenantId, SALES_RETURN_TYPE, document.id, tx)) {
+      throw new ValidationAppError('this return\'s cost layer has already been consumed by a later inventory movement — unpost that movement first');
+    }
+    await this.costing.reverseIncoming(tenantId, document.organizationId!, SALES_RETURN_TYPE, document.id, document.postingDate ?? document.documentDate, tx);
     await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
     const lineIds = (await tx.salesReturnLine.findMany({ where: { tenantId, salesReturnId: document.id }, select: { id: true } })).map((l) => l.id);
     await this.batchSerial.undoReturnedSerials(tenantId, SALES_RETURN_TYPE, lineIds, tx);

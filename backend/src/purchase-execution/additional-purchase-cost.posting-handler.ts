@@ -10,6 +10,7 @@ import { AccountingPostingLineInput } from '../accounting-core/accounting-postin
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
 import { TaxRegisterService } from '../tax-engine/tax-register.service';
+import { AdditionalCostCapitalizationService } from '../inventory-costing/additional-cost-capitalization.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -36,6 +37,7 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     private readonly mappings: AccountingMappingService,
     private readonly taxCalculation: TaxCalculationService,
     private readonly taxRegister: TaxRegisterService,
+    private readonly capitalization: AdditionalCostCapitalizationService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -135,6 +137,24 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
       return { accountId: inventory.id, side: 'DEBIT' as const, amountBase: a.amount, description: `Additional purchase cost capitalized — ${cost.number ?? cost.id}`, dimensions: [{ dimensionCode: 'PRODUCT', referenceId: a.productId }, ...(target?.warehouseId ? [{ dimensionCode: 'WAREHOUSE', referenceId: target.warehouseId }] : [])] };
     });
 
+    // Phase 11 capitalization (spec sections 19-20, 45, 72, 141): folds
+    // each allocation into its receipt line's FIFO layer/WAC bucket,
+    // splitting between on-hand inventory (stays in the Dr Inventory line
+    // above) and already-recognized COGS (reclassified here) whenever
+    // part of that receipt has already shipped. The `Dr Inventory` lines
+    // above still total `totalCost` — these extra lines only move part
+    // of that amount from Inventory to COGS, never change the total.
+    const { extraCogsLines } = await this.capitalization.applyAllocations(
+      tenantId,
+      organizationId,
+      businessDate,
+      ADDITIONAL_PURCHASE_COST_TYPE,
+      cost.id,
+      allocations.map((a) => ({ goodsReceiptLineId: a.goodsReceiptLineId, productId: a.productId, warehouseId: weights.find((w) => w.goodsReceiptLineId === a.goodsReceiptLineId)?.warehouseId ?? null, amount: a.amount })),
+      tx,
+    );
+    lines.push(...extraCogsLines);
+
     let grossTotal = totalCost;
     if (cost.taxRate.gt(0)) {
       const taxResult = await this.taxCalculation.calculateLine(
@@ -169,6 +189,20 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     return { description: `Additional purchase cost ${cost.number ?? cost.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
+  /**
+   * Disclosed simplification: this does NOT reverse the FIFO layer cost
+   * bump `applyAllocations` made on post (unlike GoodsReceipt/Shipment/
+   * Return, which fully reverse their own layer/consumption effects).
+   * Reversing a capitalized additional cost correctly requires re-deriving
+   * exactly which portion is still splittable between on-hand and
+   * already-further-consumed inventory AT UNPOST TIME, which may differ
+   * from the split computed at post time — that is a recalculation-engine
+   * problem, not a simple field revert. Unposting an
+   * AdditionalPurchaseCost therefore leaves the layer's cost as-is; treat
+   * a posted-then-unposted-then-reposted AdditionalPurchaseCost as
+   * requiring a manual `InventoryCostAdjustment` review, not an
+   * automatic undo.
+   */
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     await tx.purchaseCostAllocation.deleteMany({ where: { tenantId, additionalPurchaseCostId: document.id } });
   }
