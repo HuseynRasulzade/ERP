@@ -8,6 +8,7 @@ import { ConcurrencyConflictError, NotFoundAppError, ValidationAppError } from '
 import { GOODS_RECEIPT_TYPE } from './goods-receipt.repository';
 import { CreateGoodsReceiptDto, GoodsReceiptLineItemDto } from './dto/purchase-execution.dto';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { PurchaseOrderContractGateService } from '../counterparty-contracts/purchase-order-contract-gate.service';
 
 const SEQUENCE_PREFIX = 'GR';
 const SUPPLIER_TYPES = ['SUPPLIER', 'BOTH'];
@@ -44,6 +45,7 @@ export class GoodsReceiptService {
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
     private readonly batchSerial: BatchSerialService,
+    private readonly contractGate: PurchaseOrderContractGateService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -68,6 +70,7 @@ export class GoodsReceiptService {
     if (dto.supplierOrderId) {
       const order = await this.prisma.purchaseOrder.findFirst({ where: { id: dto.supplierOrderId, organizationId } });
       if (!order) throw new ValidationAppError('Supplier order does not belong to this organization');
+      await this.contractGate.assertApprovedContractExists(tenantId, dto.supplierOrderId);
     }
 
     const lines = await this.resolveLines(tenantId, organizationId, dto.lines);

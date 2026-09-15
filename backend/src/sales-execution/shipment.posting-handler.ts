@@ -14,6 +14,7 @@ import { InventoryLedgerService } from './inventory-ledger.service';
 import { ReservationService } from '../sales-preorder/reservation.service';
 import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -40,6 +41,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly reservations: ReservationService,
     private readonly fulfillment: OrderFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -117,14 +119,19 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
         const warehouse = await tx.warehouse.findFirst({ where: { id: warehouseId, tenantId } });
         const serialIds = await this.batchSerial.issueSerials(tenantId, shipment.organizationId, line.productId, warehouseId, warehouse?.code ?? warehouseId, SHIPMENT_TYPE, line.id, tx);
         for (const serialId of serialIds) {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceLineId: line.id, batchId: line.batchId, serialId },
             tx,
           );
+          await this.costing.calculateOutgoingCost(
+            tenantId,
+            { organizationId: shipment.organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: '1', effectiveDate: businessDate, outgoingDocumentType: SHIPMENT_TYPE, outgoingDocumentId: shipment.id, outgoingDocumentLineId: line.id, outgoingMovementId: movement.id },
+            tx,
+          );
         }
       } else {
-        await this.inventory.recordMovement(
+        const movement = await this.inventory.recordMovement(
           tenantId,
           {
             productId: line.productId,
@@ -137,6 +144,16 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
             sourceLineId: line.id,
             batchId: line.batchId,
           },
+          tx,
+        );
+        // Phase 11 COGS pricing (spec section 24) — priced right here, at
+        // physical issue, not deferred to the Sales Invoice. This is the
+        // "Immediate provisional COGS" model (spec section 25);
+        // `CostingService.getUnitCost` reads the result back for the
+        // invoice's own Dr COGS / Cr Inventory posting.
+        await this.costing.calculateOutgoingCost(
+          tenantId,
+          { organizationId: shipment.organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, outgoingDocumentType: SHIPMENT_TYPE, outgoingDocumentId: shipment.id, outgoingDocumentLineId: line.id, outgoingMovementId: movement.id },
           tx,
         );
       }
@@ -179,6 +196,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     const shipment = await tx.shipment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!shipment) return;
 
+    await this.costing.reverseOutgoing(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     for (const line of shipment.lines) {
       await this.batchSerial.undoIssuedSerials(tenantId, SHIPMENT_TYPE, [line.id], line.warehouseId ?? shipment.warehouseId, tx);

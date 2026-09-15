@@ -17,6 +17,8 @@ import { AccountingPostingLineInput } from '../accounting-core/accounting-postin
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { CostingService } from '../sales-execution/costing.service';
 import { SHIPMENT_TYPE } from '../sales-execution/shipment.repository';
+import { OpenItemService } from '../settlement/open-item.service';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -58,6 +60,8 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
     private readonly costing: CostingService,
+    private readonly openItems: OpenItemService,
+    private readonly settlementMovements: SettlementMovementService,
   ) {}
 
   async validateForPosting(
@@ -285,17 +289,30 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       void i;
     }
 
-    await tx.settlementObligation.create({
-      data: {
-        tenantId,
+    // Phase 13 settlement (spec sections 12, 14): real open item + a
+    // RECEIVABLE_CREATE row on the immutable settlement register — this
+    // replaces the old direct-insert placeholder `SettlementObligation`
+    // create the pre-Phase-13 build used.
+    const counterpartyForTerms = await tx.counterparty.findFirst({ where: { id: invoice.counterpartyId, tenantId } });
+    const dueDate = new Date(businessDate);
+    dueDate.setDate(dueDate.getDate() + (counterpartyForTerms?.paymentTerms ?? 0));
+    const invoiceExchangeRate = invoice.exchangeRate ? new Decimal(invoice.exchangeRate.toString()) : new Decimal(1);
+    await this.openItems.createReceivable(
+      tenantId,
+      {
         organizationId,
         counterpartyId: invoice.counterpartyId,
         sourceDocumentType: SALES_INVOICE_TYPE,
         sourceDocumentId: invoice.id,
-        currencyId,
-        amountDue: grossTotal.toString(),
+        currencyId: currencyId!,
+        amount: grossTotal,
+        baseCurrencyAmount: grossTotal.mul(invoiceExchangeRate).toDecimalPlaces(2),
+        exchangeRate: invoiceExchangeRate,
+        dueDate,
+        effectiveDate: businessDate,
       },
-    });
+      tx,
+    );
 
     await tx.salesInvoice.update({
       where: { id: invoice.id },
@@ -317,7 +334,14 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
     });
     if (activeReturn) throw new InvoiceHasReturnsError(document.id);
 
+    // Phase 13 unpost dependency (spec section 89): a posted payment
+    // allocation against this invoice's open item blocks unposting.
+    const obligation = await tx.settlementObligation.findFirst({ where: { tenantId, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: document.id } });
+    if (obligation && obligation.allocatedAmount.gt(0)) {
+      throw new ValidationAppError('Cannot unpost: this invoice has an active payment allocation — reverse it first.');
+    }
     await tx.settlementObligation.deleteMany({ where: { tenantId, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: document.id } });
+    await this.settlementMovements.reverse(tenantId, SALES_INVOICE_TYPE, document.id, document.postedBy ?? undefined, tx);
     await tx.documentLineLink.deleteMany({
       where: { tenantId, targetDocumentType: SALES_INVOICE_TYPE, targetDocumentId: document.id, relationType: { in: ['ORDER_TO_INVOICE', 'SHIPMENT_TO_INVOICE'] } },
     });
@@ -342,7 +366,7 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       const warehouseId = shipmentLine?.warehouseId;
       if (!warehouseId) continue;
 
-      const unitCost = await this.costing.getUnitCost(tenantId, organizationId, line.productId, warehouseId, businessDate);
+      const unitCost = await this.costing.getUnitCost(tenantId, organizationId, line.productId, warehouseId, businessDate, line.sourceShipmentLineId);
       if (!unitCost) continue; // spec section 38: no authoritative cost — skip, never fabricate
 
       const totalCost = unitCost.mul(line.quantity.toString());

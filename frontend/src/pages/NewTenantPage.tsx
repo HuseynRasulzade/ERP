@@ -21,7 +21,23 @@ export function NewTenantPage() {
       const tenant = await api.post<Tenant>('/tenants', { code, name });
       await refreshTenants();
       await selectTenant(tenant.id);
-      showSuccess(`Tenant "${tenant.name}" created — you are its Tenant Administrator.`);
+
+      // Bootstrap the two pieces of shared reference data every tenant
+      // needs before it can post anything: the standard chart of
+      // accounts and the AZ VAT tax localization. Both are idempotent —
+      // safe even if a later phase or another admin already ran them.
+      try {
+        await api.post('/accounting/chart/adopt');
+      } catch {
+        /* non-fatal — visible later via the Chart of Accounts page's own "Adopt" button */
+      }
+      try {
+        await api.post('/tax/localization/seed');
+      } catch {
+        /* non-fatal — Tax Engine setup can be retried from the tax config screens */
+      }
+
+      showSuccess(`Tenant "${tenant.name}" created — you are its Tenant Administrator. Standard chart of accounts and AZ VAT tax rules were set up automatically.`);
       navigate('/sales-orders');
     } catch (err) {
       showError(err);

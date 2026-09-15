@@ -40,6 +40,6 @@ import { AccountingReportsController } from './accounting-reports.controller';
     ManualOperationService,
     AccountingQueryService,
   ],
-  exports: [ChartOfAccountsService, AccountingMappingService, AccountingPostingEngine, AccountService],
+  exports: [ChartOfAccountsService, AccountingMappingService, AccountingPostingEngine, AccountService, AccountingQueryService],
 })
 export class AccountingCoreModule {}

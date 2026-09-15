@@ -12,6 +12,7 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from '../sales-execution/inventory-ledger.service';
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
  * Posting handler for GoodsReceipt (spec sections 3-5). Real physical
@@ -39,6 +40,7 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -96,22 +98,41 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
       const warehouseId = line.warehouseId ?? receipt.warehouseId;
       const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, GOODS_RECEIPT_TYPE, line.id, tx);
 
+      // Phase 11 costing input (spec section 17): the receipt line's own
+      // price is the initial cost source in this build — a purchase
+      // invoice posted later corrects it via a real
+      // AdditionalCostCapitalizationService-style adjustment on the same
+      // layer (see PurchaseInvoicePostingHandler boundary in
+      // docs/INVENTORY_COSTING.md: this build does not yet post a price
+      // variance from the invoice itself, only from AdditionalPurchaseCost).
+      const unitCost = line.price.gt(0) ? line.price.toString() : null;
+
       if (capturedSerials.length > 0) {
         // Serial-tracked line: one InventoryMovement per unit (spec
         // section 23) — resolve/create the real SerialNumber rows now
         // that the receipt is actually posting.
         const serialIds = await this.batchSerial.receiveSerials(tenantId, organizationId, line.productId, warehouseId, undefined, GOODS_RECEIPT_TYPE, line.id, tx);
         for (const serialId of serialIds) {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId, quantity: '1', movementType: 'RECEIPT', businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceLineId: line.id, batchId: line.batchId, serialId },
             tx,
           );
+          await this.costing.processIncomingMovement(
+            tenantId,
+            { organizationId, productId: line.productId, warehouseId, batchId: line.batchId, currencyId: receipt.currencyId, quantity: '1', unitCost, effectiveDate: businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, sourceMovementId: movement.id },
+            tx,
+          );
         }
       } else {
-        await this.inventory.recordMovement(
+        const movement = await this.inventory.recordMovement(
           tenantId,
           { productId: line.productId, warehouseId, quantity: line.quantity.toString(), movementType: 'RECEIPT', businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceLineId: line.id, batchId: line.batchId },
+          tx,
+        );
+        await this.costing.processIncomingMovement(
+          tenantId,
+          { organizationId, productId: line.productId, warehouseId, batchId: line.batchId, currencyId: receipt.currencyId, quantity: line.quantity.toString(), unitCost, effectiveDate: businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, sourceMovementId: movement.id },
           tx,
         );
       }
@@ -189,6 +210,15 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
 
     const dependentReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalGoodsReceiptId: document.id, postingStatus: 'POSTED' } });
     if (dependentReturn) throw new GoodsReceiptHasDownstreamLinksError('a posted Purchase Return references this receipt — unpost it first');
+
+    // Phase 11 dependency block (spec section 110): a FIFO layer this
+    // receipt opened may already have been (partially) consumed by a
+    // shipment/write-off/internal-consumption — unposting the receipt out
+    // from under it would silently corrupt already-recognized COGS.
+    if (await this.costing.hasDownstreamConsumption(tenantId, GOODS_RECEIPT_TYPE, document.id, tx)) {
+      throw new GoodsReceiptHasDownstreamLinksError('this receipt\'s cost layer has already been (partially) consumed by a later inventory movement — unpost that movement first');
+    }
+    await this.costing.reverseIncoming(tenantId, document.organizationId!, GOODS_RECEIPT_TYPE, document.id, document.postingDate ?? document.documentDate, tx);
 
     await this.inventory.deleteMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await this.batchSerial.undoReceivedSerials(tenantId, GOODS_RECEIPT_TYPE, receiptLineIds, tx);

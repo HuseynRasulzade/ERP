@@ -379,6 +379,61 @@
   background: var(--panel-2);
 }
 
+/* Report toolbar (date filters + "Run report") stays pinned to the top
+ * of the scroll area, and the table's own header row pins right below
+ * it — so on a long Trial Balance/General Ledger, the filters and
+ * column headings never scroll out of view. `--report-toolbar-h` is set
+ * per-page to the toolbar's actual rendered height so the header row
+ * sticks flush beneath it instead of overlapping. */
+.report-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-top: 4px;
+}
+
+/* `border-collapse: collapse` (the base `.data-table` rule) breaks
+ * `position: sticky` on `<th>` cells in Chromium — collapsed borders
+ * share painting between adjacent cells, which corrupts the sticky
+ * cell's stacking/paint order (it renders mid-table instead of at its
+ * stuck position). Separate borders fixes it; the 1px double-border
+ * seam this would otherwise leave between header/body cells is removed
+ * by zeroing the header's own border instead. */
+.report-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  /* `.data-table`'s own `overflow: hidden` (for rounded corners) makes
+   * the TABLE itself the sticky containing block instead of the real
+   * scrolling ancestor (`.content`) — a sticky `<th>` then "sticks"
+   * relative to a box that never scrolls, so past a certain scroll
+   * distance it just scrolls away normally. Visible overflow (losing
+   * the rounded-corner clip on this specific table) is what actually
+   * lets sticky track the page's real scroll container. */
+  overflow: visible;
+}
+
+/* Sticky must be set on the `<thead>` element itself, not just its
+ * `<th>` cells — Chrome does not reliably engage sticky positioning for
+ * cells inside a `display: table-header-group` box unless the group
+ * element also carries `position: sticky` (confirmed empirically: the
+ * per-cell-only rule silently no-ops past a certain scroll distance
+ * even with a fully clean, non-clipping ancestor chain). Declaring it
+ * on both is the belt-and-suspenders version. */
+.report-table thead {
+  position: sticky;
+  top: var(--report-toolbar-h, 84px);
+  z-index: 4;
+}
+
+.report-table thead th {
+  position: sticky;
+  top: var(--report-toolbar-h, 84px);
+  z-index: 4;
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--border-soft);
+}
+
 .data-table tbody tr {
   transition: background 100ms ease;
 }

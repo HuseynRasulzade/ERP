@@ -6,6 +6,7 @@ const en = {
     groupSales: 'Sales',
     groupProcurement: 'Procurement',
     groupWarehouse: 'Warehouse',
+    groupAccounting: 'Accounting',
     groupAdmin: 'Administration',
     documents: 'Documents',
     salesOrders: 'Sales Orders',
@@ -28,6 +29,10 @@ const en = {
     inventoryStatusTransfers: 'Status Transfers',
     productCatalog: 'Product Catalog',
     counterparties: 'Counterparties',
+    chartOfAccounts: 'Chart of Accounts',
+    trialBalance: 'Trial Balance',
+    generalLedger: 'General Ledger',
+    manualJournal: 'Manual Journal',
     organizations: 'Organizations',
     periods: 'Periods',
     roles: 'Roles & Permissions',
@@ -353,6 +358,8 @@ const en = {
     createFromPO: 'Create Contract',
     createFromPOHint: 'Creates a contract from this confirmed purchase order, copying every remaining line.',
     contractCreated: 'Contract created',
+    remainingQuantity: 'Remaining',
+    alreadyFullyContracted: 'Already fully contracted',
 
     // Mandatory PO picker on the contract creation form
     selectPurchaseOrder: 'Select purchase order',

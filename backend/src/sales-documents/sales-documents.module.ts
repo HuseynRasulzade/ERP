@@ -9,6 +9,7 @@ import { AccountingCoreModule } from '../accounting-core/accounting-core.module'
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { SalesPreorderModule } from '../sales-preorder/sales-preorder.module';
 import { SalesExecutionModule } from '../sales-execution/sales-execution.module';
+import { SettlementModule } from '../settlement/settlement.module';
 import { SalesOrderService } from './sales-order.service';
 import { SalesInvoiceService } from './sales-invoice.service';
 import { SalesOrderController } from './sales-order.controller';
@@ -38,6 +39,7 @@ import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper'
     TaxEngineModule,
     SalesPreorderModule,
     SalesExecutionModule,
+    SettlementModule,
   ],
   controllers: [SalesOrderController, SalesInvoiceController],
   providers: [

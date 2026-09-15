@@ -20,9 +20,13 @@ export class DocumentLinkService {
       sourceDocumentId: string;
       targetDocumentType: string;
       targetDocumentId: string;
-      relationType: DocumentRelationType;
+      relationType: DocumentRelationType | string;
       createdBy?: string;
       metadata?: unknown;
+      // Phase 27 additions (docs/DOCUMENT_CHAIN.md section A) — optional,
+      // so every pre-existing call site is untouched.
+      transformationVersionId?: string;
+      correlationId?: string;
     },
     tx?: PrismaTransactionClient,
   ) {
@@ -37,6 +41,8 @@ export class DocumentLinkService {
         relationType: params.relationType,
         createdBy: params.createdBy,
         metadata: params.metadata as any,
+        transformationVersionId: params.transformationVersionId,
+        correlationId: params.correlationId,
       },
     });
   }

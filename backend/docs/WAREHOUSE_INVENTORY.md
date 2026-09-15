@@ -110,17 +110,19 @@ every other document type in this codebase.
 
 Both always post a real, immediate `InventoryMovement` (OUT for
 consumption/write-off, IN for surplus/opening balance). Their financial
-consequence (`Dr Expense / Cr Inventory` for consumption,
-`Dr/Cr Inventory` against an other-operating account for write-off/
-surplus) needs a per-line **monetary** cost, and this platform has no
-costing engine yet — that is Phase 11's job. Rather than fabricate a
-cost, `InternalConsumptionPostingHandler` never posts an accounting
-batch, and `InventoryAdjustmentPostingHandler` only posts one when every
-line carries an explicit `costReference` (and never for
-`OPENING_BALANCE`, which only establishes this register's own starting
-point and is unrelated to Accounting Core's own separate opening-balance
-concept from Phase 4). The quantity movement — the only thing this phase
-can vouch for — always posts regardless.
+consequence (`Dr Expense / Cr Inventory` for consumption, `Dr/Cr Inventory`
+against an other-operating account for write-off/surplus) is now priced
+by the real Phase 11 `InventoryCostingService` — actual FIFO/weighted-
+average cost for consumption/write-off (an OUT), the configured
+surplus/negative-stock fallback ladder for surplus (an IN); see
+`docs/INVENTORY_COSTING.md`. `costReference` on a line, when set, still
+overrides the GL posting amount as an explicit manual value (the Phase 11
+subledger itself is always kept in sync regardless). `OPENING_BALANCE`
+never posts accounting at all — it only establishes this register's own
+starting point and is unrelated to Accounting Core's own separate
+opening-balance concept from Phase 4. The quantity movement — the only
+thing THIS phase can vouch for — always posts regardless of costing
+outcome.
 
 ### InventoryStatusTransfer
 

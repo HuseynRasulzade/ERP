@@ -15,6 +15,8 @@ import { InventoryLedgerService } from '../sales-execution/inventory-ledger.serv
 import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { OpenItemService } from '../settlement/open-item.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -51,6 +53,8 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
+    private readonly openItems: OpenItemService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -155,6 +159,13 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
       grossTotal = grossTotal.plus(invGross);
       taxTotal = taxTotal.plus(invGross.minus(invNet));
 
+      // Phase 13 settlement (spec sections 36-37, 157): reduces the
+      // original purchase invoice's open item; any excess beyond what
+      // was still open becomes a supplier debit/credit position.
+      if (ret.originalPurchaseInvoiceId) {
+        await this.openItems.reduceForReturn(tenantId, organizationId, ret.counterpartyId, 'SUPPLIER', PURCHASE_INVOICE_TYPE, ret.originalPurchaseInvoiceId, invGross, currencyId, PURCHASE_RETURN_TYPE, ret.id, businessDate, tx);
+      }
+
       lines.push(
         { accountId: payable.id, side: 'DEBIT', amountBase: invGross, description: `Purchase return (post-invoice) — ${ret.number ?? ret.id}`, dimensions: [{ dimensionCode: 'PARTNER', referenceId: ret.counterpartyId }, { dimensionCode: 'COUNTERPARTY', referenceId: ret.counterpartyId }, { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: ret.id }, { dimensionCode: 'CURRENCY', referenceId: currencyId }] },
         ...vatLines,
@@ -197,18 +208,20 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
           const warehouse = await tx.warehouse.findFirst({ where: { id: ret.warehouseId, tenantId } });
           const serialIds = await this.batchSerial.issueSerials(tenantId, organizationId, line.productId, ret.warehouseId, warehouse?.code ?? ret.warehouseId, PURCHASE_RETURN_TYPE, line.id, tx);
           for (const serialId of serialIds) {
-            await this.inventory.recordMovement(
+            const movement = await this.inventory.recordMovement(
               tenantId,
               { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
               tx,
             );
+            await this.costOutOne(tenantId, organizationId, ret.warehouseId, businessDate, ret.id, line, movement.id, tx);
           }
         } else {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId: ret.warehouseId, quantity: line.quantity.toString(), movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId },
             tx,
           );
+          await this.costOutOne(tenantId, organizationId, ret.warehouseId, businessDate, ret.id, line, movement.id, tx, line.quantity.toString());
         }
       }
     }
@@ -234,7 +247,38 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     return { description: `Purchase return ${ret.number ?? ret.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
+  /** Phase 11 return-issue costing (spec section 28): consumes SPECIFICALLY
+   * the original receipt line's FIFO layer when known, bypassing FIFO's
+   * normal oldest-first order — falls back to the normal engine (WAC, or
+   * a return with no receipt link) otherwise. */
+  private async costOutOne(
+    tenantId: string,
+    organizationId: string,
+    warehouseId: string,
+    businessDate: Date,
+    returnId: string,
+    line: { id: string; productId: string; sourceReceiptLineId: string | null },
+    movementId: string,
+    tx: PrismaTransactionClient,
+    quantity = '1',
+  ) {
+    if (line.sourceReceiptLineId) {
+      await this.costing.calculateOutgoingCostFromSpecificReceipt(
+        tenantId,
+        { organizationId, productId: line.productId, warehouseId, quantity, effectiveDate: businessDate, outgoingDocumentType: PURCHASE_RETURN_TYPE, outgoingDocumentId: returnId, outgoingDocumentLineId: line.id, outgoingMovementId: movementId, sourceReceiptLineId: line.sourceReceiptLineId },
+        tx,
+      );
+      return;
+    }
+    await this.costing.calculateOutgoingCost(
+      tenantId,
+      { organizationId, productId: line.productId, warehouseId, quantity, effectiveDate: businessDate, outgoingDocumentType: PURCHASE_RETURN_TYPE, outgoingDocumentId: returnId, outgoingDocumentLineId: line.id, outgoingMovementId: movementId },
+      tx,
+    );
+  }
+
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.reverseOutgoing(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     const ret = await tx.purchaseReturn.findFirst({ where: { id: document.id, tenantId } });
     if (ret?.warehouseId) {

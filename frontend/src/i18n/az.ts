@@ -8,6 +8,7 @@ const az: Translations = {
     groupSales: 'Satış',
     groupProcurement: 'Tədarük',
     groupWarehouse: 'Anbar',
+    groupAccounting: 'Mühasibatlıq',
     groupAdmin: 'İdarəetmə',
     documents: 'Sənədlər',
     salesOrders: 'Satış Sifarişləri',
@@ -30,6 +31,10 @@ const az: Translations = {
     inventoryStatusTransfers: 'Status Köçürmələri',
     productCatalog: 'Məhsul Kataloqu',
     counterparties: 'Kontragentlər',
+    chartOfAccounts: 'Hesablar Planı',
+    trialBalance: 'Balans Cədvəli',
+    generalLedger: 'Baş Kitab',
+    manualJournal: 'Əl ilə Mühasibat Yazılışı',
     organizations: 'Təşkilatlar',
     periods: 'Dövrlər',
     roles: 'Rollar və İcazələr',
@@ -355,6 +360,8 @@ const az: Translations = {
     createFromPO: 'Müqavilə yarat',
     createFromPOHint: 'Bu təsdiqlənmiş alış sifarişindən müqavilə yaradır və bütün qalıq sətirləri köçürür.',
     contractCreated: 'Müqavilə yaradıldı',
+    remainingQuantity: 'Qalıq',
+    alreadyFullyContracted: 'Artıq tam müqaviləyə köçürülüb',
 
     // Müqavilə formasında məcburi "Alış sifarişini seç" sahəsi
     selectPurchaseOrder: 'Alış sifarişini seç',

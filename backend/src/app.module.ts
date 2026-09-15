@@ -34,6 +34,24 @@ import { SalesExecutionModule } from './sales-execution/sales-execution.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
+import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
+import { InventoryCountModule } from './inventory-count/inventory-count.module';
+import { SettlementModule } from './settlement/settlement.module';
+import { TreasuryModule } from './treasury/treasury.module';
+import { CashModule } from './cash/cash.module';
+import { FixedAssetModule } from './fixed-assets/fixed-asset.module';
+import { HRModule } from './hr/hr.module';
+import { WorkTimeModule } from './work-time/work-time.module';
+import { PayrollModule } from './payroll/payroll.module';
+import { ExpenseModule } from './expenses/expense.module';
+import { ManufacturingModule } from './manufacturing/manufacturing.module';
+import { PeriodCloseModule } from './period-close/period-close.module';
+import { FinancialReportingModule } from './financial-reporting/financial-reporting.module';
+import { ManagementReportingModule } from './management-reporting/management-reporting.module';
+import { AuditTrailModule } from './audit-trail/audit-trail.module';
+import { WorkflowModule } from './workflow/workflow.module';
+import { DocumentChainModule } from './document-chain/document-chain.module';
+import { IntegrationModule } from './integration/integration.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 
 @Module({
@@ -100,6 +118,71 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // Engine every other module reads from, plus WarehouseTransfer,
     // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
     WarehouseInventoryModule,
+
+    // Inventory Costing Engine (docx spec Phase 11 — FIFO/Weighted Average
+    // subledger: cost layers, COGS, additional-cost capitalization,
+    // backdated recalculation, period finalization, valuation/COGS/health
+    // reporting). Depends on WarehouseInventoryModule indirectly through
+    // the posting handlers it wires into, not through its own imports.
+    InventoryCostingModule,
+
+    // Inventory Count / Stocktaking Engine (docx spec Phase 12 — full
+    // reconciliation engine: plan/scope, authoritative snapshot, freeze,
+    // count sheets/entries, blind count, recount, variance calculation,
+    // approval, and posting through Phase 10's InventoryAdjustment with
+    // real Phase 11 costing).
+    InventoryCountModule,
+
+    // AR/AP Counterparty Settlement Engine (docx spec Phase 13 — open
+    // items, payment allocation, advances, offsets, debt adjustments,
+    // realized FX, ageing, reconciliation, credit exposure).
+    SettlementModule,
+
+    // Treasury / Bank Engine (docx spec Phase 14 — Payment Request/
+    // Approval/Calendar/Liquidity planning layer, bank payments/statement
+    // import/matching/reconciliation layer, reusing Phase 13's own
+    // settlement allocation for the third layer).
+    TreasuryModule,
+    CashModule,
+    FixedAssetModule,
+    HRModule,
+    WorkTimeModule,
+    PayrollModule,
+    ExpenseModule,
+    ManufacturingModule,
+
+    // Financial Period Close Orchestrator (docx spec Phase 22 — Month
+    // Close: readiness, dependency-graph orchestration across every
+    // subledger's own close operation, reconciliation, FX/accrual/tax
+    // close layers, financial result, closing entries, period lock,
+    // and dependency-aware reopen/reclose).
+    PeriodCloseModule,
+
+    // Financial Reporting Semantic Layer / Report Mapping Engine /
+    // Financial Statement Engine (docx spec Phase 23 — Trial Balance,
+    // Balance Sheet, P&L, Cash Flow, Changes in Equity, all deterministic
+    // GL-mapping transformations, close-version-aware and versioned).
+    FinancialReportingModule,
+
+    // Management Reporting / KPI Engine / Profitability Engine /
+    // Budget-Forecast-Scenario / Dashboard Platform (docx spec Phase 24 —
+    // governed semantic layer over canonical operational facts; never a
+    // duplicated management-only truth table).
+    ManagementReportingModule,
+
+    // Audit / Change History / Traceability / Evidence Platform (docx
+    // spec Phase 25 — immutable, hash-chained audit trail, before/after
+    // diffs, document lifecycle/posting lineage, investigations, legal
+    // hold, integrity verification, and evidence export).
+    AuditTrailModule,
+
+    // Workflow / Approval / Execution-Gate Engine (docx spec Phase 26 —
+    // effective-dated workflow versions, dynamic approver resolution,
+    // delegation, four-eyes/SoD, material-change reapproval, and the
+    // execution gate business modules call before a critical action).
+    WorkflowModule,
+    DocumentChainModule,
+    IntegrationModule,
 
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).

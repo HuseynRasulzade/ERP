@@ -10,9 +10,11 @@ import { StockAvailabilityService } from './stock-availability.service';
 import { AccountingMappingService } from '../accounting-core/accounting-mapping.service';
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
- * Posting handler for InventoryAdjustment (spec sections 17, 42, 77) —
+ * Posting handler for InventoryAdjustment (spec sections 17, 42, 77;
+ * Phase 11 spec sections 34-35, 55; Phase 12 spec sections 52-56) —
  * write-off, surplus, and opening balance consolidated into one document
  * type via `adjustmentType` (disclosed simplification of the spec's three
  * separate concepts, see docs/WAREHOUSE_INVENTORY.md):
@@ -25,12 +27,14 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
  *                       ACCOUNTING_OPENING_BALANCE_MANAGE), which is a
  *                       separate axis entirely.
  *
- * A financial consequence (Dr/Cr Inventory against Other Operating
- * Expense/Income) is posted ONLY when every line carries an explicit
- * `costReference` — with no costing engine yet (Phase 11), there is
- * nothing else to derive a monetary amount from, and this handler never
- * fabricates one (same convention as InternalConsumptionPostingHandler).
- * OPENING_BALANCE never posts accounting regardless of `costReference`.
+ * WRITE_OFF/SURPLUS lines are costed by the real Phase 11 engine — actual
+ * FIFO/weighted-average consumption for a write-off, the configured
+ * negative-stock/surplus fallback ladder for a surplus (spec section 35) —
+ * never a fabricated amount. A line's own `costReference` is honored ONLY
+ * as an explicit manual override (`INVENTORY_COST_MANUAL_OVERRIDE`
+ * permission is expected at the controller/DTO layer for that path);
+ * omitting it lets Phase 11 price the line automatically. OPENING_BALANCE
+ * never posts accounting regardless.
  */
 @Injectable()
 export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler {
@@ -41,6 +45,7 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
     private readonly mappings: AccountingMappingService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -81,11 +86,13 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
     const businessDate = document.postingDate ?? document.documentDate;
     const isOut = adjustment.adjustmentType === 'WRITE_OFF';
 
+    const lineCosts: { productId: string; amount: Decimal }[] = [];
+
     for (const line of adjustment.lines) {
       const product = await tx.product.findFirst({ where: { id: line.productId, tenantId } });
       if (!product) throw new ValidationAppError('Adjustment line references an unknown product');
 
-      await this.movements.recordMovement(
+      const movement = await this.movements.recordMovement(
         tenantId,
         {
           organizationId,
@@ -104,10 +111,39 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
         },
         tx,
       );
+
+      if (adjustment.adjustmentType === 'OPENING_BALANCE') continue;
+
+      // The Phase 11 subledger is always kept in sync with this movement
+      // (spec section 34: costing must never just skip a line) — an
+      // explicit `costReference` overrides only the GL POSTING amount
+      // below, a documented, audited divergence from the engine's own
+      // computed value for the rare manual-override case.
+      let engineAmount: Decimal;
+      if (isOut) {
+        const result = await this.costing.calculateOutgoingCost(
+          tenantId,
+          { organizationId, productId: line.productId, warehouseId: adjustment.warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, outgoingDocumentType: INVENTORY_ADJUSTMENT_TYPE, outgoingDocumentId: adjustment.id, outgoingDocumentLineId: line.id, outgoingMovementId: movement.id },
+          tx,
+        );
+        engineAmount = result.totalCost;
+      } else {
+        const unitCost = await this.costing.resolveCurrentUnitCost(tenantId, organizationId, line.productId, adjustment.warehouseId, line.batchId, businessDate, tx);
+        await this.costing.processIncomingMovement(
+          tenantId,
+          { organizationId, productId: line.productId, warehouseId: adjustment.warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), unitCost: unitCost.toString(), effectiveDate: businessDate, sourceDocumentType: INVENTORY_ADJUSTMENT_TYPE, sourceDocumentId: adjustment.id, sourceDocumentLineId: line.id, sourceMovementId: movement.id },
+          tx,
+        );
+        engineAmount = unitCost.mul(line.quantity.toString()).toDecimalPlaces(2);
+      }
+
+      lineCosts.push({ productId: line.productId, amount: line.costReference != null ? new Decimal(line.costReference.toString()) : engineAmount });
     }
 
     if (adjustment.adjustmentType === 'OPENING_BALANCE') return null;
-    if (adjustment.lines.some((l) => l.costReference == null)) return null;
+
+    const total = lineCosts.reduce((s, l) => s.plus(l.amount), new Decimal(0));
+    if (total.lte(0)) return null;
 
     let inventory;
     let counterAccount;
@@ -124,23 +160,33 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
       return null;
     }
 
-    const total = adjustment.lines.reduce((s, l) => s.plus(new Decimal(l.costReference!.toString())), new Decimal(0));
-    if (total.lte(0)) return null;
-
-    const lines: AccountingPostingLineInput[] = isOut
-      ? [
-          { accountId: counterAccount.id, side: 'DEBIT', amountBase: total, description: `Inventory write-off — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: adjustment.lines[0].productId }] },
-          { accountId: inventory.id, side: 'CREDIT', amountBase: total, description: `Inventory decrease — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
-        ]
-      : [
-          { accountId: inventory.id, side: 'DEBIT', amountBase: total, description: `Inventory surplus — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
-          { accountId: counterAccount.id, side: 'CREDIT', amountBase: total, description: `Inventory increase — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: adjustment.lines[0].productId }] },
-        ];
+    // One inventory line per product (each carries its own PRODUCT
+    // dimension) plus one lump counter-entry — same shape as
+    // AdditionalPurchaseCostPostingHandler's own per-product allocation.
+    const lines: AccountingPostingLineInput[] = lineCosts.map((l) => ({
+      accountId: inventory.id,
+      side: isOut ? 'CREDIT' : 'DEBIT',
+      amountBase: l.amount,
+      description: isOut ? `Inventory decrease — ${adjustment.number ?? adjustment.id}` : `Inventory increase — ${adjustment.number ?? adjustment.id}`,
+      dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: l.productId }],
+    }));
+    lines.push({
+      accountId: counterAccount.id,
+      side: isOut ? 'DEBIT' : 'CREDIT',
+      amountBase: total,
+      description: isOut ? `Inventory write-off — ${adjustment.number ?? adjustment.id}` : `Inventory surplus — ${adjustment.number ?? adjustment.id}`,
+      dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }],
+    });
 
     return { description: `Inventory adjustment ${adjustment.number ?? adjustment.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    if (await this.costing.hasDownstreamConsumption(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx)) {
+      throw new ValidationAppError('this adjustment\'s cost layer has already been consumed by a later inventory movement — unpost that movement first');
+    }
+    await this.costing.reverseOutgoing(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx);
+    await this.costing.reverseIncoming(tenantId, document.organizationId!, INVENTORY_ADJUSTMENT_TYPE, document.id, document.postingDate ?? document.documentDate, tx);
     await this.movements.deleteMovementsFor(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx);
   }
 }

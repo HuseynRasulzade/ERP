@@ -13,6 +13,8 @@ import { AccountingMappingService } from '../accounting-core/accounting-mapping.
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
+import { OpenItemService } from '../settlement/open-item.service';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 const EXPENSE_LIKE_TYPES = ['SERVICE', 'EXPENSE', 'FIXED_ASSET', 'PREPAYMENT', 'OTHER'];
@@ -50,6 +52,8 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
     private readonly fulfillment: PurchaseFulfillmentService,
+    private readonly openItems: OpenItemService,
+    private readonly settlementMovements: SettlementMovementService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -207,9 +211,25 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
       }
     }
 
-    await tx.supplierPayable.create({
-      data: { tenantId, organizationId, counterpartyId: invoice.counterpartyId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: invoice.id, currencyId, invoiceAmount: grossTotal.toString(), dueDate: invoice.dueDate },
-    });
+    // Phase 13 settlement (spec section 13) — replaces the old
+    // direct-insert placeholder `SupplierPayable` create.
+    const invoiceExchangeRate = invoice.exchangeRate ? new Decimal(invoice.exchangeRate.toString()) : new Decimal(1);
+    await this.openItems.createPayable(
+      tenantId,
+      {
+        organizationId,
+        counterpartyId: invoice.counterpartyId,
+        sourceDocumentType: PURCHASE_INVOICE_TYPE,
+        sourceDocumentId: invoice.id,
+        currencyId: currencyId!,
+        amount: grossTotal,
+        baseCurrencyAmount: grossTotal.mul(invoiceExchangeRate).toDecimalPlaces(2),
+        exchangeRate: invoiceExchangeRate,
+        dueDate: invoice.dueDate,
+        effectiveDate: businessDate,
+      },
+      tx,
+    );
 
     await tx.purchaseInvoice.update({ where: { id: invoice.id }, data: { taxPointDate, amountDue: grossTotal.toString() } });
 
@@ -220,7 +240,12 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     const activeReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalPurchaseInvoiceId: document.id, postingStatus: 'POSTED' } });
     if (activeReturn) throw new PurchaseInvoiceHasReturnsError(document.id);
 
+    const payable = await tx.supplierPayable.findFirst({ where: { tenantId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: document.id } });
+    if (payable && payable.paidAmount.gt(0)) {
+      throw new ValidationAppError('Cannot unpost: this invoice has an active payment allocation — reverse it first.');
+    }
     await tx.supplierPayable.deleteMany({ where: { tenantId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: document.id } });
+    await this.settlementMovements.reverse(tenantId, PURCHASE_INVOICE_TYPE, document.id, document.postedBy ?? undefined, tx);
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: PURCHASE_INVOICE_TYPE, targetDocumentId: document.id, relationType: { in: [RelationTypes.RECEIPT_TO_INVOICE, RelationTypes.SUPPLIER_ORDER_TO_INVOICE] } } });
   }
 }
