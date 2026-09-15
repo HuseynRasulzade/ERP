@@ -39,7 +39,13 @@ export function ChartOfAccountsPage() {
     setAdopting(true);
     try {
       await api.post('/accounting/chart/adopt');
-      showSuccess('Standard chart of accounts adopted');
+      // Tax localization is a separate, equally required piece of setup
+      // (posting a Sales/Purchase Invoice needs a VAT rule to resolve) —
+      // bundled here so "Adopt standard chart" is the one button a new
+      // tenant needs before it can post anything. Idempotent, so this is
+      // also safe to press again on a tenant that already has both.
+      await api.post('/tax/localization/seed');
+      showSuccess('Standard chart of accounts adopted and AZ VAT tax rules seeded');
       await load();
     } catch (err) {
       showError(err);
