@@ -210,6 +210,26 @@ export function Layout() {
             </NavLink>
           )}
 
+          <div className="nav-group-label">{t.nav.groupTreasury}</div>
+          {hasPermission('treasury.view') && (
+            <NavLink to="/bank-payments">
+              <span className="nav-icon">🏦</span>
+              {t.nav.bankPayments}
+            </NavLink>
+          )}
+          {hasPermission('cash.view') && (
+            <NavLink to="/cash-payments">
+              <span className="nav-icon">💵</span>
+              {t.nav.cashPayments}
+            </NavLink>
+          )}
+          {hasPermission('fixed_asset.view') && (
+            <NavLink to="/fixed-assets">
+              <span className="nav-icon">🏗</span>
+              {t.nav.fixedAssets}
+            </NavLink>
+          )}
+
           <div className="nav-group-label">{t.nav.groupAdmin}</div>
           {hasPermission('organization.view') && (
             <NavLink to="/organizations">

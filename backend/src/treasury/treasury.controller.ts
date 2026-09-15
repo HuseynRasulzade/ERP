@@ -132,6 +132,12 @@ export class TreasuryController {
 
   // --- Bank Payments (Layer 2) ---
 
+  @RequirePermissions(PermissionCodes.TREASURY_VIEW)
+  @Get('payments')
+  async listPayments(@CurrentTenantId() tenantId: string, @CurrentMembershipId() membershipId: string, @Param('organizationId') organizationId: string, @Query('counterpartyId') counterpartyId?: string) {
+    return this.payments.list(tenantId, membershipId, organizationId, counterpartyId);
+  }
+
   @RequirePermissions(PermissionCodes.TREASURY_CREATE_PAYMENT)
   @Post('payments')
   async createPayment(@CurrentTenantId() tenantId: string, @CurrentMembershipId() membershipId: string, @Param('organizationId') organizationId: string, @CurrentUser() user: { userId: string }, @Body() dto: CreateBankPaymentDto) {

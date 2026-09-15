@@ -59,6 +59,13 @@ import { TrialBalancePage } from './pages/accounting/TrialBalancePage';
 import { GeneralLedgerPage } from './pages/accounting/GeneralLedgerPage';
 import { ManualJournalPage } from './pages/accounting/ManualJournalPage';
 
+// Treasury / Cash (Phase 13-14)
+import { TreasuryPaymentsPage } from './pages/treasury/TreasuryPaymentsPage';
+import { CashPaymentsPage } from './pages/treasury/CashPaymentsPage';
+
+// Fixed Assets (Phase 16)
+import { FixedAssetsPage } from './pages/fixedassets/FixedAssetsPage';
+
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="full-page-loading">Loading…</div>;
@@ -136,6 +143,10 @@ function AppRoutes() {
         <Route path="/trial-balance" element={<TrialBalancePage />} />
         <Route path="/general-ledger" element={<GeneralLedgerPage />} />
         <Route path="/manual-journal" element={<ManualJournalPage />} />
+
+        <Route path="/bank-payments" element={<TreasuryPaymentsPage />} />
+        <Route path="/cash-payments" element={<CashPaymentsPage />} />
+        <Route path="/fixed-assets" element={<FixedAssetsPage />} />
 
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />
