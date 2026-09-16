@@ -21,9 +21,11 @@ const ROLE_BY_STEP: Record<ApprovalStepType, string> = {
   DIRECTOR: DIRECTOR_ROLE,
   FINANCE: FINANCE_ROLE,
   ACCOUNTING: ACCOUNTING_ROLE,
-  // PurchaseOrder's own plan never emits this step — present only to
-  // satisfy the shared ApprovalStepType union now that GoodsReceipt uses it.
+  // PurchaseOrder's own plan never emits these steps — present only to
+  // satisfy the shared ApprovalStepType union now that GoodsReceipt/
+  // SalesOrder use them.
   WAREHOUSE_SUPERVISOR: 'WAREHOUSE_SUPERVISOR',
+  SALES_MANAGER: 'SALES_MANAGER',
 };
 
 /**

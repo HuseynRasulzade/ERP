@@ -361,6 +361,9 @@ export interface SalesOrder {
   postedAt: string | null;
   version: number;
   lines?: SalesDocumentLine[];
+  approvalStatus?: string;
+  creditStatus?: string;
+  reservationStatus?: string;
 }
 
 export type SalesInvoice = SalesOrder;

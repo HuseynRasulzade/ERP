@@ -1058,6 +1058,7 @@ enum ApprovalStepType {
   FINANCE
   ACCOUNTING
   WAREHOUSE_SUPERVISOR
+  SALES_MANAGER
 }
 
 /// One row per required approval on a given document instance. documentType +

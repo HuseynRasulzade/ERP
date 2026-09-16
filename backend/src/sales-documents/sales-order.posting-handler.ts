@@ -18,11 +18,17 @@ import { CreditCheckService } from '../sales-preorder/credit-check.service';
  * state machine — `postingStatus = POSTED` IS `CONFIRMED`.
  *
  * `validateForPosting` therefore carries the confirmation checks section
- * 22 requires: active counterparty, no blocking hold, and a credit check
- * that rejects a BLOCKED order outright (a WARNING is recorded but does
- * not block, matching spec section 57's WARN policy). Still emits one
- * SALES_ORDER_REGISTER movement per line — prices are never re-resolved
- * here, and per spec section 102, still no accounting/tax consequence.
+ * 22 requires: active counterparty, no blocking hold, sales-manager
+ * `approvalStatus` (see `SalesOrderApprovalPlanProvider` — a threshold or
+ * a credit result in the grace band requires approval before posting),
+ * and a credit check that rejects a BLOCKED order outright regardless of
+ * approval. Still emits one SALES_ORDER_REGISTER movement per line —
+ * prices are never re-resolved here, and per spec section 102, still no
+ * accounting/tax consequence. Stock reservation deliberately stays the
+ * separate, explicit `ReservationService` call it already was (spec
+ * section 39/docs/SALES_PREORDER.md) — auto-reserving on confirm here
+ * was tried and reverted: it silently ate the remaining-quantity budget
+ * a caller's own later manual reservation call depends on.
  */
 @Injectable()
 export class SalesOrderPostingHandler implements DocumentPostingHandler {
@@ -54,6 +60,10 @@ export class SalesOrderPostingHandler implements DocumentPostingHandler {
     });
     if (!counterparty || !counterparty.active) {
       throw new ValidationAppError('Cannot post a sales order for a missing or inactive counterparty');
+    }
+
+    if ((order as any).approvalStatus !== 'APPROVED' && (order as any).approvalStatus !== 'NOT_REQUIRED') {
+      throw new ValidationAppError('Cannot post a sales order until sales manager approval is complete');
     }
 
     const activeHolds = await tx.orderHold.findMany({ where: { tenantId, salesOrderId: order.id, status: 'ACTIVE' } });

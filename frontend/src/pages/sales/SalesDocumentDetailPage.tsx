@@ -17,6 +17,7 @@ import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
 import type { SalesKind } from './SalesDocumentListPage';
 import { SalesLinesEditor, emptyLine, serializeLines } from './SalesLinesEditor';
+import { ApprovalStepsPanel } from '../docs/ApprovalStepsPanel';
 
 const KIND_CONFIG = {
   order: {
@@ -174,6 +175,8 @@ export function SalesDocumentDetailPage({ kind }: { kind: SalesKind }) {
   };
 
   const canEdit = hasPermission(cfg.editPerm) && doc.postingStatus !== 'POSTED' && doc.status !== 'CANCELLED';
+  const isOrder = kind === 'order';
+  const approvalBlocksPost = isOrder && doc.approvalStatus !== 'APPROVED' && doc.approvalStatus !== 'NOT_REQUIRED' && !!doc.approvalStatus;
 
   return (
     <div className="document-detail">
@@ -183,13 +186,14 @@ export function SalesDocumentDetailPage({ kind }: { kind: SalesKind }) {
           <div className="badge-row">
             <StatusBadge kind="document" value={doc.status} />
             <StatusBadge kind="posting" value={doc.postingStatus} />
+            {isOrder && doc.approvalStatus && <StatusBadge kind="approval" value={doc.approvalStatus} />}
           </div>
         </div>
         <div className="actions">
           <Link to={cfg.listRoute} className="link-muted">
             ← Back to list
           </Link>
-          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (
+          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && !approvalBlocksPost && (
             <button disabled={busy} onClick={() => runCommand('post')}>
               Post
             </button>
@@ -231,6 +235,14 @@ export function SalesDocumentDetailPage({ kind }: { kind: SalesKind }) {
           <dd>{doc.priceIncludesTax ? 'Yes' : 'No'}</dd>
           <dt>Description</dt>
           <dd>{doc.description ?? '—'}</dd>
+          {isOrder && (
+            <>
+              <dt>Credit status</dt>
+              <dd>{doc.creditStatus ?? '—'}</dd>
+              <dt>Reservation status</dt>
+              <dd>{doc.reservationStatus ?? '—'}</dd>
+            </>
+          )}
           <dt>Version</dt>
           <dd>{doc.version}</dd>
         </dl>
@@ -313,6 +325,20 @@ export function SalesDocumentDetailPage({ kind }: { kind: SalesKind }) {
           </table>
         )}
       </section>
+
+      {isOrder && orgId && (
+        <ApprovalStepsPanel
+          orgId={orgId}
+          documentType={cfg.docType}
+          documentId={doc.id}
+          approvalStatus={doc.approvalStatus}
+          approvePerm="sales.order.approve"
+          rejectPerm="sales.order.reject"
+          approveEndpoint={`${cfg.basePath}/${doc.id}/approve`}
+          rejectEndpoint={`${cfg.basePath}/${doc.id}/reject`}
+          onChanged={load}
+        />
+      )}
 
       <section className="card">
         <h2>Document links</h2>
