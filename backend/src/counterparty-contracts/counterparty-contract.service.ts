@@ -130,6 +130,8 @@ export class CounterpartyContractService {
         penaltyTerms: input.penaltyTerms,
         otherTerms: input.otherTerms,
         priceIncludesTax: input.priceIncludesTax ?? false,
+        limitAmount: input.limitAmount != null ? new Decimal(input.limitAmount.toString()) : undefined,
+        limitPolicy: input.limitPolicy ?? undefined,
       },
     });
 
@@ -146,7 +148,7 @@ export class CounterpartyContractService {
     if (patch.responsiblePersonId) await this.assertResponsiblePerson(tenantId, patch.responsiblePersonId);
 
     const dateFields = ['signedDate', 'startDate', 'endDate', 'deliveryDate'];
-    const decimalFields = ['amount', 'advancePercent'];
+    const decimalFields = ['amount', 'advancePercent', 'limitAmount'];
     const updateData: any = { updatedBy: userId, version: { increment: 1 } };
     for (const k of Object.keys(patch)) {
       if (dateFields.includes(k) && patch[k] !== undefined) updateData[k] = patch[k] ? new Date(patch[k]) : null;

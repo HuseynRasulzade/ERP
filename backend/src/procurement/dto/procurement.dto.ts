@@ -304,6 +304,12 @@ export class CreatePurchaseOrderDto {
   @IsString()
   description?: string;
 
+  // Existing framework/master CounterpartyContract this order draws
+  // against — enables spend-limit control (see docs/APPROVALS.md).
+  @IsOptional()
+  @IsString()
+  contractId?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -354,6 +360,10 @@ export class UpdatePurchaseOrderDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  contractId?: string;
 
   @IsOptional()
   @IsArray()

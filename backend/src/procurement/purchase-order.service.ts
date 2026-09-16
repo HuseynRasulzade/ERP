@@ -11,6 +11,7 @@ import { ConcurrencyConflictError, NotFoundAppError, SupplierNotEligibleError, V
 import { computeLineTotals, sumDocumentTotals } from '../sales-documents/sales-totals.util';
 import { PURCHASE_ORDER_TYPE } from './purchase-order.repository';
 import { CreatePurchaseOrderDto, PurchaseLineItemDto, UpdatePurchaseOrderDto } from './dto/procurement.dto';
+import { checkContractLimit } from './contract-limit.util';
 
 const SEQUENCE_PREFIX = 'PO';
 const SUPPLIER_TYPES = ['SUPPLIER', 'BOTH'];
@@ -91,6 +92,16 @@ export class PurchaseOrderService {
     const totals = sumDocumentTotals(lines);
     await this.ensureSequence(tenantId);
 
+    let limitCheck: Awaited<ReturnType<typeof checkContractLimit>> = null;
+    if (dto.contractId) {
+      limitCheck = await checkContractLimit(this.prisma, tenantId, dto.contractId, undefined, totals.grandTotal);
+      if (limitCheck?.exceeds && limitCheck.policy === 'BLOCK') {
+        throw new ValidationAppError(
+          `This order would bring the contract's total to ${limitCheck.projectedTotal.toFixed(2)}, exceeding its limit of ${limitCheck.limitAmount!.toFixed(2)}`,
+        );
+      }
+    }
+
     return this.prisma.runInTransaction(async (tx) => {
       const allocated = await this.numbering.allocateNumber(tenantId, PURCHASE_ORDER_TYPE, businessDate, tx);
 
@@ -112,12 +123,23 @@ export class PurchaseOrderService {
           supplierReference: dto.supplierReference,
           purchaseChannel: dto.purchaseChannel,
           buyerId: dto.buyerId,
+          contractId: dto.contractId,
           createdBy: userId,
           updatedBy: userId,
         },
       });
 
       await this.createLines(tx, tenantId, header.id, lines, userId);
+
+      if (limitCheck?.exceeds) {
+        await this.audit.record(
+          {
+            tenantId, eventType: 'CONTRACT_LIMIT_EXCEEDED', entityType: PURCHASE_ORDER_TYPE, entityId: header.id, action: 'CREATE', userId,
+            newValues: { contractId: dto.contractId, limitAmount: limitCheck.limitAmount!.toString(), projectedTotal: limitCheck.projectedTotal.toString(), policy: limitCheck.policy },
+          },
+          tx,
+        );
+      }
 
       await this.audit.record(
         { tenantId, eventType: 'PURCHASE_ORDER_CREATED', entityType: PURCHASE_ORDER_TYPE, entityId: header.id, action: 'CREATE', userId, newValues: { number: header.number, grandTotal: totals.grandTotal.toString() } },
@@ -163,6 +185,17 @@ export class PurchaseOrderService {
       totals = sumDocumentTotals(recomputed);
     }
 
+    const effectiveContractId = patch.contractId !== undefined ? patch.contractId : (current as any).contractId ?? undefined;
+    let limitCheck: Awaited<ReturnType<typeof checkContractLimit>> = null;
+    if (effectiveContractId) {
+      limitCheck = await checkContractLimit(this.prisma, tenantId, effectiveContractId, id, totals.grandTotal);
+      if (limitCheck?.exceeds && limitCheck.policy === 'BLOCK') {
+        throw new ValidationAppError(
+          `This order would bring the contract's total to ${limitCheck.projectedTotal.toFixed(2)}, exceeding its limit of ${limitCheck.limitAmount!.toFixed(2)}`,
+        );
+      }
+    }
+
     const updated = await this.prisma.runInTransaction(async (tx) => {
       const result = await tx.purchaseOrder.updateMany({
         where: { id, organizationId, version: expectedVersion },
@@ -177,6 +210,7 @@ export class PurchaseOrderService {
           ...(patch.supplierReference !== undefined ? { supplierReference: patch.supplierReference } : {}),
           ...(patch.purchaseChannel !== undefined ? { purchaseChannel: patch.purchaseChannel } : {}),
           ...(patch.buyerId !== undefined ? { buyerId: patch.buyerId } : {}),
+          ...(patch.contractId !== undefined ? { contractId: patch.contractId } : {}),
           subtotal: totals.subtotal,
           taxTotal: totals.taxTotal,
           grandTotal: totals.grandTotal,
@@ -195,6 +229,12 @@ export class PurchaseOrderService {
     });
 
     await this.audit.record({ tenantId, eventType: 'PURCHASE_ORDER_UPDATED', entityType: PURCHASE_ORDER_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { ...patch, lines: patch.lines?.length } });
+    if (limitCheck?.exceeds) {
+      await this.audit.record({
+        tenantId, eventType: 'CONTRACT_LIMIT_EXCEEDED', entityType: PURCHASE_ORDER_TYPE, entityId: id, action: 'UPDATE', userId,
+        newValues: { contractId: effectiveContractId, limitAmount: limitCheck.limitAmount!.toString(), projectedTotal: limitCheck.projectedTotal.toString(), policy: limitCheck.policy },
+      });
+    }
     return updated;
   }
 

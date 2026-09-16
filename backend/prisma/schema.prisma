@@ -3929,6 +3929,11 @@ model PurchaseOrder {
   supplierReference    String?   @map("supplier_reference") // supplier's own acknowledgement number (spec section 81)
   purchaseChannel      String?   @map("purchase_channel") // LOCAL|IMPORT|FRAME_CONTRACT|SPOT_PURCHASE|OTHER
   buyerId              String?   @map("buyer_id") // ResponsiblePerson (spec section 79)
+  // Existing framework/master contract this order draws against (distinct
+  // from CounterpartyContract.sourcePurchaseOrderId, which is the reverse
+  // link for a contract CREATED FROM a specific PO). Used for contract
+  // spend-limit control — see CounterpartyContract.limitAmount.
+  contractId           String?   @map("contract_id")
 
   createdAt    DateTime  @default(now()) @map("created_at")
   createdBy    String?   @map("created_by")
@@ -5154,6 +5159,15 @@ model CounterpartyContract {
   totalDiscount           Decimal? @map("total_discount") @db.Decimal(18, 2)
   totalTax                Decimal? @map("total_tax") @db.Decimal(18, 2)
   remainingPayableAmount  Decimal? @map("remaining_payable_amount") @db.Decimal(18, 2) // amount - advanceAmount
+
+  // Overall spend limit across every PurchaseOrder referencing this
+  // contract (PurchaseOrder.contractId) — null means no limit. Policy
+  // governs what happens when a new/edited order would push the running
+  // total over limitAmount: WARN (allowed, flagged only), BLOCK (rejected),
+  // APPROVAL (an extra FINANCE approval step is required — see
+  // PurchaseOrderApprovalPlanProvider).
+  limitAmount Decimal? @map("limit_amount") @db.Decimal(18, 2)
+  limitPolicy String   @default("WARN") @map("limit_policy") // WARN|BLOCK|APPROVAL
 
   // DRAFT|PENDING_APPROVAL|APPROVED|ACTIVE|EXPIRED|CANCELLED
   status     String    @default("DRAFT")

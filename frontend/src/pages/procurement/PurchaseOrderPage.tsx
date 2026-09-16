@@ -29,6 +29,7 @@ function usePurchaseOrderKind(): DocKind {
     extraFields: [
       { key: 'expectedDeliveryDate', label: 'Expected delivery', type: 'date' },
       { key: 'supplierReference', label: 'Supplier reference', type: 'text' },
+      { key: 'contractId', label: t.procurement.contract, type: 'select-contract' },
     ],
     createBasedOnTargets: [
       { docType: 'GOODS_RECEIPT', routePrefix: 'goods-receipts', label: 'Create receipt' },

@@ -229,6 +229,12 @@ const az: Translations = {
     linesAutoFilledHint: 'Bu sətirlər seçilmiş alış tələb(lər)indən avtomatik köçürülüb və yadda saxlanarkən yenidən yoxlanılacaq.',
     source: 'Mənbə',
     from: 'Mənbə:',
+    contract: 'Çərçivə müqaviləsi',
+    contractLimit: 'Xərc limiti',
+    contractLimitPolicy: 'Limit siyasəti',
+    contractLimitPolicyWarn: 'Yalnız xəbərdarlıq',
+    contractLimitPolicyBlock: 'Blokla',
+    contractLimitPolicyApproval: 'Təsdiq tələb et',
   },
 
   counterparty: {

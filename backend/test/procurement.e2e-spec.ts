@@ -650,6 +650,55 @@ describe('Procurement (e2e)', () => {
     });
   });
 
+  describe('Counterparty Contract spend-limit control', () => {
+    async function createLimitedContract(limitAmount: number, limitPolicy: 'WARN' | 'BLOCK' | 'APPROVAL') {
+      const contract = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/contracts`))
+        .send({ number: `CNT-LIMIT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, subject: 'Framework supply contract', limitAmount, limitPolicy })
+        .expect(201);
+      return contract.body.id as string;
+    }
+
+    it('BLOCK policy rejects a purchase order that would exceed the contract limit', async () => {
+      const contractId = await createLimitedContract(1000, 'BLOCK');
+
+      // First order: 500, within the 1000 limit.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, contractId, lines: [{ productId, unitId, quantity: 25, price: 20 }] })
+        .expect(201);
+
+      // Second order: another 600 would bring the total to 1100, over the limit -> blocked.
+      const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, contractId, lines: [{ productId, unitId, quantity: 30, price: 20 }] })
+        .expect(400);
+      expect(blocked.body.message).toMatch(/exceeding its limit/i);
+    });
+
+    it('WARN policy allows the order through but audits the excess', async () => {
+      const contractId = await createLimitedContract(100, 'WARN');
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, contractId, lines: [{ productId, unitId, quantity: 10, price: 20 }] })
+        .expect(201);
+      expect(po.body.contractId).toBe(contractId);
+
+      const events = await auth1(request(app.getHttpServer()).get('/audit-events').query({ entityType: 'PURCHASE_ORDER', entityId: po.body.id })).expect(200);
+      expect(events.body.some((e: any) => e.eventType === 'CONTRACT_LIMIT_EXCEEDED')).toBe(true);
+    });
+
+    it('APPROVAL policy adds a FINANCE approval step when the limit is exceeded', async () => {
+      const contractId = await createLimitedContract(50, 'APPROVAL');
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, contractId, lines: [{ productId, unitId, quantity: 5, price: 20 }] })
+        .expect(201);
+
+      const steps = await auth1(request(app.getHttpServer()).get('/approval-steps').query({ documentType: 'PURCHASE_ORDER', documentId: po.body.id })).expect(200);
+      expect(steps.body.map((s: any) => s.stepType)).toContain('FINANCE');
+
+      await fullyApprovePurchaseOrder(org1Id, po.body.id);
+      const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${po.body.id}`)).expect(200);
+      expect(approved.body.approvalStatus).toBe('APPROVED');
+    });
+  });
+
   describe('Tenant isolation (spec section 125)', () => {
     it('tenant B cannot see tenant A supplier, requirement, or purchase order', async () => {
       const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))

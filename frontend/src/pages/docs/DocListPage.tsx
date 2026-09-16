@@ -43,6 +43,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
   const [products, setProducts] = useState<SalesProductRef[]>([]);
   const [units, setUnits] = useState<SalesUnitRef[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [contractOptions, setContractOptions] = useState<{ id: string; number: string; subject: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -127,6 +128,18 @@ export function DocListPage({ kind }: { kind: DocKind }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const hasContractField = kind.extraFields?.some((f) => f.type === 'select-contract') ?? false;
+  useEffect(() => {
+    if (!hasContractField || !orgId || !counterpartyId) {
+      setContractOptions([]);
+      return;
+    }
+    api
+      .get<{ id: string; number: string; subject: string }[]>(`/organizations/${orgId}/counterparties/${counterpartyId}/contracts`)
+      .then(setContractOptions)
+      .catch(() => setContractOptions([]));
+  }, [hasContractField, orgId, counterpartyId]);
 
   const fromRequirements = selectedSourceIds.length > 0 && !!kind.requirementPicker;
 
@@ -303,6 +316,18 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                     <label key={f.key}>
                       {f.label}
                       <input type="date" required={f.required} value={extra[f.key] ?? ''} onChange={(e) => setExtra({ ...extra, [f.key]: e.target.value })} />
+                    </label>
+                  ) : f.type === 'select-contract' ? (
+                    <label key={f.key}>
+                      {f.label}
+                      <select required={f.required} value={extra[f.key] ?? ''} onChange={(e) => setExtra({ ...extra, [f.key]: e.target.value })}>
+                        <option value="">{t.common.select}</option>
+                        {contractOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.number} — {c.subject}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                   ) : f.type === 'select-static' ? (
                     <label key={f.key}>

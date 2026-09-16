@@ -227,6 +227,12 @@ const en = {
     linesAutoFilledHint: 'These lines were copied automatically from the selected purchase requirement(s) and will be re-verified on save.',
     source: 'Source',
     from: 'From',
+    contract: 'Framework contract',
+    contractLimit: 'Spend limit',
+    contractLimitPolicy: 'Limit policy',
+    contractLimitPolicyWarn: 'Warn only',
+    contractLimitPolicyBlock: 'Block',
+    contractLimitPolicyApproval: 'Require approval',
   },
 
   counterparty: {

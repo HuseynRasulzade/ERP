@@ -4,6 +4,7 @@ import { PrismaTransactionClient } from '../prisma/prisma.service';
 import { ApprovalPlanProvider, ApprovalStepPlanItem, ApprovalStepType } from '../approvals/approval-plan.interface';
 import { userHasRole, userHasRoleInDepartment } from '../approvals/role-resolution.util';
 import { PURCHASE_ORDER_TYPE } from './purchase-order.repository';
+import { checkContractLimit } from './contract-limit.util';
 
 const PROCUREMENT_OFFICER_ROLE = 'PROCUREMENT_OFFICER';
 const DEPARTMENT_HEAD_ROLE = 'DEPARTMENT_HEAD';
@@ -64,8 +65,21 @@ export class PurchaseOrderApprovalPlanProvider implements ApprovalPlanProvider {
     // on the counterparty/contract, not the order) — the finance trigger is
     // the AZN-equivalent grand total threshold only.
     const aznTotal = this.aznEquivalent(document);
+    let financeStepAdded = false;
     if (aznTotal.gt(PO_FINANCE_APPROVAL_THRESHOLD)) {
       steps.push({ sequence: 4, stepType: 'FINANCE' });
+      financeStepAdded = true;
+    }
+
+    // Contract spend-limit control (docs/APPROVALS.md): a contract with
+    // limitPolicy=APPROVAL that this order would exceed also requires
+    // FINANCE sign-off — reuses the same step, not a duplicate one, if the
+    // amount threshold already added it.
+    if (document.contractId && !financeStepAdded) {
+      const limitCheck = await checkContractLimit(tx, tenantId, document.contractId, document.id, new Decimal(document.grandTotal.toString()));
+      if (limitCheck?.exceeds && limitCheck.policy === 'APPROVAL') {
+        steps.push({ sequence: 4, stepType: 'FINANCE' });
+      }
     }
 
     if (this.hasNonStandardTax(document)) {

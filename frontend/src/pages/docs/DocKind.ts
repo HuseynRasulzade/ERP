@@ -1,7 +1,7 @@
 export interface DocExtraField {
   key: string;
   label: string;
-  type: 'select-warehouse' | 'date' | 'text' | 'select-static' | 'checkbox';
+  type: 'select-warehouse' | 'date' | 'text' | 'select-static' | 'checkbox' | 'select-contract';
   options?: { value: string; label: string }[];
   required?: boolean;
 }
