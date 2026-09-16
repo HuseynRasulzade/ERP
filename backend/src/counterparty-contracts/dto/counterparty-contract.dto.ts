@@ -28,6 +28,8 @@ export class CreateCounterpartyContractDto {
   @IsOptional() @IsString() penaltyTerms?: string;
   @IsOptional() @IsString() otherTerms?: string;
   @IsOptional() @IsBoolean() priceIncludesTax?: boolean;
+  @IsOptional() @IsNumber() limitAmount?: number;
+  @IsOptional() @IsIn(['WARN', 'BLOCK', 'APPROVAL']) limitPolicy?: string;
 }
 
 export class UpdateCounterpartyContractDto {
@@ -52,6 +54,8 @@ export class UpdateCounterpartyContractDto {
   @IsOptional() @IsString() penaltyTerms?: string;
   @IsOptional() @IsString() otherTerms?: string;
   @IsOptional() @IsBoolean() priceIncludesTax?: boolean;
+  @IsOptional() @IsNumber() limitAmount?: number;
+  @IsOptional() @IsIn(['WARN', 'BLOCK', 'APPROVAL']) limitPolicy?: string;
 
   @IsInt() @Min(1) expectedVersion!: number;
 }

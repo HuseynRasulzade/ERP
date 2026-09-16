@@ -27,6 +27,7 @@ export function ContractDetailPage() {
     hasAdvance: false, advancePercent: '', remainingPaymentDueDays: '',
     deliveryDate: '', deliveryTermDays: '', deliveryAddress: '', deliveryTerms: '',
     warrantyPeriod: '', penaltyTerms: '', otherTerms: '', priceIncludesTax: false,
+    limitAmount: '', limitPolicy: 'WARN',
   });
 
   const load = useCallback(async () => {
@@ -42,6 +43,7 @@ export function ContractDetailPage() {
         deliveryDate: data.deliveryDate?.slice(0, 10) ?? '', deliveryTermDays: data.deliveryTermDays != null ? String(data.deliveryTermDays) : '',
         deliveryAddress: data.deliveryAddress ?? '', deliveryTerms: data.deliveryTerms ?? '',
         warrantyPeriod: data.warrantyPeriod ?? '', penaltyTerms: data.penaltyTerms ?? '', otherTerms: data.otherTerms ?? '', priceIncludesTax: data.priceIncludesTax,
+        limitAmount: (data as any).limitAmount ?? '', limitPolicy: (data as any).limitPolicy ?? 'WARN',
       });
     } catch (err) {
       showError(err);
@@ -69,6 +71,7 @@ export function ContractDetailPage() {
         deliveryAddress: form.deliveryAddress || undefined, deliveryTerms: form.deliveryTerms || undefined,
         warrantyPeriod: form.warrantyPeriod || undefined, penaltyTerms: form.penaltyTerms || undefined,
         otherTerms: form.otherTerms || undefined, priceIncludesTax: form.priceIncludesTax,
+        limitAmount: form.limitAmount ? Number(form.limitAmount) : undefined, limitPolicy: form.limitPolicy || undefined,
       });
       showSuccess(t.toast.updatedItem(contract.number));
       setEditing(false);
@@ -132,6 +135,17 @@ export function ContractDetailPage() {
             <label>{t.counterparty.currency}<input value={form.currencyId} onChange={(e) => setForm({ ...form, currencyId: e.target.value })} placeholder="currency id" /></label>
             <label>{t.counterparty.paymentTerms}<input value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })} placeholder="e.g. NET 30" /></label>
           </div>
+          <div className="inline-form">
+            <label>{t.procurement.contractLimit}<input type="number" step="any" min="0" value={form.limitAmount} onChange={(e) => setForm({ ...form, limitAmount: e.target.value })} placeholder="no limit" /></label>
+            <label>
+              {t.procurement.contractLimitPolicy}
+              <select value={form.limitPolicy} onChange={(e) => setForm({ ...form, limitPolicy: e.target.value })}>
+                <option value="WARN">{t.procurement.contractLimitPolicyWarn}</option>
+                <option value="BLOCK">{t.procurement.contractLimitPolicyBlock}</option>
+                <option value="APPROVAL">{t.procurement.contractLimitPolicyApproval}</option>
+              </select>
+            </label>
+          </div>
           <h3>{t.contract.terms}</h3>
           <div className="inline-form">
             <label className="checkbox-label"><input type="checkbox" checked={form.hasAdvance} onChange={(e) => setForm({ ...form, hasAdvance: e.target.checked })} /> {t.contract.hasAdvance}</label>
@@ -169,6 +183,8 @@ export function ContractDetailPage() {
             <dt>{t.counterparty.endDate}</dt><dd>{contract.endDate?.slice(0, 10) ?? '—'}</dd>
             <dt>{t.counterparty.amount}</dt><dd className="numeric">{contract.amount ?? '—'}</dd>
             <dt>{t.counterparty.paymentTerms}</dt><dd>{contract.paymentTerms ?? '—'}</dd>
+            <dt>{t.procurement.contractLimit}</dt><dd className="numeric">{(contract as any).limitAmount ?? '—'}</dd>
+            <dt>{t.procurement.contractLimitPolicy}</dt><dd>{(contract as any).limitPolicy ?? '—'}</dd>
             <dt>{t.counterparty.responsiblePerson}</dt><dd>{contract.responsiblePersonId ?? '—'}</dd>
             <dt>{t.contract.deliveryDate}</dt><dd>{contract.deliveryDate?.slice(0, 10) ?? '—'}</dd>
             <dt>{t.contract.deliveryTermDays}</dt><dd>{contract.deliveryTermDays ?? '—'}</dd>
