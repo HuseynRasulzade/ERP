@@ -16,11 +16,20 @@ import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PermissionCodes } from '../rbac/permission-codes';
-import { IsIn } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 class SetCounterpartyStatusDto extends VersionedCommandDto {
   @IsIn(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRED', 'CANCELLED'])
   status!: string;
+}
+
+class SetCounterpartyRiskStatusDto extends VersionedCommandDto {
+  @IsIn(['NORMAL', 'WATCH', 'BLACKLISTED'])
+  riskStatus!: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
 @Controller('organizations/:organizationId/counterparties')
@@ -126,6 +135,19 @@ export class CounterpartyController {
     @Body() dto: SetCounterpartyStatusDto,
   ) {
     return this.service.setStatus(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion, dto.status);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_RISK_MANAGE)
+  @Post(':id/risk-status')
+  setRiskStatus(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: SetCounterpartyRiskStatusDto,
+  ) {
+    return this.service.setRiskStatus(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion, dto.riskStatus, dto.note);
   }
 
   @RequirePermissions(PermissionCodes.COUNTERPARTY_EDIT)

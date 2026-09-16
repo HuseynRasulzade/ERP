@@ -2106,6 +2106,17 @@ model Counterparty {
   approvedBy  String?   @map("approved_by")
   approvedAt  DateTime? @map("approved_at")
 
+  // Risk status ("qara siyahı") — independent of `status` above (a
+  // counterparty can be fully APPROVED and still get flagged later).
+  // NORMAL|WATCH|BLACKLISTED. WATCH is visibility-only; BLACKLISTED blocks
+  // creating new Sales/Purchase Orders against this counterparty (see
+  // SalesOrderService.assertCustomer / PurchaseOrderService.assertSupplier)
+  // — it never touches documents that already exist.
+  riskStatus    String    @default("NORMAL") @map("risk_status")
+  riskNote      String?   @map("risk_note")
+  riskUpdatedBy String?   @map("risk_updated_by")
+  riskUpdatedAt DateTime? @map("risk_updated_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
   updatedAt DateTime @updatedAt @map("updated_at")

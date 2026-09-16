@@ -289,6 +289,7 @@ export class PurchaseOrderService {
     if (!cp) throw new ValidationAppError('Counterparty does not belong to this organization');
     if (!cp.active) throw new SupplierNotEligibleError('inactive counterparty');
     if (!SUPPLIER_TYPES.includes(cp.counterpartyType)) throw new SupplierNotEligibleError('counterparty does not have the SUPPLIER role');
+    if (cp.riskStatus === 'BLACKLISTED') throw new SupplierNotEligibleError('blacklisted counterparty');
   }
 
   private async assertCurrency(currencyId?: string) {

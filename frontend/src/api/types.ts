@@ -436,6 +436,9 @@ export interface CounterpartyBankAccount {
   isPrimary: boolean;
   notes: string | null;
   active: boolean;
+  status?: string;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
   version: number;
 }
 
@@ -462,6 +465,8 @@ export interface Counterparty {
   status: CounterpartyStatus;
   approvedBy: string | null;
   approvedAt: string | null;
+  riskStatus?: string;
+  riskNote?: string | null;
   active: boolean;
   version: number;
   createdAt: string;

@@ -8,6 +8,8 @@ import { Decimal } from '@prisma/client/runtime/library';
 const VALID_TYPES = ['CUSTOMER', 'SUPPLIER', 'BOTH'];
 const VALID_ADDRESS_TYPES = ['LEGAL', 'ACTUAL', 'SHIPPING', 'BILLING', 'OTHER'];
 const VALID_RESIDENCY = ['RESIDENT', 'NON_RESIDENT'];
+export const RISK_STATUSES = ['NORMAL', 'WATCH', 'BLACKLISTED'];
+
 /** Bank-account fields whose change reopens the approval gate — a change
  * to any of these is exactly the "bank account changed" event the spec
  * means; cosmetic fields (notes/branchName/isPrimary/active/bankAddress/
@@ -230,6 +232,30 @@ export class CounterpartyService {
     await this.audit.record({
       tenantId, eventType: 'COUNTERPARTY_STATUS_CHANGED', entityType: 'Counterparty',
       entityId: id, action: 'UPDATE', userId, newValues: { status },
+    });
+    return this.prisma.counterparty.findUnique({ where: { id } });
+  }
+
+  /** Risk status ("qara siyahı") — independent of `status`'s DRAFT->ACTIVE
+   * lifecycle above; a fully APPROVED/ACTIVE counterparty can still be
+   * flagged later. WATCH is visibility-only; BLACKLISTED blocks creating
+   * new Sales/Purchase Orders (SalesOrderService.assertCustomer /
+   * PurchaseOrderService.assertSupplier) but never touches documents
+   * that already exist — same "never retroactively invalidate" precedent
+   * as every other status gate in this codebase. */
+  async setRiskStatus(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, expectedVersion: number, riskStatus: string, note?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    if (!RISK_STATUSES.includes(riskStatus)) throw new ValidationAppError(`Unknown risk status: ${riskStatus}`);
+    await this.get(tenantId, membershipId, organizationId, id);
+
+    const result = await this.prisma.counterparty.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: { riskStatus, riskNote: note, riskUpdatedBy: userId, riskUpdatedAt: new Date(), updatedBy: userId, version: { increment: 1 } },
+    });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_RISK_STATUS_CHANGED', entityType: 'Counterparty',
+      entityId: id, action: 'UPDATE', userId, newValues: { riskStatus, note },
     });
     return this.prisma.counterparty.findUnique({ where: { id } });
   }

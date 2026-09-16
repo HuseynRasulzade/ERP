@@ -98,6 +98,7 @@ export const PermissionCodes = {
   COUNTERPARTY_EDIT: 'counterparty.edit',
   COUNTERPARTY_DEACTIVATE: 'counterparty.deactivate',
   COUNTERPARTY_APPROVE: 'counterparty.approve',
+  COUNTERPARTY_RISK_MANAGE: 'counterparty.risk.manage',
 
   // Counterparty contracts / amendments / documents ("Kontragentlər" module)
   CONTRACT_VIEW: 'contract.view',
@@ -729,6 +730,7 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.COUNTERPARTY_EDIT, module: 'counterparty', description: 'Edit counterparties' },
   { code: PermissionCodes.COUNTERPARTY_DEACTIVATE, module: 'counterparty', description: 'Deactivate counterparties' },
   { code: PermissionCodes.COUNTERPARTY_APPROVE, module: 'counterparty', description: 'Approve counterparties' },
+  { code: PermissionCodes.COUNTERPARTY_RISK_MANAGE, module: 'counterparty', description: 'Set a counterparty risk status (watch/blacklist)' },
 
   { code: PermissionCodes.CONTRACT_VIEW, module: 'contract', description: 'View counterparty contracts' },
   { code: PermissionCodes.CONTRACT_CREATE, module: 'contract', description: 'Create counterparty contracts' },
