@@ -157,6 +157,30 @@ test. Reservation stays exactly what `docs/SALES_PREORDER.md` already
 documents it as — a separate, explicit action — and this increment does not
 touch it.
 
+## Counterparty bank-account-change control (increment 5, `src/counterparty-pricing/`)
+
+Not `ApprovalStep`-based — a single flat `status` (`PENDING | APPROVED |
+REJECTED`) + `approvedBy`/`approvedAt` on `CounterpartyBankAccount` itself,
+decided by anyone holding `counterparty.approve` (the same permission that
+already gates the counterparty's own DRAFT→APPROVED transition — no new
+permission code). A fresh account starts `PENDING`; changing any of its
+sensitive fields (`bankName`/`accountNumber`/`iban`/`swiftBic`/`bankCode`/
+`correspondentAccount` — see `SENSITIVE_BANK_ACCOUNT_FIELDS` in
+`counterparty.service.ts`) resets an `APPROVED` account back to `PENDING`.
+Cosmetic fields (`notes`, `isPrimary`, `branchName`, `active`, …) never
+touch it.
+
+`PaymentOrder` gained an optional `counterpartyBankAccountId` — omitting it
+skips this gate entirely, same as before the field existed. When set,
+`PaymentOrderService.create` refuses one that isn't `APPROVED` yet (good
+early feedback), and `PaymentOrderPostingHandler.validateForPosting`
+re-checks it independently at posting time — the account can be edited
+(reopening `PENDING`) any time between order creation and posting, so the
+create-time check alone isn't sufficient. No self-approval check here
+(matching `Counterparty.approve`'s own precedent in this same file, which
+has none either) — a single flat-permission decision, not a multi-role
+chain, so the generic `ApprovalStep` engine would have bought nothing.
+
 ## What's deliberately out of scope
 
 Condition DSL, DAG-based conditional routing, quorum/voting, delegation,

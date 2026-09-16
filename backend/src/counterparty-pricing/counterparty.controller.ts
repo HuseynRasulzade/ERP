@@ -8,6 +8,7 @@ import {
   UpdateCounterpartyContactDto,
   CreateCounterpartyBankAccountDto,
   UpdateCounterpartyBankAccountDto,
+  RejectCounterpartyBankAccountDto,
 } from './dto/counterparty.dto';
 import { VersionedCommandDto } from '../org-structure/dto/common.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
@@ -206,5 +207,33 @@ export class CounterpartyController {
     @Body() dto: VersionedCommandDto,
   ) {
     return this.service.deactivateBankAccount(tenantId, membershipId, organizationId, counterpartyId, accountId, user.userId, dto.expectedVersion);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_APPROVE)
+  @Post(':id/bank-accounts/:accountId/approve')
+  approveBankAccount(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') counterpartyId: string,
+    @Param('accountId') accountId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: VersionedCommandDto,
+  ) {
+    return this.service.approveBankAccount(tenantId, membershipId, organizationId, counterpartyId, accountId, user.userId, dto.expectedVersion);
+  }
+
+  @RequirePermissions(PermissionCodes.COUNTERPARTY_APPROVE)
+  @Post(':id/bank-accounts/:accountId/reject')
+  rejectBankAccount(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') counterpartyId: string,
+    @Param('accountId') accountId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: RejectCounterpartyBankAccountDto,
+  ) {
+    return this.service.rejectBankAccount(tenantId, membershipId, organizationId, counterpartyId, accountId, user.userId, dto.expectedVersion, dto.reason);
   }
 }

@@ -302,6 +302,20 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
     }
   };
 
+  const decide = async (accountId: string, expectedVersion: number, action: 'approve' | 'reject') => {
+    setBusy(true);
+    try {
+      const reason = action === 'reject' ? window.prompt('Reason for rejecting this bank account:') ?? undefined : undefined;
+      await api.post(`/organizations/${orgId}/counterparties/${cp.id}/bank-accounts/${accountId}/${action}`, { expectedVersion, ...(reason ? { reason } : {}) });
+      showSuccess(action === 'approve' ? 'Bank account approved' : 'Bank account rejected');
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="card">
       <div className="page-header">
@@ -338,11 +352,11 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
           <thead>
             <tr>
               <th>{t.counterparty.bankName}</th><th>{t.counterparty.accountNumber}</th><th>{t.counterparty.iban}</th>
-              <th>{t.counterparty.swiftBic}</th><th>{t.counterparty.isPrimary}</th><th></th>
+              <th>{t.counterparty.swiftBic}</th><th>{t.counterparty.isPrimary}</th><th>Status</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {cp.bankAccounts!.map((a) => (
+            {cp.bankAccounts!.map((a: any) => (
               <tr key={a.id}>
                 <td>{a.bankName}</td>
                 <td>{a.accountNumber}</td>
@@ -350,6 +364,15 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
                 <td>{a.swiftBic ?? '—'}</td>
                 <td>{a.isPrimary ? '★' : ''}</td>
                 <td>
+                  <span className={`badge badge-generic-${a.status === 'APPROVED' ? 'ok' : a.status === 'REJECTED' ? 'bad' : 'neutral'}`}>{a.status}</span>
+                </td>
+                <td>
+                  {hasPermission('counterparty.approve') && a.status !== 'APPROVED' && (
+                    <button className="small" disabled={busy} onClick={() => decide(a.id, a.version, 'approve')}>Approve</button>
+                  )}
+                  {hasPermission('counterparty.approve') && a.status !== 'REJECTED' && (
+                    <button className="small danger" disabled={busy} onClick={() => decide(a.id, a.version, 'reject')}>Reject</button>
+                  )}
                   {hasPermission('counterparty.edit') && (
                     <button className="small" disabled={busy} onClick={() => deactivate(a.id, a.version)}>{t.counterparty.deactivate}</button>
                   )}

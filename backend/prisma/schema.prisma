@@ -5092,6 +5092,17 @@ model CounterpartyBankAccount {
   notes                String?
   active               Boolean  @default(true)
 
+  // Bank-account-change control: a fresh account, or a change to any of
+  // its sensitive fields (bankName/accountNumber/iban/swiftBic/bankCode/
+  // correspondentAccount — see SENSITIVE_BANK_ACCOUNT_FIELDS in
+  // counterparty.service.ts), resets status to PENDING. A payment
+  // instruction against this account should refuse anything but APPROVED
+  // — the unapproved change itself never blocks other, unrelated
+  // payments, only ones using this account.
+  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  approvedBy String?   @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
   updatedAt DateTime @updatedAt @map("updated_at")
