@@ -89,6 +89,12 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
   if (!orgId) return <p className="panel-note">{t.common.selectOrganization}</p>;
   if (!doc) return <p className="panel-note">{t.common.loading}</p>;
 
+  // When a kind opts into role-gated price visibility (currently: Goods
+  // Receipt), showPrice/showTax come from the permission instead of the
+  // static kind booleans — every other kind is unaffected.
+  const showPrice = kind.priceViewPerm ? hasPermission(kind.priceViewPerm) : kind.showPrice;
+  const showTax = kind.priceViewPerm ? hasPermission(kind.priceViewPerm) : kind.showTax;
+
   const productName = (pid?: string) => (pid ? (products.find((p) => p.id === pid)?.name ?? pid.slice(0, 8)) : '—');
   const unitCode = (uid?: string) => (uid ? (units.find((u) => u.id === uid)?.code ?? uid.slice(0, 8)) : '—');
   const cpName = (cid?: string) => (cid ? (counterparties.find((c) => c.id === cid)?.name ?? `${cid.slice(0, 8)}…`) : '—');
@@ -133,6 +139,8 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
         description: (l.description as string) ?? '',
         lineType: (l.lineType as string) ?? 'INVENTORY',
         requirementLineId: (l.requirementLineId as string) ?? undefined,
+        supplierOrderLineId: (l.supplierOrderLineId as string) ?? undefined,
+        overReceiptReason: (l.overReceiptReason as string) ?? undefined,
       })),
     );
     setEditingLines(true);
@@ -142,7 +150,7 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
     e.preventDefault();
     setBusy(true);
     try {
-      const lines = serializeDocLines(lineDrafts, { showPrice: kind.showPrice, showTax: kind.showTax, showWarehouse: kind.showLineWarehouse });
+      const lines = serializeDocLines(lineDrafts, { showPrice, showTax, showWarehouse: kind.showLineWarehouse });
       await api.patch(`/organizations/${orgId}/${kind.basePath}/${doc.id}`, { expectedVersion: doc.version, lines });
       showSuccess(t.toast.updatedItem(doc.number ?? doc.id));
       setEditingLines(false);
@@ -174,7 +182,7 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
               {t.common.edit}
             </button>
           )}
-          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (!kind.approvePerm || doc.approvalStatus === 'APPROVED') && (
+          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (!kind.approvePerm || doc.approvalStatus === 'APPROVED' || doc.approvalStatus === 'NOT_REQUIRED') && (
             <button className="primary" disabled={busy} onClick={() => runCommand('post')}>
               {t.common.post}
             </button>
@@ -212,7 +220,7 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
           )}
           <dt>{t.common.postedAt}</dt>
           <dd>{doc.postedAt ?? '—'}</dd>
-          {kind.showPrice && (
+          {showPrice && (
             <>
               <dt>{t.common.subtotal}</dt>
               <dd className="numeric">{doc.subtotal ?? '—'}</dd>
@@ -245,10 +253,11 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
               products={products}
               units={units}
               warehouses={warehouses}
-              showPrice={kind.showPrice}
-              showTax={kind.showTax}
+              showPrice={showPrice}
+              showTax={showTax}
               showWarehouse={kind.showLineWarehouse}
               priceHint={kind.priceHint}
+              showOverReceiptReason={kind.showOverReceiptReason}
             />
             <div className="inline-form">
               <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
@@ -265,10 +274,10 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
                 <th>{t.common.product}</th>
                 <th>{t.common.unit}</th>
                 <th>{t.common.quantity}</th>
-                {kind.showPrice && <th>{t.common.price}</th>}
-                {kind.showTax && <th>{t.common.taxRate}</th>}
+                {showPrice && <th>{t.common.price}</th>}
+                {showTax && <th>{t.common.taxRate}</th>}
                 {kind.showLineWarehouse && <th>{t.common.warehouse}</th>}
-                {kind.showPrice && (
+                {showPrice && (
                   <>
                     <th>{t.common.lineTotal}</th>
                     <th>{t.common.tax}</th>
@@ -279,21 +288,21 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
             </thead>
             <tbody>
               {doc.lines!.map((l, i) => {
-                const missingPrice = kind.showPrice && (l.price === null || l.price === undefined);
+                const missingPrice = showPrice && (l.price === null || l.price === undefined);
                 return (
                 <tr key={l.id ?? i} className={missingPrice ? 'row-missing-price' : undefined}>
                   <td>{i + 1}</td>
                   <td>{productName(l.productId)}</td>
                   <td>{unitCode(l.unitId)}</td>
                   <td className="numeric">{l.quantity}</td>
-                  {kind.showPrice && (
+                  {showPrice && (
                     <td className="numeric">
                       {missingPrice ? <span className="badge badge-generic-warn" title={t.common.missingPriceHint}>{t.common.missingPrice}</span> : l.price}
                     </td>
                   )}
-                  {kind.showTax && <td className="numeric">{l.taxRate ?? '—'}</td>}
+                  {showTax && <td className="numeric">{l.taxRate ?? '—'}</td>}
                   {kind.showLineWarehouse && <td>{whCode(l.warehouseId as string | undefined)}</td>}
-                  {kind.showPrice && (
+                  {showPrice && (
                     <>
                       <td className="numeric">{l.lineTotal ?? '—'}</td>
                       <td className="numeric">{l.taxAmount ?? '—'}</td>

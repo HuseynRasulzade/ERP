@@ -116,6 +116,8 @@ const en = {
     approvalComment: 'Comment (optional)',
     approvalRejectReasonRequired: 'A reason is required to reject.',
     pendingOn: 'Pending on',
+    overReceiptReason: 'Over-receipt reason',
+    overReceiptReasonHint: 'Required if quantity exceeds what remains on the order',
   },
 
   status: {

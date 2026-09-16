@@ -126,9 +126,25 @@ describe('Purchase Execution (e2e)', () => {
     await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId, accessLevel: 'FULL' } });
 
     const approvalPermissions = await prisma.permission.findMany({
-      where: { code: { in: ['purchase.order.view', 'purchase.order.approve', 'purchase.order.reject', 'documents.view'] } },
+      where: {
+        code: {
+          in: [
+            'purchase.order.view',
+            'purchase.order.approve',
+            'purchase.order.reject',
+            'documents.view',
+            'purchase_execution.view',
+            'purchase_execution.create',
+            'purchase_execution.price_view',
+            'purchase_execution.receipt.approve',
+            'purchase_execution.receipt.reject',
+            'purchase_execution.invoice.approve',
+            'purchase_execution.invoice.reject',
+          ],
+        },
+      },
     });
-    for (const roleCode of ['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'FINANCE_USER', 'ACCOUNTING_USER']) {
+    for (const roleCode of ['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'FINANCE_USER', 'ACCOUNTING_USER', 'WAREHOUSE_SUPERVISOR']) {
       const role = await prisma.role.create({ data: { tenantId, code: roleCode, name: roleCode } });
       await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
       await prisma.rolePermission.createMany({ data: approvalPermissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
@@ -148,6 +164,37 @@ describe('Purchase Execution (e2e)', () => {
       if (current.body.approvalStatus === 'APPROVED') return;
       await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${orderId}/approve`)).send({}).expect(201);
     }
+  }
+
+  async function fullyApproveGoodsReceipt(receiptId: string) {
+    for (let i = 0; i < 5; i++) {
+      const current = await approverAuth(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${receiptId}`)).expect(200);
+      if (current.body.approvalStatus === 'APPROVED' || current.body.approvalStatus === 'NOT_REQUIRED') return;
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts/${receiptId}/approve`)).send({}).expect(201);
+    }
+  }
+
+  async function fullyApprovePurchaseInvoice(invoiceId: string) {
+    for (let i = 0; i < 5; i++) {
+      const current = await approverAuth(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-invoices/${invoiceId}`)).expect(200);
+      if (current.body.approvalStatus === 'APPROVED' || current.body.approvalStatus === 'NOT_REQUIRED') return;
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-invoices/${invoiceId}/approve`)).send({}).expect(201);
+    }
+  }
+
+  /** A restricted user holding only WAREHOUSE_USER's real permissions — no
+   * PURCHASE_PRICE_VIEW, no approve/reject — for testing price redaction
+   * and forced-price behavior from the warehouse side. */
+  async function setupWarehouseUser(): Promise<string> {
+    const email = `pex-warehouse-${run}@e2e.test`;
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Warehouse User' }).expect(201);
+    const membership = await prisma.tenantMembership.create({ data: { tenantId: tenant1Id, userId: reg.body.userId, status: 'ACTIVE' } });
+    await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId: org1Id, accessLevel: 'FULL' } });
+    const permissions = await prisma.permission.findMany({ where: { code: { in: ['purchase_execution.view', 'purchase_execution.create', 'purchase_execution.edit', 'documents.view'] } } });
+    const role = await prisma.role.create({ data: { tenantId: tenant1Id, code: `WAREHOUSE_USER_${run}`, name: 'Warehouse (restricted)' } });
+    await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+    await prisma.rolePermission.createMany({ data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+    return reg.body.accessToken;
   }
 
   async function createConfirmedSupplierOrder(quantity: number, price = 10) {
@@ -200,15 +247,27 @@ describe('Purchase Execution (e2e)', () => {
       expect(Number(fulfillmentMid.body[0].received)).toBeCloseTo(60, 6);
       expect(Number(fulfillmentMid.body[0].remainingToReceive)).toBeCloseTo(40, 6);
 
-      // Over-receipt: requesting 50 when only 40 remains is rejected.
+      // Over-receipt: requesting 50 when only 40 remains is rejected outright with no reason...
       const created2 = await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_ORDER_TYPE}/${order.id}/create-based-on/${GOODS_RECEIPT_TYPE}`)).expect(201);
       await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/goods-receipts/${created2.body.id}`))
         .send({ expectedVersion: created2.body.version, lines: [{ productId, unitId, quantity: 50, price: 10, warehouseId, supplierOrderLineId: order.lines[0].id }] })
+        .expect(400);
+
+      // ...but is accepted as a draft with a reason, and now needs WAREHOUSE_SUPERVISOR approval before posting.
+      await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/goods-receipts/${created2.body.id}`))
+        .send({ expectedVersion: created2.body.version, lines: [{ productId, unitId, quantity: 50, price: 10, warehouseId, supplierOrderLineId: order.lines[0].id, overReceiptReason: 'Supplier shipped extra units' }] })
         .expect(200);
       const gr2Over = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${created2.body.id}`)).expect(200);
-      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr2Over.body.id}/post`))
+      expect(gr2Over.body.approvalStatus).toBe('PENDING');
+      const overSteps = await auth1(
+        request(app.getHttpServer()).get('/approval-steps').query({ documentType: GOODS_RECEIPT_TYPE, documentId: gr2Over.body.id }),
+      ).expect(200);
+      expect(overSteps.body).toHaveLength(1);
+      expect(overSteps.body[0].stepType).toBe('WAREHOUSE_SUPERVISOR');
+      const blockedPost = await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr2Over.body.id}/post`))
         .send({ expectedVersion: gr2Over.body.version })
-        .expect(422);
+        .expect(400);
+      expect(blockedPost.body.message).toMatch(/approval/i);
 
       // Correct second receipt of the remaining 40.
       await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/goods-receipts/${created2.body.id}`))
@@ -405,6 +464,122 @@ describe('Purchase Execution (e2e)', () => {
 
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
         .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 6, price: 9, supplierOrderLineId: po.body.lines[0].id }] })
+        .expect(201);
+    });
+
+    it('over-delivery on create requires a reason, then a WAREHOUSE_SUPERVISOR approval before posting', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 9 }] })
+        .expect(201);
+      await fullyApprovePurchaseOrder(po.body.id);
+
+      // Requesting 8 against an order of 5, with no reason, is rejected outright.
+      const rejected = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 8, price: 9, supplierOrderLineId: po.body.lines[0].id }] })
+        .expect(400);
+      expect(rejected.body.message).toMatch(/overReceiptReason/i);
+
+      // With a reason, the draft is accepted but requires approval.
+      const gr = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 8, price: 9, supplierOrderLineId: po.body.lines[0].id, overReceiptReason: 'Supplier over-shipped' }] })
+        .expect(201);
+      expect(gr.body.approvalStatus).toBe('PENDING');
+
+      const steps = await auth1(request(app.getHttpServer()).get('/approval-steps').query({ documentType: GOODS_RECEIPT_TYPE, documentId: gr.body.id })).expect(200);
+      expect(steps.body).toHaveLength(1);
+      expect(steps.body[0].stepType).toBe('WAREHOUSE_SUPERVISOR');
+
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr.body.id}/post`))
+        .send({ expectedVersion: gr.body.version })
+        .expect(400);
+
+      // Self-approval is blocked even for the over-delivery step.
+      const selfApprove = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts/${gr.body.id}/approve`)).send({});
+      expect(selfApprove.status).toBe(400);
+
+      await fullyApproveGoodsReceipt(gr.body.id);
+      const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${gr.body.id}`)).expect(200);
+      expect(approved.body.approvalStatus).toBe('APPROVED');
+
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr.body.id}/post`))
+        .send({ expectedVersion: approved.body.version })
+        .expect(201);
+    });
+  });
+
+  describe('Approval workflow MVP — warehouse price/tax visibility on Goods Receipt', () => {
+    it('hides price/lineTotal from a user without PURCHASE_PRICE_VIEW, and forces the PO price regardless of what they submit', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 10, price: 20 }] })
+        .expect(201);
+      await fullyApprovePurchaseOrder(po.body.id);
+
+      const warehouseToken = await setupWarehouseUser();
+      const warehouseAuth = (req: request.Test) => req.set('Authorization', `Bearer ${warehouseToken}`).set('X-Tenant-Id', tenant1Id);
+
+      // Warehouse user submits a different price — silently forced to the PO's 20, not rejected.
+      const gr = await warehouseAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 10, price: 999, supplierOrderLineId: po.body.lines[0].id }] })
+        .expect(201);
+      expect(gr.body.lines[0].price).toBeUndefined();
+      expect(gr.body.lines[0].lineTotal).toBeUndefined();
+
+      // The stored value is the PO's price, not the submitted one — confirmed via a price-view-holding token.
+      const asApprover = await approverAuth(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${gr.body.id}`)).expect(200);
+      expect(Number(asApprover.body.lines[0].price)).toBeCloseTo(20, 6);
+
+      // A price-view holder submitting a different price on a fresh order IS respected.
+      const po2 = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 20 }] })
+        .expect(201);
+      await fullyApprovePurchaseOrder(po2.body.id);
+      const gr2 = await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po2.body.id, lines: [{ productId, unitId, quantity: 5, price: 18, supplierOrderLineId: po2.body.lines[0].id }] })
+        .expect(201);
+      expect(Number(gr2.body.lines[0].price)).toBeCloseTo(18, 6);
+    });
+  });
+
+  describe('Approval workflow MVP — Purchase Invoice price variance', () => {
+    it('requires ACCOUNTING approval above the 2% tolerance, and posts directly within it', async () => {
+      const po = await createConfirmedSupplierOrder(10, 10);
+      const grCreated = await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_ORDER_TYPE}/${po.id}/create-based-on/${GOODS_RECEIPT_TYPE}`)).expect(201);
+      await fullyApproveGoodsReceipt(grCreated.body.id);
+      const gr = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${grCreated.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr.body.id}/post`)).send({ expectedVersion: gr.body.version }).expect(201);
+
+      // 3% over the GRN's price of 10 -> exceeds tolerance -> needs approval.
+      const invOver = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-invoices`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, goodsReceiptId: gr.body.id, lines: [{ lineType: 'INVENTORY', productId, unitId, quantity: 10, price: 10.3, goodsReceiptLineId: gr.body.lines[0].id }] })
+        .expect(201);
+      expect(invOver.body.approvalStatus).toBe('PENDING');
+      const invSteps = await auth1(request(app.getHttpServer()).get('/approval-steps').query({ documentType: PURCHASE_INVOICE_TYPE, documentId: invOver.body.id })).expect(200);
+      expect(invSteps.body).toHaveLength(1);
+      expect(invSteps.body[0].stepType).toBe('ACCOUNTING');
+
+      await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_INVOICE_TYPE}/${invOver.body.id}/post`))
+        .send({ expectedVersion: invOver.body.version })
+        .expect(400);
+      await fullyApprovePurchaseInvoice(invOver.body.id);
+      const approvedInv = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-invoices/${invOver.body.id}`)).expect(200);
+      expect(approvedInv.body.approvalStatus).toBe('APPROVED');
+      await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_INVOICE_TYPE}/${invOver.body.id}/post`))
+        .send({ expectedVersion: approvedInv.body.version })
+        .expect(201);
+
+      // A second GRN + invoice at 1% variance (within 2% tolerance) posts directly.
+      const po2 = await createConfirmedSupplierOrder(10, 10);
+      const gr2Created = await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_ORDER_TYPE}/${po2.id}/create-based-on/${GOODS_RECEIPT_TYPE}`)).expect(201);
+      await fullyApproveGoodsReceipt(gr2Created.body.id);
+      const gr2 = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${gr2Created.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr2.body.id}/post`)).send({ expectedVersion: gr2.body.version }).expect(201);
+
+      const invWithin = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-invoices`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, goodsReceiptId: gr2.body.id, lines: [{ lineType: 'INVENTORY', productId, unitId, quantity: 10, price: 10.1, goodsReceiptLineId: gr2.body.lines[0].id }] })
+        .expect(201);
+      expect(invWithin.body.approvalStatus).toBe('NOT_REQUIRED');
+      await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_INVOICE_TYPE}/${invWithin.body.id}/post`))
+        .send({ expectedVersion: invWithin.body.version })
         .expect(201);
     });
   });

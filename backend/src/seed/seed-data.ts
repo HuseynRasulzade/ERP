@@ -24,6 +24,7 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.PURCHASE_ORDER_APPROVE,
       PermissionCodes.PURCHASE_VIEW,
       PermissionCodes.PURCHASE_CREATE,
+      PermissionCodes.PURCHASE_PRICE_VIEW,
       PermissionCodes.DOCUMENTS_VIEW,
     ],
   },
@@ -61,6 +62,7 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.PURCHASE_ORDER_APPROVE,
       PermissionCodes.PURCHASE_ORDER_REJECT,
       PermissionCodes.PURCHASE_PAYMENT_SCHEDULE_VIEW,
+      PermissionCodes.PURCHASE_PRICE_VIEW,
       PermissionCodes.DOCUMENTS_VIEW,
     ],
   },
@@ -72,17 +74,25 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.PURCHASE_ORDER_APPROVE,
       PermissionCodes.PURCHASE_ORDER_REJECT,
       PermissionCodes.PURCHASE_VIEW_ACCOUNTING,
+      PermissionCodes.PURCHASE_PRICE_VIEW,
+      PermissionCodes.PURCHASE_INVOICE_APPROVE,
+      PermissionCodes.PURCHASE_INVOICE_REJECT,
       PermissionCodes.ACCOUNTING_JOURNAL_VIEW,
       PermissionCodes.DOCUMENTS_VIEW,
     ],
   },
-  // Inert placeholders (spec's wider named-role list) — view-only today,
-  // ready for a future increment to extend.
   {
     code: 'WAREHOUSE_USER',
     name: 'Warehouse',
-    permissions: [PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+    permissions: [PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.PURCHASE_EDIT, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW],
   },
+  {
+    code: 'WAREHOUSE_SUPERVISOR',
+    name: 'Warehouse Supervisor',
+    permissions: [PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_RECEIPT_APPROVE, PermissionCodes.PURCHASE_RECEIPT_REJECT, PermissionCodes.DOCUMENTS_VIEW],
+  },
+  // Inert placeholders (spec's wider named-role list) — view-only today,
+  // ready for a future increment to extend.
   {
     code: 'SALES_USER',
     name: 'Sales',
@@ -114,6 +124,7 @@ export const SEED_DEMO_USERS: { email: string; password: string; displayName: st
   { email: 'finance_user@acme.test', password: 'Passw0rd!23', displayName: 'Finance User', roleCode: 'FINANCE_USER' },
   { email: 'accounting_user@acme.test', password: 'Passw0rd!23', displayName: 'Accounting User', roleCode: 'ACCOUNTING_USER' },
   { email: 'warehouse_user@acme.test', password: 'Passw0rd!23', displayName: 'Warehouse User', roleCode: 'WAREHOUSE_USER' },
+  { email: 'warehouse_supervisor@acme.test', password: 'Passw0rd!23', displayName: 'Warehouse Supervisor', roleCode: 'WAREHOUSE_SUPERVISOR' },
   { email: 'sales_manager@acme.test', password: 'Passw0rd!23', displayName: 'Sales Manager', roleCode: 'SALES_MANAGER' },
   { email: 'auditor@acme.test', password: 'Passw0rd!23', displayName: 'Auditor', roleCode: 'AUDITOR' },
 ];

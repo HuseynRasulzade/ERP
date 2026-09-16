@@ -667,4 +667,11 @@ export interface LineDraft {
   // the user) so a requirement-sourced Purchase Order line keeps its
   // traceability link after a later manual price/tax edit.
   requirementLineId?: string;
+  // Same passthrough for a Goods Receipt line sourced from a Purchase
+  // Order line — required for the backend to resolve the PO price and
+  // check remaining quantity when this line is re-saved.
+  supplierOrderLineId?: string;
+  // Requester's justification when this line's quantity exceeds the
+  // source PO line's remaining quantity — see GoodsReceiptService.
+  overReceiptReason?: string;
 }

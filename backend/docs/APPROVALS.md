@@ -86,12 +86,51 @@ each) plus four inert placeholders (`WAREHOUSE_USER`, `SALES_USER`,
 (`acme` / `sinteks` / `PROCUREMENT`), with one named test user per role
 (`department_head@acme.test` etc., password `Passw0rd!23`).
 
+## Goods Receipt (increment 2)
+
+`approvalStatus` added the same way. Plan is usually empty
+(`NOT_REQUIRED`) — a single `WAREHOUSE_SUPERVISOR` step is only added when
+a line's quantity exceeds its source PO line's remaining quantity
+(`GoodsReceiptApprovalPlanProvider`). The over-quantity check itself moved
+from posting-time-only to `resolveLines` (`create`/`update`): a line
+exceeding remaining requires `GoodsReceiptLine.overReceiptReason` or the
+save is rejected outright — never silently allowed as a draft.
+`GoodsReceiptPostingHandler` blocks post unless `approvalStatus` is
+`APPROVED` or `NOT_REQUIRED`, and — once `APPROVED` — skips its own
+independent "exceeds remaining" hard-reject (the approval **is** the
+authorization to exceed it). Editing lines re-plans (delete-and-recreate
+`PENDING` steps) unless a step has already been decided, to avoid
+discarding an in-progress approval.
+
+A new `purchase_execution.price_view` permission gates whether a caller
+sees or can override `price`/`lineTotal` on a Goods Receipt: without it,
+`resolveLines` silently forces the linked PO line's price regardless of
+what's submitted (not an error — see `goods-receipt.service.ts`), and
+`get`/`list`/`create`/`update` responses strip `price`/`lineTotal` from
+every line via `goods-receipt-redaction.util.ts`. `WAREHOUSE_USER` does
+not hold this permission; `PROCUREMENT_OFFICER`/`FINANCE_USER`/
+`ACCOUNTING_USER` do. Frontend: `DocKind.priceViewPerm` makes
+`showPrice`/`showTax` permission-derived instead of static (currently only
+`GoodsReceiptPage`) — see `DocDetailPage.tsx`/`DocListPage.tsx`.
+
+## Purchase Invoice (increment 2)
+
+`approvalStatus` added the same way, reusing the existing `ACCOUNTING`
+step type (no new enum value). `PurchaseInvoiceApprovalPlanProvider`
+compares each line's price against its source (the linked Goods Receipt
+line if any, else the linked Purchase Order line) — a difference over 2%
+(`PURCHASE_INVOICE_PRICE_VARIANCE_TOLERANCE_PERCENT`) requires
+`ACCOUNTING_USER` approval before posting; within tolerance posts
+directly. This is independent of `PurchaseMatchingService`'s own
+on-demand, 0-tolerance three-way-match report, which is unchanged.
+
 ## What's deliberately out of scope
 
 Condition DSL, DAG-based conditional routing, quorum/voting, delegation,
 SLA/escalation/timers, material-change reapproval detection, digital
-signatures, approval inbox UI, bulk approval, route simulation, and
-approval for any document type beyond Purchase Requirement/Order. See
+signatures, approval inbox UI, bulk approval, route simulation, a GL
+variance line for invoice price variance, and approval for any document
+type beyond Purchase Requirement/Order/Goods Receipt/Purchase Invoice. See
 `docs/PURCHASE_EXECUTION.md`/`PROCUREMENT.md` and
 `document-framework/base-document.ts`'s "Phase 26" comment for the
 original deferred scope.

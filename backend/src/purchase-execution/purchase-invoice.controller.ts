@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { PurchaseInvoiceService } from './purchase-invoice.service';
 import { CreatePurchaseInvoiceDto, UpdatePurchaseInvoiceDto } from './dto/purchase-execution.dto';
+import { ApprovalDecisionDto } from '../approvals/dto/approval-decision.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
@@ -47,5 +48,31 @@ export class PurchaseInvoiceController {
   ) {
     const { expectedVersion, ...patch } = dto;
     return this.invoices.update(tenantId, membershipId, organizationId, id, user.userId, expectedVersion, patch);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_INVOICE_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.invoices.approve(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_INVOICE_REJECT)
+  @Post(':id/reject')
+  reject(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.invoices.reject(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
   }
 }
