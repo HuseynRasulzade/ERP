@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
+import { exportToCsv } from '../../utils/csvExport';
 
 const PRODUCT_TYPES = ['GOODS', 'SERVICE', 'WORK', 'SET'];
 const TRACKING_MODES = ['NONE', 'OPTIONAL', 'REQUIRED'];
@@ -181,11 +182,34 @@ function ProductsTab() {
         <>
           <div className="page-header">
             <h2>{t.catalog.products}</h2>
-            {hasPermission('product.create') && (
-              <button className="primary" onClick={() => setShowForm((s) => !s)}>
-                {showForm ? t.common.cancel : `+ ${t.common.create} ${t.catalog.product}`}
-              </button>
-            )}
+            <div className="actions">
+              {products.length > 0 && (
+                <button
+                  onClick={() =>
+                    exportToCsv(
+                      t.catalog.products,
+                      [
+                        { header: t.catalog.code, value: (p: Product) => p.code },
+                        { header: t.common.name, value: (p: Product) => p.name },
+                        { header: t.catalog.productType, value: (p: Product) => p.productType },
+                        { header: 'SKU', value: (p: Product) => p.sku },
+                        { header: 'Barcode', value: (p: Product) => p.barcode },
+                        { header: 'Manufacturer', value: (p: Product) => p.manufacturer },
+                        { header: t.common.status, value: (p: Product) => (p.active ? 'ACTIVE' : 'INACTIVE') },
+                      ],
+                      products,
+                    )
+                  }
+                >
+                  {t.common.exportExcel}
+                </button>
+              )}
+              {hasPermission('product.create') && (
+                <button className="primary" onClick={() => setShowForm((s) => !s)}>
+                  {showForm ? t.common.cancel : `+ ${t.common.create} ${t.catalog.product}`}
+                </button>
+              )}
+            </div>
           </div>
 
           {showForm && (

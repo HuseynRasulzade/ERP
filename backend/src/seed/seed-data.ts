@@ -17,6 +17,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     code: 'PROCUREMENT_OFFICER',
     name: 'Procurement Officer',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
       PermissionCodes.PURCHASE_ORDER_VIEW,
       PermissionCodes.PURCHASE_ORDER_CREATE,
@@ -32,6 +34,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     code: 'DEPARTMENT_HEAD',
     name: 'Department Head',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
       PermissionCodes.PURCHASE_REQUIREMENT_APPROVE,
       PermissionCodes.PURCHASE_REQUIREMENT_REJECT,
@@ -46,6 +50,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     code: 'DIRECTOR',
     name: 'Director',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
       PermissionCodes.PURCHASE_ORDER_VIEW,
       PermissionCodes.PURCHASE_ORDER_APPROVE,
@@ -60,6 +66,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     code: 'FINANCE_USER',
     name: 'Finance',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.PURCHASE_ORDER_VIEW,
       PermissionCodes.PURCHASE_ORDER_APPROVE,
       PermissionCodes.PURCHASE_ORDER_REJECT,
@@ -72,6 +80,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     code: 'ACCOUNTING_USER',
     name: 'Accounting',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.PURCHASE_ORDER_VIEW,
       PermissionCodes.PURCHASE_ORDER_APPROVE,
       PermissionCodes.PURCHASE_ORDER_REJECT,
@@ -86,24 +96,32 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
   {
     code: 'WAREHOUSE_USER',
     name: 'Warehouse',
-    permissions: [PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.PURCHASE_EDIT, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+    permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.PURCHASE_EDIT, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW],
   },
   {
     code: 'WAREHOUSE_SUPERVISOR',
     name: 'Warehouse Supervisor',
-    permissions: [PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_RECEIPT_APPROVE, PermissionCodes.PURCHASE_RECEIPT_REJECT, PermissionCodes.DOCUMENTS_VIEW],
+    permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_RECEIPT_APPROVE, PermissionCodes.PURCHASE_RECEIPT_REJECT, PermissionCodes.DOCUMENTS_VIEW],
   },
   // Inert placeholders (spec's wider named-role list) — view-only today,
   // ready for a future increment to extend.
   {
     code: 'SALES_USER',
     name: 'Sales',
-    permissions: [PermissionCodes.SALES_ORDER_VIEW, PermissionCodes.SALES_ORDER_CREATE, PermissionCodes.SALES_INVOICE_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+    permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,PermissionCodes.SALES_ORDER_VIEW, PermissionCodes.SALES_ORDER_CREATE, PermissionCodes.SALES_INVOICE_VIEW, PermissionCodes.DOCUMENTS_VIEW],
   },
   {
     code: 'SALES_MANAGER',
     name: 'Sales Manager',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.SALES_ORDER_VIEW,
       PermissionCodes.SALES_ORDER_CREATE,
       PermissionCodes.SALES_ORDER_CONFIRM,
@@ -118,6 +136,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     code: 'AUDITOR',
     name: 'Auditor',
     permissions: [
+      PermissionCodes.ORGANIZATION_VIEW,
+      PermissionCodes.PRODUCT_VIEW,
       PermissionCodes.AUDIT_VIEW,
       PermissionCodes.DOCUMENTS_VIEW,
       PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
