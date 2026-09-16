@@ -19,6 +19,9 @@ import { SalesInvoiceRepository } from './sales-invoice.repository';
 import { SalesOrderPostingHandler } from './sales-order.posting-handler';
 import { SalesInvoicePostingHandler } from './sales-invoice.posting-handler';
 import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper';
+import { ApprovalsModule } from '../approvals/approvals.module';
+import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
+import { SalesOrderApprovalPlanProvider } from './sales-order-approval-plan.provider';
 
 /**
  * Phase 4 — Sales documents (orders + invoices). First real business
@@ -40,6 +43,7 @@ import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper'
     SalesPreorderModule,
     SalesExecutionModule,
     SettlementModule,
+    ApprovalsModule,
   ],
   controllers: [SalesOrderController, SalesInvoiceController],
   providers: [
@@ -50,6 +54,7 @@ import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper'
     SalesOrderPostingHandler,
     SalesInvoicePostingHandler,
     SalesOrderToSalesInvoiceMapper,
+    SalesOrderApprovalPlanProvider,
   ],
   exports: [SalesOrderService, SalesInvoiceService],
 })
@@ -61,6 +66,8 @@ export class SalesDocumentsModule implements OnModuleInit {
     private readonly orderHandler: SalesOrderPostingHandler,
     private readonly invoiceHandler: SalesInvoicePostingHandler,
     private readonly orderToInvoiceMapper: SalesOrderToSalesInvoiceMapper,
+    private readonly approvalPlanRegistry: ApprovalPlanRegistryService,
+    private readonly orderApprovalPlan: SalesOrderApprovalPlanProvider,
   ) {}
 
   onModuleInit() {
@@ -69,5 +76,6 @@ export class SalesDocumentsModule implements OnModuleInit {
     this.registry.registerHandler(this.orderHandler);
     this.registry.registerHandler(this.invoiceHandler);
     this.registry.registerMapper(this.orderToInvoiceMapper);
+    this.approvalPlanRegistry.register(this.orderApprovalPlan);
   }
 }

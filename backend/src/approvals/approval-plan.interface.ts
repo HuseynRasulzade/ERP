@@ -1,6 +1,6 @@
 import { PrismaTransactionClient } from '../prisma/prisma.service';
 
-export type ApprovalStepType = 'PROCUREMENT_OFFICER' | 'DEPARTMENT_HEAD' | 'DIRECTOR' | 'FINANCE' | 'ACCOUNTING' | 'WAREHOUSE_SUPERVISOR';
+export type ApprovalStepType = 'PROCUREMENT_OFFICER' | 'DEPARTMENT_HEAD' | 'DIRECTOR' | 'FINANCE' | 'ACCOUNTING' | 'WAREHOUSE_SUPERVISOR' | 'SALES_MANAGER';
 
 export interface ApprovalStepPlanItem {
   sequence: number;

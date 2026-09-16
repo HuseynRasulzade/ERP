@@ -101,7 +101,16 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
   {
     code: 'SALES_MANAGER',
     name: 'Sales Manager',
-    permissions: [PermissionCodes.SALES_ORDER_VIEW, PermissionCodes.SALES_ORDER_CREATE, PermissionCodes.SALES_ORDER_CONFIRM, PermissionCodes.SALES_INVOICE_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+    permissions: [
+      PermissionCodes.SALES_ORDER_VIEW,
+      PermissionCodes.SALES_ORDER_CREATE,
+      PermissionCodes.SALES_ORDER_CONFIRM,
+      PermissionCodes.SALES_ORDER_APPROVE,
+      PermissionCodes.SALES_ORDER_REJECT,
+      PermissionCodes.SALES_CREDIT_OVERRIDE,
+      PermissionCodes.SALES_INVOICE_VIEW,
+      PermissionCodes.DOCUMENTS_VIEW,
+    ],
   },
   {
     code: 'AUDITOR',

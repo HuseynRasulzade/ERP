@@ -164,6 +164,8 @@ const en = {
       DIRECTOR: 'Director',
       FINANCE: 'Finance',
       ACCOUNTING: 'Accounting',
+      WAREHOUSE_SUPERVISOR: 'Warehouse supervisor',
+      SALES_MANAGER: 'Sales manager',
     },
   },
 

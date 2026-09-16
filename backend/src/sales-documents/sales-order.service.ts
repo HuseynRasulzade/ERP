@@ -13,6 +13,7 @@ import {
 import { computeLineTotals, sumDocumentTotals } from './sales-totals.util';
 import { SALES_ORDER_TYPE } from './sales-order.repository';
 import { CreateSalesOrderDto, SalesLineItemDto } from './dto/sales-document.dto';
+import { ApprovalService } from '../approvals/approval.service';
 
 const SEQUENCE_PREFIX = 'SO';
 const CUSTOMER_TYPES = ['CUSTOMER', 'BOTH'];
@@ -45,6 +46,7 @@ export class SalesOrderService {
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
     private readonly prices: PriceListService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -141,6 +143,8 @@ export class SalesOrderService {
           },
         });
       }
+
+      await this.approvals.createStepsForDocument(tenantId, organizationId, SALES_ORDER_TYPE, header.id, tx);
 
       await this.audit.record(
         {
@@ -272,6 +276,17 @@ export class SalesOrderService {
             },
           });
         }
+
+        // Re-plan approval steps since a line edit can change the grand
+        // total (and therefore the threshold/credit-check trigger) — but
+        // never discard a decision already made.
+        const decidedStep = await tx.approvalStep.findFirst({
+          where: { tenantId, documentType: SALES_ORDER_TYPE, documentId: id, status: { in: ['APPROVED', 'REJECTED'] } },
+        });
+        if (!decidedStep) {
+          await tx.approvalStep.deleteMany({ where: { tenantId, documentType: SALES_ORDER_TYPE, documentId: id, status: 'PENDING' } });
+          await this.approvals.createStepsForDocument(tenantId, organizationId, SALES_ORDER_TYPE, id, tx);
+        }
       }
 
       return tx.salesOrder.findFirst({
@@ -291,6 +306,22 @@ export class SalesOrderService {
     });
 
     return updated;
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, SALES_ORDER_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, SALES_ORDER_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   // -- validation helpers ----------------------------------------------------

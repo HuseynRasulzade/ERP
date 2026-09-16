@@ -124,13 +124,48 @@ line if any, else the linked Purchase Order line) — a difference over 2%
 directly. This is independent of `PurchaseMatchingService`'s own
 on-demand, 0-tolerance three-way-match report, which is unchanged.
 
+## Sales Order (increment 3, `src/sales-documents/`)
+
+`approvalStatus` on `SalesOrder` predates this increment (a dead placeholder
+column from an earlier phase) — this increment is the first to read or write
+it. `SalesOrderApprovalPlanProvider` emits a single `SALES_MANAGER` step when
+either the order's AZN-equivalent grand total exceeds
+`SALES_ORDER_MANAGER_APPROVAL_THRESHOLD` (15,000), or `credit-check.util.ts`'s
+threshold calculation returns `APPROVAL_REQUIRED` — one step either way, not
+two. `SalesOrderPostingHandler.validateForPosting` (which already **is**
+`ConfirmCustomerOrder`, spec section 22) refuses to confirm until
+`approvalStatus` is `APPROVED` or `NOT_REQUIRED`.
+
+The credit check itself changed shape: an order landing in the 10% grace band
+above the counterparty's limit used to be a `WARNING` that never blocked
+anything — a no-op. It now returns `APPROVAL_REQUIRED`/`REQUIRE_APPROVAL`
+(values this codebase already defined but never produced) and requires the
+same `SALES_MANAGER` approval before posting. A result beyond the grace band
+is still `BLOCKED` — a hard stop no approval can override, checked again by
+`validateForPosting` itself (independent of `approvalStatus`) exactly as
+before. The threshold math is now in `sales-preorder/credit-check.util.ts`, a
+pure function shared by `CreditCheckService.check` (posting-time, via
+`this.prisma`) and the approval provider's `planSteps` (create-time, inside
+the creation transaction) — extracted so both run the identical calculation
+without one calling through the other's transaction boundary.
+
+Auto-creating a `StockReservation` on order confirmation was attempted and
+reverted in this same increment: it silently consumed the remaining-quantity
+budget that `ReservationService`'s existing explicit, manual reservation call
+depends on, breaking `sales-execution.e2e-spec.ts`'s reservation-consumption
+test. Reservation stays exactly what `docs/SALES_PREORDER.md` already
+documents it as — a separate, explicit action — and this increment does not
+touch it.
+
 ## What's deliberately out of scope
 
 Condition DSL, DAG-based conditional routing, quorum/voting, delegation,
 SLA/escalation/timers, material-change reapproval detection, digital
 signatures, approval inbox UI, bulk approval, route simulation, a GL
 variance line for invoice price variance, and approval for any document
-type beyond Purchase Requirement/Order/Goods Receipt/Purchase Invoice. See
+type beyond Purchase Requirement/Order/Goods Receipt/Purchase Invoice/Sales
+Order, and auto-stock-reservation on Sales Order confirmation (tried and
+reverted — see above). See
 `docs/PURCHASE_EXECUTION.md`/`PROCUREMENT.md` and
 `document-framework/base-document.ts`'s "Phase 26" comment for the
 original deferred scope.

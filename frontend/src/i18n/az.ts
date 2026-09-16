@@ -166,6 +166,8 @@ const az: Translations = {
       DIRECTOR: 'Direktor',
       FINANCE: 'Maliyyə',
       ACCOUNTING: 'Mühasibatlıq',
+      WAREHOUSE_SUPERVISOR: 'Anbar nəzarətçisi',
+      SALES_MANAGER: 'Satış meneceri',
     },
   },
 

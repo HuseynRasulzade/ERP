@@ -2,19 +2,18 @@ import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundAppError } from '../common/errors/app-error';
+import { calculateCreditCheck } from './credit-check.util';
 
 export interface CreditCheckResult {
-  status: 'NOT_CHECKED' | 'WITHIN_LIMIT' | 'WARNING' | 'BLOCKED' | 'APPROVAL_REQUIRED';
+  status: 'NOT_CHECKED' | 'WITHIN_LIMIT' | 'APPROVAL_REQUIRED' | 'BLOCKED';
   creditLimit: string | null;
   currentExposure: null; // spec section 55: no AR data source exists yet (Phase 13) — never fabricated
   newOrderExposure: string;
   projectedExposure: string;
   availableLimit: string | null;
-  actionPolicy: 'NONE' | 'WARN' | 'BLOCK' | 'REQUIRE_APPROVAL';
+  actionPolicy: 'NONE' | 'REQUIRE_APPROVAL' | 'BLOCK';
   explanation: string;
 }
-
-const WARNING_GRACE_PERCENT = 10;
 
 /**
  * CreditCheckService (spec sections 54-58) — a deliberately narrow
@@ -25,6 +24,10 @@ const WARNING_GRACE_PERCENT = 10;
  * amount alone exceed the counterparty's configured credit limit — not a
  * true exposure check. `projectedExposure` reflects that (it equals
  * `newOrderExposure`) rather than pretending to include existing debt.
+ * The threshold math itself lives in `credit-check.util.ts` so
+ * `SalesOrderApprovalPlanProvider` runs the exact same calculation at
+ * create time (inside the creation transaction) that this service runs
+ * again at posting time.
  */
 @Injectable()
 export class CreditCheckService {
@@ -34,49 +37,18 @@ export class CreditCheckService {
     const counterparty = await this.prisma.counterparty.findFirst({ where: { id: counterpartyId, organizationId, tenantId } });
     if (!counterparty) throw new NotFoundAppError('Counterparty', counterpartyId);
 
-    if (!counterparty.creditLimit) {
-      return {
-        status: 'NOT_CHECKED',
-        creditLimit: null,
-        currentExposure: null,
-        newOrderExposure: orderAmount.toFixed(2),
-        projectedExposure: orderAmount.toFixed(2),
-        availableLimit: null,
-        actionPolicy: 'NONE',
-        explanation: 'No credit limit configured for this counterparty — nothing to check against.',
-      };
-    }
-
-    const limit = new Decimal(counterparty.creditLimit.toString());
-    const availableLimit = limit.minus(orderAmount);
-    const warningThreshold = limit.mul(1 + WARNING_GRACE_PERCENT / 100);
-
-    let status: CreditCheckResult['status'];
-    let actionPolicy: CreditCheckResult['actionPolicy'];
-    let explanation: string;
-    if (orderAmount.lte(limit)) {
-      status = 'WITHIN_LIMIT';
-      actionPolicy = 'NONE';
-      explanation = `Order amount ${orderAmount.toFixed(2)} is within the configured credit limit ${limit.toFixed(2)}.`;
-    } else if (orderAmount.lte(warningThreshold)) {
-      status = 'WARNING';
-      actionPolicy = 'WARN';
-      explanation = `Order amount ${orderAmount.toFixed(2)} exceeds the credit limit ${limit.toFixed(2)} but is within the ${WARNING_GRACE_PERCENT}% warning threshold.`;
-    } else {
-      status = 'BLOCKED';
-      actionPolicy = 'BLOCK';
-      explanation = `Order amount ${orderAmount.toFixed(2)} exceeds the credit limit ${limit.toFixed(2)} beyond the warning threshold.`;
-    }
+    const limit = counterparty.creditLimit ? new Decimal(counterparty.creditLimit.toString()) : null;
+    const calc = calculateCreditCheck(limit, orderAmount);
 
     return {
-      status,
-      creditLimit: limit.toFixed(2),
+      status: calc.status,
+      creditLimit: limit ? limit.toFixed(2) : null,
       currentExposure: null,
       newOrderExposure: orderAmount.toFixed(2),
       projectedExposure: orderAmount.toFixed(2),
-      availableLimit: availableLimit.toFixed(2),
-      actionPolicy,
-      explanation,
+      availableLimit: limit ? limit.minus(orderAmount).toFixed(2) : null,
+      actionPolicy: calc.actionPolicy,
+      explanation: calc.explanation,
     };
   }
 }
