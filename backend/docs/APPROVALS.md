@@ -124,6 +124,36 @@ line if any, else the linked Purchase Order line) — a difference over 2%
 directly. This is independent of `PurchaseMatchingService`'s own
 on-demand, 0-tolerance three-way-match report, which is unchanged.
 
+## Payment Order (increment 3, `src/treasury/`)
+
+New document chain: Purchase Invoice -> `PaymentRequest` (plain CRUD, no
+posting — mirrors `PurchaseRequirement`'s shape) -> `PaymentOrder` (full
+document-framework participant). `PaymentOrderApprovalPlanProvider` always
+emits exactly one `FINANCE` step (unlike every other provider's usually-
+or-sometimes-empty plan) — spec: "Ödəniş Tapşırığı maliyyə tərəfindən
+təsdiqlənsin". Posting `PaymentOrder` **is** the "Bank Ödənişi" event (Dr
+`SUPPLIER_PAYABLE` / Cr `BANK`, via the same `AccountingMappingService`
+pattern as every other posting handler) — a disclosed simplification
+folding "Bank Ödənişi" into this document's own posting rather than a
+fully separate document, since every field the spec asks a bank payment
+to carry (`bankReference`, a trackable `bankPaymentStatus`) already lives
+on `PaymentOrder`. It also reduces the linked `SupplierPayable.paidAmount`
+and flips it to `PAID` once fully covered. "Bank Uzlaşdırması"
+(reconciliation) is `PaymentOrderService.reconcile` — a lightweight action
+on the same row (`reconciled`/`reconciledAt`/`reconciledBy`/
+`bankStatementAmount`/`reconciliationDifference`), not a separate
+statement-import/matching engine.
+
+Segregation of duties (spec: "ödəniş icraçısı və təsdiqləyicisi eyni şəxs
+olmamalıdır") is enforced in `PaymentOrderPostingHandler.validateForPosting`
+— injects `RequestContextService` directly (rather than widening the
+shared `DocumentPostingHandler` interface to pass `userId` through, which
+would touch every existing handler) to compare the posting user against
+the `ApprovalStep.approvedBy` of the FINANCE step. This is in addition to,
+not instead of, `ApprovalService`'s own creator-cannot-approve-their-own-
+document check — two distinct identities are required across the full
+chain: creator ≠ approver, and separately, approver ≠ executor (poster).
+
 ## What's deliberately out of scope
 
 Condition DSL, DAG-based conditional routing, quorum/voting, delegation,

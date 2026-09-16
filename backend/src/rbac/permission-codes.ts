@@ -261,6 +261,17 @@ export const PermissionCodes = {
   PURCHASE_INVOICE_APPROVE: 'purchase_execution.invoice.approve',
   PURCHASE_INVOICE_REJECT: 'purchase_execution.invoice.reject',
 
+  // Treasury / payment chain (docs/APPROVALS.md)
+  PAYMENT_REQUEST_VIEW: 'treasury.payment_request.view',
+  PAYMENT_REQUEST_CREATE: 'treasury.payment_request.create',
+  PAYMENT_REQUEST_CANCEL: 'treasury.payment_request.cancel',
+  PAYMENT_ORDER_VIEW: 'treasury.payment_order.view',
+  PAYMENT_ORDER_CREATE: 'treasury.payment_order.create',
+  PAYMENT_ORDER_EDIT: 'treasury.payment_order.edit',
+  PAYMENT_ORDER_APPROVE: 'treasury.payment_order.approve',
+  PAYMENT_ORDER_REJECT: 'treasury.payment_order.reject',
+  PAYMENT_ORDER_RECONCILE: 'treasury.payment_order.reconcile',
+
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_VIEW_ALL_WAREHOUSES: 'inventory.view_all_warehouses',
@@ -519,6 +530,16 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.PURCHASE_RECEIPT_REJECT, module: 'purchase_execution', description: 'Reject an over-delivery on a goods receipt' },
   { code: PermissionCodes.PURCHASE_INVOICE_APPROVE, module: 'purchase_execution', description: 'Approve a purchase invoice price variance' },
   { code: PermissionCodes.PURCHASE_INVOICE_REJECT, module: 'purchase_execution', description: 'Reject a purchase invoice price variance' },
+
+  { code: PermissionCodes.PAYMENT_REQUEST_VIEW, module: 'treasury', description: 'View payment requests' },
+  { code: PermissionCodes.PAYMENT_REQUEST_CREATE, module: 'treasury', description: 'Create payment requests' },
+  { code: PermissionCodes.PAYMENT_REQUEST_CANCEL, module: 'treasury', description: 'Cancel payment requests' },
+  { code: PermissionCodes.PAYMENT_ORDER_VIEW, module: 'treasury', description: 'View payment orders' },
+  { code: PermissionCodes.PAYMENT_ORDER_CREATE, module: 'treasury', description: 'Create payment orders' },
+  { code: PermissionCodes.PAYMENT_ORDER_EDIT, module: 'treasury', description: 'Edit draft payment orders' },
+  { code: PermissionCodes.PAYMENT_ORDER_APPROVE, module: 'treasury', description: 'Approve a payment order (finance)' },
+  { code: PermissionCodes.PAYMENT_ORDER_REJECT, module: 'treasury', description: 'Reject a payment order' },
+  { code: PermissionCodes.PAYMENT_ORDER_RECONCILE, module: 'treasury', description: 'Reconcile a posted payment order against a bank statement' },
 
   { code: PermissionCodes.INVENTORY_VIEW, module: 'inventory', description: 'View stock balances and movements for accessible warehouses' },
   { code: PermissionCodes.INVENTORY_VIEW_ALL_WAREHOUSES, module: 'inventory', description: 'View stock across all warehouses, not just assigned ones' },

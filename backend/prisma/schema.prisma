@@ -48,101 +48,103 @@ model Tenant {
   createdBy String?  @map("created_by")
   version   Int      @default(1)
 
-  baseCurrency                   Currency?                       @relation(fields: [baseCurrencyId], references: [id])
-  memberships                    TenantMembership[]
-  organizations                  Organization[]
-  roles                          Role[]
-  currencies                     Currency[]                      @relation("TenantCurrencies")
-  exchangeRates                  ExchangeRate[]
-  numberSequences                NumberSequence[]
-  periods                        AccountingPeriod[]
-  documentLinks                  DocumentLink[]
-  auditEvents                    AuditEvent[]
-  settings                       Setting[]
-  idempotencyKeys                IdempotencyKey[]
-  foundationTestDocuments        FoundationTestDocument[]
-  registerMovements              RegisterMovement[]
-  responsiblePersons             ResponsiblePerson[]
-  unitsOfMeasure                 UnitOfMeasure[]
-  productCategories              ProductCategory[]
-  products                       Product[]
-  unitConversions                UnitConversion[]
-  counterparties                 Counterparty[]
-  counterpartyAddresses          CounterpartyAddress[]
-  counterpartyContacts           CounterpartyContact[]
-  priceLists                     PriceList[]
-  productPrices                  ProductPrice[]
-  salesOrders                    SalesOrder[]
-  salesOrderLines                SalesOrderLine[]
-  salesInvoices                  SalesInvoice[]
-  salesInvoiceLines              SalesInvoiceLine[]
-  chartsOfAccounts               ChartOfAccounts[]
-  accounts                       Account[]
-  accountingDimensionDefinitions AccountingDimensionDefinition[]
-  accountingMappings             AccountingMapping[]
-  journalEntries                 JournalEntry[]
-  accountingMovements            AccountingMovement[]
-  postingRuns                    PostingRun[]
-  taxRules                       TaxRule[]
-  taxRegistrations               TaxRegistration[]
-  productTaxProfiles             ProductTaxProfile[]
-  counterpartyTaxProfiles        CounterpartyTaxProfile[]
-  taxMovements                   TaxMovement[]
-  customerRequests               CustomerRequest[]
-  customerRequestLines           CustomerRequestLine[]
-  commercialOffers               CommercialOffer[]
-  commercialOfferLines           CommercialOfferLine[]
-  documentLineLinks              DocumentLineLink[]
-  stockReservations              StockReservation[]
-  shipmentPlans                  ShipmentPlan[]
-  shipmentPlanLines              ShipmentPlanLine[]
-  orderPaymentSchedules          OrderPaymentSchedule[]
-  orderHolds                     OrderHold[]
-  shipments                      Shipment[]
-  shipmentLines                  ShipmentLine[]
-  settlementObligations          SettlementObligation[]
-  salesReturns                   SalesReturn[]
-  salesReturnLines               SalesReturnLine[]
-  purchaseRequirements           PurchaseRequirement[]
-  purchaseRequirementLines       PurchaseRequirementLine[]
-  purchaseOrders                 PurchaseOrder[]
-  purchaseOrderLines             PurchaseOrderLine[]
-  purchaseDeliveryScheduleLines  PurchaseDeliveryScheduleLine[]
-  purchaseOrderHolds             PurchaseOrderHold[]
-  purchaseOrderPaymentSchedules  PurchaseOrderPaymentSchedule[]
-  supplierProductCodes           SupplierProductCode[]
-  supplyPegs                     SupplyPeg[]
-  goodsReceipts                  GoodsReceipt[]
-  goodsReceiptLines               GoodsReceiptLine[]
-  purchaseInvoices                PurchaseInvoice[]
-  purchaseInvoiceLines            PurchaseInvoiceLine[]
-  supplierPayables                 SupplierPayable[]
-  purchaseReturns                  PurchaseReturn[]
-  purchaseReturnLines              PurchaseReturnLine[]
-  additionalPurchaseCosts          AdditionalPurchaseCost[]
-  additionalPurchaseCostLines      AdditionalPurchaseCostLine[]
-  purchaseCostAllocations          PurchaseCostAllocation[]
-  purchaseMatchingResults          PurchaseMatchingResult[]
-  warehouseLocations                     WarehouseLocation[]
+  baseCurrency                            Currency?                                @relation(fields: [baseCurrencyId], references: [id])
+  memberships                             TenantMembership[]
+  organizations                           Organization[]
+  roles                                   Role[]
+  currencies                              Currency[]                               @relation("TenantCurrencies")
+  exchangeRates                           ExchangeRate[]
+  numberSequences                         NumberSequence[]
+  periods                                 AccountingPeriod[]
+  documentLinks                           DocumentLink[]
+  auditEvents                             AuditEvent[]
+  settings                                Setting[]
+  idempotencyKeys                         IdempotencyKey[]
+  foundationTestDocuments                 FoundationTestDocument[]
+  registerMovements                       RegisterMovement[]
+  responsiblePersons                      ResponsiblePerson[]
+  unitsOfMeasure                          UnitOfMeasure[]
+  productCategories                       ProductCategory[]
+  products                                Product[]
+  unitConversions                         UnitConversion[]
+  counterparties                          Counterparty[]
+  counterpartyAddresses                   CounterpartyAddress[]
+  counterpartyContacts                    CounterpartyContact[]
+  priceLists                              PriceList[]
+  productPrices                           ProductPrice[]
+  salesOrders                             SalesOrder[]
+  salesOrderLines                         SalesOrderLine[]
+  salesInvoices                           SalesInvoice[]
+  salesInvoiceLines                       SalesInvoiceLine[]
+  chartsOfAccounts                        ChartOfAccounts[]
+  accounts                                Account[]
+  accountingDimensionDefinitions          AccountingDimensionDefinition[]
+  accountingMappings                      AccountingMapping[]
+  journalEntries                          JournalEntry[]
+  accountingMovements                     AccountingMovement[]
+  postingRuns                             PostingRun[]
+  taxRules                                TaxRule[]
+  taxRegistrations                        TaxRegistration[]
+  productTaxProfiles                      ProductTaxProfile[]
+  counterpartyTaxProfiles                 CounterpartyTaxProfile[]
+  taxMovements                            TaxMovement[]
+  customerRequests                        CustomerRequest[]
+  customerRequestLines                    CustomerRequestLine[]
+  commercialOffers                        CommercialOffer[]
+  commercialOfferLines                    CommercialOfferLine[]
+  documentLineLinks                       DocumentLineLink[]
+  stockReservations                       StockReservation[]
+  shipmentPlans                           ShipmentPlan[]
+  shipmentPlanLines                       ShipmentPlanLine[]
+  orderPaymentSchedules                   OrderPaymentSchedule[]
+  orderHolds                              OrderHold[]
+  shipments                               Shipment[]
+  shipmentLines                           ShipmentLine[]
+  settlementObligations                   SettlementObligation[]
+  salesReturns                            SalesReturn[]
+  salesReturnLines                        SalesReturnLine[]
+  purchaseRequirements                    PurchaseRequirement[]
+  purchaseRequirementLines                PurchaseRequirementLine[]
+  purchaseOrders                          PurchaseOrder[]
+  purchaseOrderLines                      PurchaseOrderLine[]
+  purchaseDeliveryScheduleLines           PurchaseDeliveryScheduleLine[]
+  purchaseOrderHolds                      PurchaseOrderHold[]
+  purchaseOrderPaymentSchedules           PurchaseOrderPaymentSchedule[]
+  supplierProductCodes                    SupplierProductCode[]
+  supplyPegs                              SupplyPeg[]
+  goodsReceipts                           GoodsReceipt[]
+  goodsReceiptLines                       GoodsReceiptLine[]
+  purchaseInvoices                        PurchaseInvoice[]
+  purchaseInvoiceLines                    PurchaseInvoiceLine[]
+  supplierPayables                        SupplierPayable[]
+  purchaseReturns                         PurchaseReturn[]
+  purchaseReturnLines                     PurchaseReturnLine[]
+  additionalPurchaseCosts                 AdditionalPurchaseCost[]
+  additionalPurchaseCostLines             AdditionalPurchaseCostLine[]
+  purchaseCostAllocations                 PurchaseCostAllocation[]
+  purchaseMatchingResults                 PurchaseMatchingResult[]
+  warehouseLocations                      WarehouseLocation[]
   batches                                 Batch[]
-  serialNumbers                            SerialNumber[]
-  inventoryMovements                        InventoryMovement[]
-  documentLineSerials                        DocumentLineSerial[]
-  counterpartyBankAccounts                     CounterpartyBankAccount[]
-  counterpartyContracts                        CounterpartyContract[]
-  counterpartyContractAmendments               CounterpartyContractAmendment[]
-  counterpartyContractLines                    CounterpartyContractLine[]
-  counterpartyContractPaymentInstallments      CounterpartyContractPaymentInstallment[]
-  counterpartyDocuments                        CounterpartyDocument[]
-  warehouseTransfers                         WarehouseTransfer[]
-  warehouseTransferLines                      WarehouseTransferLine[]
-  internalConsumptions                         InternalConsumption[]
-  internalConsumptionLines                      InternalConsumptionLine[]
-  inventoryAdjustments                           InventoryAdjustment[]
-  inventoryAdjustmentLines                        InventoryAdjustmentLine[]
-  inventoryStatusTransfers                          InventoryStatusTransfer[]
-  inventoryStatusTransferLines                       InventoryStatusTransferLine[]
-  approvalSteps                                        ApprovalStep[]
+  serialNumbers                           SerialNumber[]
+  inventoryMovements                      InventoryMovement[]
+  documentLineSerials                     DocumentLineSerial[]
+  counterpartyBankAccounts                CounterpartyBankAccount[]
+  counterpartyContracts                   CounterpartyContract[]
+  counterpartyContractAmendments          CounterpartyContractAmendment[]
+  counterpartyContractLines               CounterpartyContractLine[]
+  counterpartyContractPaymentInstallments CounterpartyContractPaymentInstallment[]
+  counterpartyDocuments                   CounterpartyDocument[]
+  warehouseTransfers                      WarehouseTransfer[]
+  warehouseTransferLines                  WarehouseTransferLine[]
+  internalConsumptions                    InternalConsumption[]
+  internalConsumptionLines                InternalConsumptionLine[]
+  inventoryAdjustments                    InventoryAdjustment[]
+  inventoryAdjustmentLines                InventoryAdjustmentLine[]
+  inventoryStatusTransfers                InventoryStatusTransfer[]
+  inventoryStatusTransferLines            InventoryStatusTransferLine[]
+  approvalSteps                           ApprovalStep[]
+  PaymentRequest                          PaymentRequest[]
+  PaymentOrder                            PaymentOrder[]
 
   @@map("tenants")
 }
@@ -194,53 +196,55 @@ model Organization {
   defaultCashbox     Cashbox?     @relation("OrgDefaultCashbox", fields: [defaultCashboxId], references: [id])
   defaultBankAccount BankAccount? @relation("OrgDefaultBankAccount", fields: [defaultBankAccountId], references: [id])
 
-  periods               AccountingPeriod[]
-  branches              Branch[]               @relation("OrgBranches")
-  departments           Department[]           @relation("OrgDepartments")
-  warehouses            Warehouse[]            @relation("OrgWarehouses")
-  cashboxes             Cashbox[]              @relation("OrgCashboxes")
-  bankAccounts          BankAccount[]          @relation("OrgBankAccounts")
-  accountingPolicies    AccountingPolicy[]     @relation("OrgAccountingPolicies")
-  taxProfiles           TaxProfile[]           @relation("OrgTaxProfiles")
-  accessGrants          OrganizationAccess[]
-  productCategories     ProductCategory[]
-  products              Product[]
-  counterparties        Counterparty[]
-  counterpartyContracts CounterpartyContract[]
-  priceLists            PriceList[]
-  salesOrders           SalesOrder[]
-  salesInvoices         SalesInvoice[]
-  chartsOfAccounts      ChartOfAccounts[]
-  accounts              Account[]
-  accountingMappings    AccountingMapping[]
-  journalEntries        JournalEntry[]
-  accountingMovements   AccountingMovement[]
-  postingRuns           PostingRun[]
-  taxRegistrations      TaxRegistration[]
-  productTaxProfiles    ProductTaxProfile[]
-  taxMovements          TaxMovement[]
-  customerRequests      CustomerRequest[]
-  commercialOffers      CommercialOffer[]
-  stockReservations     StockReservation[]
-  shipmentPlans         ShipmentPlan[]
-  shipments             Shipment[]
-  settlementObligations SettlementObligation[]
-  salesReturns          SalesReturn[]
-  purchaseRequirements  PurchaseRequirement[]
-  purchaseOrders        PurchaseOrder[]
-  supplierProductCodes  SupplierProductCode[]
-  goodsReceipts           GoodsReceipt[]
-  purchaseInvoices        PurchaseInvoice[]
-  supplierPayables        SupplierPayable[]
-  purchaseReturns         PurchaseReturn[]
-  additionalPurchaseCosts AdditionalPurchaseCost[]
-  batches                       Batch[]
-  serialNumbers                  SerialNumber[]
-  inventoryMovements               InventoryMovement[]
-  warehouseTransfers                 WarehouseTransfer[]
-  internalConsumptions                 InternalConsumption[]
-  inventoryAdjustments                   InventoryAdjustment[]
-  inventoryStatusTransfers                 InventoryStatusTransfer[]
+  periods                  AccountingPeriod[]
+  branches                 Branch[]                  @relation("OrgBranches")
+  departments              Department[]              @relation("OrgDepartments")
+  warehouses               Warehouse[]               @relation("OrgWarehouses")
+  cashboxes                Cashbox[]                 @relation("OrgCashboxes")
+  bankAccounts             BankAccount[]             @relation("OrgBankAccounts")
+  accountingPolicies       AccountingPolicy[]        @relation("OrgAccountingPolicies")
+  taxProfiles              TaxProfile[]              @relation("OrgTaxProfiles")
+  accessGrants             OrganizationAccess[]
+  productCategories        ProductCategory[]
+  products                 Product[]
+  counterparties           Counterparty[]
+  counterpartyContracts    CounterpartyContract[]
+  priceLists               PriceList[]
+  salesOrders              SalesOrder[]
+  salesInvoices            SalesInvoice[]
+  chartsOfAccounts         ChartOfAccounts[]
+  accounts                 Account[]
+  accountingMappings       AccountingMapping[]
+  journalEntries           JournalEntry[]
+  accountingMovements      AccountingMovement[]
+  postingRuns              PostingRun[]
+  taxRegistrations         TaxRegistration[]
+  productTaxProfiles       ProductTaxProfile[]
+  taxMovements             TaxMovement[]
+  customerRequests         CustomerRequest[]
+  commercialOffers         CommercialOffer[]
+  stockReservations        StockReservation[]
+  shipmentPlans            ShipmentPlan[]
+  shipments                Shipment[]
+  settlementObligations    SettlementObligation[]
+  salesReturns             SalesReturn[]
+  purchaseRequirements     PurchaseRequirement[]
+  purchaseOrders           PurchaseOrder[]
+  supplierProductCodes     SupplierProductCode[]
+  goodsReceipts            GoodsReceipt[]
+  purchaseInvoices         PurchaseInvoice[]
+  supplierPayables         SupplierPayable[]
+  purchaseReturns          PurchaseReturn[]
+  additionalPurchaseCosts  AdditionalPurchaseCost[]
+  batches                  Batch[]
+  serialNumbers            SerialNumber[]
+  inventoryMovements       InventoryMovement[]
+  warehouseTransfers       WarehouseTransfer[]
+  internalConsumptions     InternalConsumption[]
+  inventoryAdjustments     InventoryAdjustment[]
+  inventoryStatusTransfers InventoryStatusTransfer[]
+  PaymentRequest           PaymentRequest[]
+  PaymentOrder             PaymentOrder[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -298,11 +302,11 @@ model Department {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  organization     Organization       @relation("OrgDepartments", fields: [organizationId], references: [id])
-  branch           Branch?            @relation(fields: [branchId], references: [id])
-  parentDepartment Department?        @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
-  children         Department[]       @relation("DepartmentHierarchy")
-  manager          ResponsiblePerson? @relation(fields: [managerPersonId], references: [id])
+  organization         Organization          @relation("OrgDepartments", fields: [organizationId], references: [id])
+  branch               Branch?               @relation(fields: [branchId], references: [id])
+  parentDepartment     Department?           @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  children             Department[]          @relation("DepartmentHierarchy")
+  manager              ResponsiblePerson?    @relation(fields: [managerPersonId], references: [id])
   purchaseRequirements PurchaseRequirement[]
   purchaseInvoiceLines PurchaseInvoiceLine[]
   internalConsumptions InternalConsumption[]
@@ -334,13 +338,13 @@ model ResponsiblePerson {
   tenant Tenant @relation(fields: [tenantId], references: [id])
   user   User?  @relation(fields: [userId], references: [id])
 
-  managedBranches    Branch[]
-  managedDepartments Department[]
-  managedWarehouses  Warehouse[]
-  managedCashboxes   Cashbox[]
-  customerRequests   CustomerRequest[]
-  purchaseRequirementsRequested PurchaseRequirement[] @relation("PurchaseRequirementRequester")
-  purchaseOrdersAsBuyer         PurchaseOrder[]        @relation("PurchaseOrderBuyer")
+  managedBranches                     Branch[]
+  managedDepartments                  Department[]
+  managedWarehouses                   Warehouse[]
+  managedCashboxes                    Cashbox[]
+  customerRequests                    CustomerRequest[]
+  purchaseRequirementsRequested       PurchaseRequirement[]  @relation("PurchaseRequirementRequester")
+  purchaseOrdersAsBuyer               PurchaseOrder[]        @relation("PurchaseOrderBuyer")
   counterpartyContractsResponsibleFor CounterpartyContract[]
 
   @@index([tenantId, active])
@@ -372,29 +376,29 @@ model Warehouse {
   branch       Branch?            @relation(fields: [branchId], references: [id])
   responsible  ResponsiblePerson? @relation(fields: [responsiblePersonId], references: [id])
 
-  defaultForOrganizations Organization[]     @relation("OrgDefaultWarehouse")
-  salesOrders             SalesOrder[]
-  stockReservations       StockReservation[]
-  shipmentPlans           ShipmentPlan[]
-  shipments               Shipment[]
-  salesReturns            SalesReturn[]
-  purchaseRequirements         PurchaseRequirement[]
-  purchaseRequirementLines     PurchaseRequirementLine[]
+  defaultForOrganizations       Organization[]                 @relation("OrgDefaultWarehouse")
+  salesOrders                   SalesOrder[]
+  stockReservations             StockReservation[]
+  shipmentPlans                 ShipmentPlan[]
+  shipments                     Shipment[]
+  salesReturns                  SalesReturn[]
+  purchaseRequirements          PurchaseRequirement[]
+  purchaseRequirementLines      PurchaseRequirementLine[]
   purchaseOrders                PurchaseOrder[]
   purchaseOrderLines            PurchaseOrderLine[]
   purchaseDeliveryScheduleLines PurchaseDeliveryScheduleLine[]
-  goodsReceipts                  GoodsReceipt[]
-  goodsReceiptLines               GoodsReceiptLine[]
-  purchaseInvoiceLines            PurchaseInvoiceLine[]
-  purchaseReturns                  PurchaseReturn[]
-  locations                              WarehouseLocation[]
-  inventoryMovements                       InventoryMovement[]
-  transfersAsSource                          WarehouseTransfer[] @relation("TransferSource")
-  transfersAsDestination                       WarehouseTransfer[] @relation("TransferDestination")
-  internalConsumptions                           InternalConsumption[]
-  inventoryAdjustments                             InventoryAdjustment[]
-  inventoryStatusTransfers                           InventoryStatusTransfer[]
-  currentSerialNumbers                                 SerialNumber[]
+  goodsReceipts                 GoodsReceipt[]
+  goodsReceiptLines             GoodsReceiptLine[]
+  purchaseInvoiceLines          PurchaseInvoiceLine[]
+  purchaseReturns               PurchaseReturn[]
+  locations                     WarehouseLocation[]
+  inventoryMovements            InventoryMovement[]
+  transfersAsSource             WarehouseTransfer[]            @relation("TransferSource")
+  transfersAsDestination        WarehouseTransfer[]            @relation("TransferDestination")
+  internalConsumptions          InternalConsumption[]
+  inventoryAdjustments          InventoryAdjustment[]
+  inventoryStatusTransfers      InventoryStatusTransfer[]
+  currentSerialNumbers          SerialNumber[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -463,6 +467,7 @@ model BankAccount {
   currency     Currency     @relation(fields: [currencyId], references: [id])
 
   defaultForOrganizations Organization[] @relation("OrgDefaultBankAccount")
+  PaymentOrder            PaymentOrder[]
 
   @@index([organizationId, active])
   @@index([iban])
@@ -748,32 +753,34 @@ model Currency {
   exchangeRatesFrom  ExchangeRate[] @relation("FromCurrency")
   exchangeRatesTo    ExchangeRate[] @relation("ToCurrency")
 
-  organizationsUsingAsBase Organization[]         @relation("OrganizationBaseCurrency")
-  cashboxes                Cashbox[]
-  bankAccounts             BankAccount[]
-  accountingPolicies       AccountingPolicy[]
-  counterparties           Counterparty[]
-  priceLists               PriceList[]
-  salesOrders              SalesOrder[]
-  salesInvoices            SalesInvoice[]
-  journalEntryLines        JournalEntryLine[]
-  accountingMovements      AccountingMovement[]
-  customerRequests         CustomerRequest[]
-  commercialOffers         CommercialOffer[]
-  orderPaymentSchedules    OrderPaymentSchedule[]
-  settlementObligations    SettlementObligation[]
-  salesReturns             SalesReturn[]
-  purchaseOrders                PurchaseOrder[]
-  purchaseOrderPaymentSchedules PurchaseOrderPaymentSchedule[]
-  counterpartyBankAccounts      CounterpartyBankAccount[]
-  counterpartyContracts         CounterpartyContract[]
-  counterpartyContractAmendments CounterpartyContractAmendment[]
+  organizationsUsingAsBase                Organization[]                           @relation("OrganizationBaseCurrency")
+  cashboxes                               Cashbox[]
+  bankAccounts                            BankAccount[]
+  accountingPolicies                      AccountingPolicy[]
+  counterparties                          Counterparty[]
+  priceLists                              PriceList[]
+  salesOrders                             SalesOrder[]
+  salesInvoices                           SalesInvoice[]
+  journalEntryLines                       JournalEntryLine[]
+  accountingMovements                     AccountingMovement[]
+  customerRequests                        CustomerRequest[]
+  commercialOffers                        CommercialOffer[]
+  orderPaymentSchedules                   OrderPaymentSchedule[]
+  settlementObligations                   SettlementObligation[]
+  salesReturns                            SalesReturn[]
+  purchaseOrders                          PurchaseOrder[]
+  purchaseOrderPaymentSchedules           PurchaseOrderPaymentSchedule[]
+  counterpartyBankAccounts                CounterpartyBankAccount[]
+  counterpartyContracts                   CounterpartyContract[]
+  counterpartyContractAmendments          CounterpartyContractAmendment[]
   counterpartyContractPaymentInstallments CounterpartyContractPaymentInstallment[]
-  goodsReceipts                  GoodsReceipt[]
-  purchaseInvoices                PurchaseInvoice[]
-  supplierPayables                 SupplierPayable[]
-  purchaseReturns                  PurchaseReturn[]
-  additionalPurchaseCosts          AdditionalPurchaseCost[]
+  goodsReceipts                           GoodsReceipt[]
+  purchaseInvoices                        PurchaseInvoice[]
+  supplierPayables                        SupplierPayable[]
+  purchaseReturns                         PurchaseReturn[]
+  additionalPurchaseCosts                 AdditionalPurchaseCost[]
+  PaymentRequest                          PaymentRequest[]
+  PaymentOrder                            PaymentOrder[]
 
   @@map("currencies")
 }
@@ -1140,31 +1147,31 @@ model UnitOfMeasure {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant               Tenant                @relation(fields: [tenantId], references: [id])
-  products             Product[]
-  conversionsFrom      UnitConversion[]      @relation("ConversionFromUnit")
-  conversionsTo        UnitConversion[]      @relation("ConversionToUnit")
-  productPrices        ProductPrice[]        @relation("ProductPriceUnit")
-  salesOrderLines      SalesOrderLine[]      @relation("SalesOrderLineUnit")
-  salesInvoiceLines    SalesInvoiceLine[]    @relation("SalesInvoiceLineUnit")
-  journalEntryLines    JournalEntryLine[]
-  accountingMovements  AccountingMovement[]
-  customerRequestLines CustomerRequestLine[] @relation("CustomerRequestLineUnit")
-  commercialOfferLines CommercialOfferLine[] @relation("CommercialOfferLineUnit")
-  shipmentLines        ShipmentLine[]        @relation("ShipmentLineUnit")
-  salesReturnLines     SalesReturnLine[]     @relation("SalesReturnLineUnit")
-  purchaseRequirementLines PurchaseRequirementLine[] @relation("PurchaseRequirementLineUnit")
-  purchaseOrderLines       PurchaseOrderLine[]       @relation("PurchaseOrderLineUnit")
-  counterpartyContractLines CounterpartyContractLine[]
-  supplierProductCodes     SupplierProductCode[]     @relation("SupplierProductCodeUnit")
-  goodsReceiptLines        GoodsReceiptLine[]        @relation("GoodsReceiptLineUnit")
-  purchaseInvoiceLines     PurchaseInvoiceLine[]     @relation("PurchaseInvoiceLineUnit")
-  purchaseReturnLines      PurchaseReturnLine[]      @relation("PurchaseReturnLineUnit")
-  inventoryMovements            InventoryMovement[]            @relation("InventoryMovementUnit")
-  warehouseTransferLines          WarehouseTransferLine[]          @relation("WarehouseTransferLineUnit")
-  internalConsumptionLines          InternalConsumptionLine[]          @relation("InternalConsumptionLineUnit")
-  inventoryAdjustmentLines            InventoryAdjustmentLine[]            @relation("InventoryAdjustmentLineUnit")
-  inventoryStatusTransferLines          InventoryStatusTransferLine[]          @relation("InventoryStatusTransferLineUnit")
+  tenant                       Tenant                        @relation(fields: [tenantId], references: [id])
+  products                     Product[]
+  conversionsFrom              UnitConversion[]              @relation("ConversionFromUnit")
+  conversionsTo                UnitConversion[]              @relation("ConversionToUnit")
+  productPrices                ProductPrice[]                @relation("ProductPriceUnit")
+  salesOrderLines              SalesOrderLine[]              @relation("SalesOrderLineUnit")
+  salesInvoiceLines            SalesInvoiceLine[]            @relation("SalesInvoiceLineUnit")
+  journalEntryLines            JournalEntryLine[]
+  accountingMovements          AccountingMovement[]
+  customerRequestLines         CustomerRequestLine[]         @relation("CustomerRequestLineUnit")
+  commercialOfferLines         CommercialOfferLine[]         @relation("CommercialOfferLineUnit")
+  shipmentLines                ShipmentLine[]                @relation("ShipmentLineUnit")
+  salesReturnLines             SalesReturnLine[]             @relation("SalesReturnLineUnit")
+  purchaseRequirementLines     PurchaseRequirementLine[]     @relation("PurchaseRequirementLineUnit")
+  purchaseOrderLines           PurchaseOrderLine[]           @relation("PurchaseOrderLineUnit")
+  counterpartyContractLines    CounterpartyContractLine[]
+  supplierProductCodes         SupplierProductCode[]         @relation("SupplierProductCodeUnit")
+  goodsReceiptLines            GoodsReceiptLine[]            @relation("GoodsReceiptLineUnit")
+  purchaseInvoiceLines         PurchaseInvoiceLine[]         @relation("PurchaseInvoiceLineUnit")
+  purchaseReturnLines          PurchaseReturnLine[]          @relation("PurchaseReturnLineUnit")
+  inventoryMovements           InventoryMovement[]           @relation("InventoryMovementUnit")
+  warehouseTransferLines       WarehouseTransferLine[]       @relation("WarehouseTransferLineUnit")
+  internalConsumptionLines     InternalConsumptionLine[]     @relation("InternalConsumptionLineUnit")
+  inventoryAdjustmentLines     InventoryAdjustmentLine[]     @relation("InventoryAdjustmentLineUnit")
+  inventoryStatusTransferLines InventoryStatusTransferLine[] @relation("InventoryStatusTransferLineUnit")
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
@@ -1255,33 +1262,33 @@ model Product {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant               Tenant                @relation(fields: [tenantId], references: [id])
-  organization         Organization          @relation(fields: [organizationId], references: [id])
-  category             ProductCategory?      @relation(fields: [categoryId], references: [id])
-  baseUnit             UnitOfMeasure         @relation(fields: [baseUnitId], references: [id])
-  prices               ProductPrice[]
-  salesOrderLines      SalesOrderLine[]
-  salesInvoiceLines    SalesInvoiceLine[]
-  taxProfiles          ProductTaxProfile[]
-  customerRequestLines CustomerRequestLine[]
-  commercialOfferLines CommercialOfferLine[]
-  stockReservations    StockReservation[]
-  shipmentLines        ShipmentLine[]
-  salesReturnLines     SalesReturnLine[]
-  purchaseRequirementLines PurchaseRequirementLine[]
-  purchaseOrderLines       PurchaseOrderLine[]
-  counterpartyContractLines CounterpartyContractLine[]
-  supplierProductCodes     SupplierProductCode[]
-  goodsReceiptLines         GoodsReceiptLine[]
-  purchaseInvoiceLines      PurchaseInvoiceLine[]
-  purchaseReturnLines       PurchaseReturnLine[]
-  batches                        Batch[]
-  serialNumbers                   SerialNumber[]
-  inventoryMovements               InventoryMovement[]
-  warehouseTransferLines             WarehouseTransferLine[]
-  internalConsumptionLines            InternalConsumptionLine[]
-  inventoryAdjustmentLines              InventoryAdjustmentLine[]
-  inventoryStatusTransferLines            InventoryStatusTransferLine[]
+  tenant                       Tenant                        @relation(fields: [tenantId], references: [id])
+  organization                 Organization                  @relation(fields: [organizationId], references: [id])
+  category                     ProductCategory?              @relation(fields: [categoryId], references: [id])
+  baseUnit                     UnitOfMeasure                 @relation(fields: [baseUnitId], references: [id])
+  prices                       ProductPrice[]
+  salesOrderLines              SalesOrderLine[]
+  salesInvoiceLines            SalesInvoiceLine[]
+  taxProfiles                  ProductTaxProfile[]
+  customerRequestLines         CustomerRequestLine[]
+  commercialOfferLines         CommercialOfferLine[]
+  stockReservations            StockReservation[]
+  shipmentLines                ShipmentLine[]
+  salesReturnLines             SalesReturnLine[]
+  purchaseRequirementLines     PurchaseRequirementLine[]
+  purchaseOrderLines           PurchaseOrderLine[]
+  counterpartyContractLines    CounterpartyContractLine[]
+  supplierProductCodes         SupplierProductCode[]
+  goodsReceiptLines            GoodsReceiptLine[]
+  purchaseInvoiceLines         PurchaseInvoiceLine[]
+  purchaseReturnLines          PurchaseReturnLine[]
+  batches                      Batch[]
+  serialNumbers                SerialNumber[]
+  inventoryMovements           InventoryMovement[]
+  warehouseTransferLines       WarehouseTransferLine[]
+  internalConsumptionLines     InternalConsumptionLine[]
+  inventoryAdjustmentLines     InventoryAdjustmentLine[]
+  inventoryStatusTransferLines InventoryStatusTransferLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1366,9 +1373,9 @@ model Counterparty {
   foreignTaxId    String? @map("foreign_tax_id") // non-resident: foreign tax/registration number
 
   // DRAFT|PENDING_APPROVAL|APPROVED|ACTIVE|EXPIRED|CANCELLED (spec section 9)
-  status      String    @default("DRAFT")
-  approvedBy  String?   @map("approved_by")
-  approvedAt  DateTime? @map("approved_at")
+  status     String    @default("DRAFT")
+  approvedBy String?   @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -1376,31 +1383,33 @@ model Counterparty {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
-  organization          Organization            @relation(fields: [organizationId], references: [id])
-  currency              Currency?               @relation(fields: [currencyId], references: [id])
-  addresses             CounterpartyAddress[]
-  contacts              CounterpartyContact[]
-  bankAccounts          CounterpartyBankAccount[]
-  contracts             CounterpartyContract[]
-  priceLists            PriceList[]
-  salesOrders           SalesOrder[]
-  salesInvoices         SalesInvoice[]
-  taxProfile            CounterpartyTaxProfile?
-  customerRequests      CustomerRequest[]
-  commercialOffers      CommercialOffer[]
-  shipments             Shipment[]
-  settlementObligations SettlementObligation[]
-  salesReturns          SalesReturn[]
-  purchaseOrders                    PurchaseOrder[]
-  supplierProductCodes              SupplierProductCode[]
-  preferredForRequirementLines      PurchaseRequirementLine[] @relation("PreferredSupplierForRequirementLine")
-  goodsReceipts                     GoodsReceipt[]
-  purchaseInvoices                  PurchaseInvoice[]
-  supplierPayables                  SupplierPayable[]
-  purchaseReturns                   PurchaseReturn[]
-  additionalPurchaseCosts           AdditionalPurchaseCost[]
-  inventoryMovementsAsOwner               InventoryMovement[]
+  tenant                       Tenant                    @relation(fields: [tenantId], references: [id])
+  organization                 Organization              @relation(fields: [organizationId], references: [id])
+  currency                     Currency?                 @relation(fields: [currencyId], references: [id])
+  addresses                    CounterpartyAddress[]
+  contacts                     CounterpartyContact[]
+  bankAccounts                 CounterpartyBankAccount[]
+  contracts                    CounterpartyContract[]
+  priceLists                   PriceList[]
+  salesOrders                  SalesOrder[]
+  salesInvoices                SalesInvoice[]
+  taxProfile                   CounterpartyTaxProfile?
+  customerRequests             CustomerRequest[]
+  commercialOffers             CommercialOffer[]
+  shipments                    Shipment[]
+  settlementObligations        SettlementObligation[]
+  salesReturns                 SalesReturn[]
+  purchaseOrders               PurchaseOrder[]
+  supplierProductCodes         SupplierProductCode[]
+  preferredForRequirementLines PurchaseRequirementLine[] @relation("PreferredSupplierForRequirementLine")
+  goodsReceipts                GoodsReceipt[]
+  purchaseInvoices             PurchaseInvoice[]
+  supplierPayables             SupplierPayable[]
+  purchaseReturns              PurchaseReturn[]
+  additionalPurchaseCosts      AdditionalPurchaseCost[]
+  inventoryMovementsAsOwner    InventoryMovement[]
+  PaymentRequest               PaymentRequest[]
+  PaymentOrder                 PaymentOrder[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, taxId])
@@ -1910,11 +1919,11 @@ model Account {
   section      FinancialStatementSection? @relation(fields: [financialStatementSectionId], references: [id])
   group        FinancialStatementGroup?   @relation(fields: [financialStatementGroupId], references: [id])
 
-  dimensionRules      AccountDimensionRule[]
-  accountingMappings  AccountingMapping[]
-  journalEntryLines   JournalEntryLine[]
-  accountingMovements AccountingMovement[]
-  purchaseInvoiceLines PurchaseInvoiceLine[]
+  dimensionRules           AccountDimensionRule[]
+  accountingMappings       AccountingMapping[]
+  journalEntryLines        JournalEntryLine[]
+  accountingMovements      AccountingMovement[]
+  purchaseInvoiceLines     PurchaseInvoiceLine[]
   internalConsumptionLines InternalConsumptionLine[]
 
   @@unique([tenantId, chartOfAccountsId, code])
@@ -3040,23 +3049,23 @@ model SalesReturnLine {
 // ============================================================================
 
 model PurchaseRequirement {
-  id             String    @id @default(uuid())
-  tenantId       String    @map("tenant_id")
-  organizationId String    @map("organization_id")
-  documentType   String    @default("PURCHASE_REQUIREMENT") @map("document_type")
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("PURCHASE_REQUIREMENT") @map("document_type")
   number         String?
-  documentDate   DateTime  @map("document_date") @db.Date
-  status         String    @default("DRAFT") // DRAFT|OPEN|PARTIALLY_ORDERED|FULLY_ORDERED|CANCELLED|CLOSED
+  documentDate   DateTime       @map("document_date") @db.Date
+  status         String         @default("DRAFT") // DRAFT|OPEN|PARTIALLY_ORDERED|FULLY_ORDERED|CANCELLED|CLOSED
   approvalStatus ApprovalStatus @default(PENDING) @map("approval_status")
-  warehouseId    String?   @map("warehouse_id")
-  departmentId   String?   @map("department_id")
-  requesterId    String?   @map("requester_id") // ResponsiblePerson (spec section 79)
+  warehouseId    String?        @map("warehouse_id")
+  departmentId   String?        @map("department_id")
+  requesterId    String?        @map("requester_id") // ResponsiblePerson (spec section 79)
   // Snapshot of the creating user's display name at creation time — auto-
   // filled from the logged-in user, never re-derived later (same
   // never-let-it-drift convention as a Sales Order's price snapshot).
-  createdByName  String?   @map("created_by_name")
-  requiredByDate DateTime? @map("required_by_date") @db.Date
-  priority       String    @default("NORMAL")
+  createdByName  String?        @map("created_by_name")
+  requiredByDate DateTime?      @map("required_by_date") @db.Date
+  priority       String         @default("NORMAL")
   description    String?
 
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -3095,11 +3104,11 @@ model PurchaseRequirementLine {
   // Demand source (spec sections 9-11, 72-76): a manually-entered line has
   // no source; a line derived from a SalesOrder (this build's CustomerOrder,
   // see docs/SALES_PREORDER.md) carries it here for pegging/traceability.
-  sourceDocumentType  String? @map("source_document_type")
-  sourceDocumentId    String? @map("source_document_id")
-  sourceLineId        String? @map("source_line_id")
-  preferredSupplierId String? @map("preferred_supplier_id")
-  description         String?
+  sourceDocumentType    String?   @map("source_document_type")
+  sourceDocumentId      String?   @map("source_document_id")
+  sourceLineId          String?   @map("source_line_id")
+  preferredSupplierId   String?   @map("preferred_supplier_id")
+  description           String?
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -3379,26 +3388,26 @@ model SupplyPeg {
 /// with ISSUE — one physical stock ledger for the whole platform, not a
 /// parallel purchase-side one.
 model GoodsReceipt {
-  id             String         @id @default(uuid())
-  tenantId       String         @map("tenant_id")
-  organizationId String         @map("organization_id")
-  warehouseId    String         @map("warehouse_id")
-  counterpartyId String         @map("counterparty_id") // supplier
-  supplierOrderId String?       @map("supplier_order_id") // Phase 8 PurchaseOrder
-  documentType   String         @default("GOODS_RECEIPT") @map("document_type")
-  number         String?
-  documentDate   DateTime       @map("document_date") @db.Date
-  postingDate    DateTime?      @map("posting_date") @db.Date
-  status         DocumentStatus @default(DRAFT)
-  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
-  approvalStatus ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
-  currencyId     String?        @map("currency_id")
-  exchangeRate   Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  organizationId  String         @map("organization_id")
+  warehouseId     String         @map("warehouse_id")
+  counterpartyId  String         @map("counterparty_id") // supplier
+  supplierOrderId String?        @map("supplier_order_id") // Phase 8 PurchaseOrder
+  documentType    String         @default("GOODS_RECEIPT") @map("document_type")
+  number          String?
+  documentDate    DateTime       @map("document_date") @db.Date
+  postingDate     DateTime?      @map("posting_date") @db.Date
+  status          DocumentStatus @default(DRAFT)
+  postingStatus   PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  approvalStatus  ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
+  currencyId      String?        @map("currency_id")
+  exchangeRate    Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
 
-  operationType         String    @default("PURCHASE_FROM_SUPPLIER") @map("operation_type")
-  supplierDocumentNumber String?  @map("supplier_document_number")
+  operationType          String    @default("PURCHASE_FROM_SUPPLIER") @map("operation_type")
+  supplierDocumentNumber String?   @map("supplier_document_number")
   supplierDocumentDate   DateTime? @map("supplier_document_date") @db.Date
-  externalReference      String?  @map("external_reference")
+  externalReference      String?   @map("external_reference")
   description            String?
 
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -3412,12 +3421,12 @@ model GoodsReceipt {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant             @relation(fields: [tenantId], references: [id])
-  organization Organization       @relation(fields: [organizationId], references: [id])
-  warehouse    Warehouse          @relation(fields: [warehouseId], references: [id])
-  counterparty Counterparty       @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?          @relation(fields: [currencyId], references: [id])
-  lines        GoodsReceiptLine[]
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  organization    Organization       @relation(fields: [organizationId], references: [id])
+  warehouse       Warehouse          @relation(fields: [warehouseId], references: [id])
+  counterparty    Counterparty       @relation(fields: [counterpartyId], references: [id])
+  currency        Currency?          @relation(fields: [currencyId], references: [id])
+  lines           GoodsReceiptLine[]
   purchaseReturns PurchaseReturn[]
 
   @@unique([tenantId, number])
@@ -3452,12 +3461,12 @@ model GoodsReceiptLine {
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id])
-  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
-  product      Product      @relation(fields: [productId], references: [id])
-  unit         UnitOfMeasure @relation("GoodsReceiptLineUnit", fields: [unitId], references: [id])
-  warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id])
-  batch        Batch?       @relation(fields: [batchId], references: [id])
+  tenant              Tenant                       @relation(fields: [tenantId], references: [id])
+  goodsReceipt        GoodsReceipt                 @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  product             Product                      @relation(fields: [productId], references: [id])
+  unit                UnitOfMeasure                @relation("GoodsReceiptLineUnit", fields: [unitId], references: [id])
+  warehouse           Warehouse?                   @relation(fields: [warehouseId], references: [id])
+  batch               Batch?                       @relation(fields: [batchId], references: [id])
   additionalCostLines AdditionalPurchaseCostLine[]
 
   @@index([goodsReceiptId, position])
@@ -3497,7 +3506,7 @@ model PurchaseInvoice {
   taxTotal              Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
   grandTotal            Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
   amountDue             Decimal        @default(0) @map("amount_due") @db.Decimal(18, 2) // frozen gross total at posting — feeds SupplierPayable
-  description            String?
+  description           String?
 
   createdAt    DateTime  @default(now()) @map("created_at")
   createdBy    String?   @map("created_by")
@@ -3510,11 +3519,11 @@ model PurchaseInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant                @relation(fields: [tenantId], references: [id])
-  organization Organization          @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty          @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?             @relation(fields: [currencyId], references: [id])
-  lines        PurchaseInvoiceLine[]
+  tenant          Tenant                   @relation(fields: [tenantId], references: [id])
+  organization    Organization             @relation(fields: [organizationId], references: [id])
+  counterparty    Counterparty             @relation(fields: [counterpartyId], references: [id])
+  currency        Currency?                @relation(fields: [currencyId], references: [id])
+  lines           PurchaseInvoiceLine[]
   purchaseReturns PurchaseReturn[]
   matchingResults PurchaseMatchingResult[]
 
@@ -3552,13 +3561,13 @@ model PurchaseInvoiceLine {
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
 
-  tenant          Tenant           @relation(fields: [tenantId], references: [id])
-  purchaseInvoice PurchaseInvoice  @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
-  product         Product?         @relation(fields: [productId], references: [id])
-  unit            UnitOfMeasure?   @relation("PurchaseInvoiceLineUnit", fields: [unitId], references: [id])
-  warehouse       Warehouse?       @relation(fields: [warehouseId], references: [id])
-  expenseAccount  Account?         @relation(fields: [expenseAccountId], references: [id])
-  department      Department?      @relation(fields: [departmentId], references: [id])
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+  product         Product?        @relation(fields: [productId], references: [id])
+  unit            UnitOfMeasure?  @relation("PurchaseInvoiceLineUnit", fields: [unitId], references: [id])
+  warehouse       Warehouse?      @relation(fields: [warehouseId], references: [id])
+  expenseAccount  Account?        @relation(fields: [expenseAccountId], references: [id])
+  department      Department?     @relation(fields: [departmentId], references: [id])
 
   @@index([purchaseInvoiceId, position])
   @@index([tenantId, productId])
@@ -3570,11 +3579,11 @@ model PurchaseInvoiceLine {
 /// Accounts Payable contract (spec sections 10, 17-18) — the purchase-side
 /// mirror of SettlementObligation, kept as its own table (rather than
 /// reused) since AP and AR reporting should never need a
-/// sourceDocumentType filter to stay apart. `paidAmount` stays 0 and
-/// `status` stays OPEN forever in this build (no Payment/Advance engine —
-/// Phase 13/14 boundary, spec section 56): OVERDUE is computed live by
-/// SupplierSettlementService from `dueDate`, never stored, so it can
-/// never drift stale.
+/// sourceDocumentType filter to stay apart. `paidAmount`/`status` are now
+/// updated by PaymentOrderPostingHandler (see PaymentOrder below) — the
+/// "Phase 13/14 boundary" this docstring used to describe is this
+/// increment. OVERDUE is still computed live by SupplierSettlementService
+/// from `dueDate`, never stored, so it can never drift stale.
 model SupplierPayable {
   id                 String    @id @default(uuid())
   tenantId           String    @map("tenant_id")
@@ -3600,30 +3609,133 @@ model SupplierPayable {
   @@map("supplier_payables")
 }
 
+/// Payment Request (Ödəniş Tələbi) — formalizes "this approved Purchase
+/// Invoice needs paying", created only from an invoice with an OPEN
+/// SupplierPayable. No GL/posting of its own (mirrors PurchaseRequirement's
+/// non-posting shape) — it exists purely to capture and freeze the payment
+/// ask (amount, terms, counterparty, contract) before a PaymentOrder is
+/// raised against it.
+model PaymentRequest {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  organizationId    String   @map("organization_id")
+  documentType      String   @default("PAYMENT_REQUEST") @map("document_type")
+  number            String?
+  documentDate      DateTime @map("document_date") @db.Date
+  status            String   @default("OPEN") // OPEN|FULFILLED|CANCELLED
+  counterpartyId    String   @map("counterparty_id")
+  purchaseInvoiceId String   @map("purchase_invoice_id")
+  contractId        String?  @map("contract_id")
+  currencyId        String?  @map("currency_id")
+  amount            Decimal  @db.Decimal(18, 2)
+  paymentTerms      String?  @map("payment_terms")
+  description       String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, purchaseInvoiceId])
+  @@index([organizationId, counterpartyId, status])
+  @@map("payment_requests")
+}
+
+/// Payment Order (Ödəniş Tapşırığı) — the actual instruction to pay,
+/// always requiring FINANCE approval (ApprovalStepType.FINANCE, via
+/// src/approvals/) before it can post. Posting IS the "Bank Ödənişi" step
+/// (spec: Dr Accounts Payable / Cr Bank) — a disclosed simplification
+/// folding "Bank Ödənişi" into this document's own posting event rather
+/// than a fully separate document, since every field the spec asks a bank
+/// payment to carry (bankReference, a trackable status) already lives
+/// here. "Bank Uzlaşdırması" (reconciliation) is a lightweight action on
+/// the SAME row (reconciled/reconciledAt/reconciledBy/
+/// bankStatementAmount/reconciliationDifference) rather than a separate
+/// statement-import/matching engine — see docs/APPROVALS.md.
+model PaymentOrder {
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  organizationId   String         @map("organization_id")
+  documentType     String         @default("PAYMENT_ORDER") @map("document_type")
+  number           String?
+  documentDate     DateTime       @map("document_date") @db.Date
+  postingDate      DateTime?      @map("posting_date") @db.Date
+  status           DocumentStatus @default(DRAFT)
+  postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  approvalStatus   ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
+  paymentRequestId String         @map("payment_request_id")
+  counterpartyId   String         @map("counterparty_id")
+  bankAccountId    String         @map("bank_account_id")
+  currencyId       String?        @map("currency_id")
+  amount           Decimal        @db.Decimal(18, 2)
+  description      String?
+
+  // "Bank Ödənişi" fields — set at/after posting.
+  bankReference     String? @map("bank_reference")
+  bankPaymentStatus String  @default("PENDING") @map("bank_payment_status") // PENDING|CLEARED|FAILED|UNKNOWN
+
+  // "Bank Uzlaşdırması" fields — set by the reconcile action.
+  reconciled               Boolean   @default(false)
+  reconciledAt             DateTime? @map("reconciled_at")
+  reconciledBy             String?   @map("reconciled_by")
+  bankStatementAmount      Decimal?  @map("bank_statement_amount") @db.Decimal(18, 2)
+  reconciliationDifference Decimal?  @map("reconciliation_difference") @db.Decimal(18, 2)
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?    @relation(fields: [currencyId], references: [id])
+  bankAccount  BankAccount  @relation(fields: [bankAccountId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, paymentRequestId])
+  @@index([organizationId, counterpartyId, status])
+  @@map("payment_orders")
+}
+
 /// Return of goods to a supplier (spec sections 14-16) — against a
 /// GoodsReceipt, a PurchaseInvoice, or neither (manual reference).
 /// Mirrors SalesReturn's structure exactly (prorated historical tax when
 /// linked to a posted invoice line, contra GL, inventory ISSUE).
 model PurchaseReturn {
-  id                      String         @id @default(uuid())
-  tenantId                String         @map("tenant_id")
-  organizationId          String         @map("organization_id")
-  documentType            String         @default("PURCHASE_RETURN") @map("document_type")
-  number                  String?
-  documentDate            DateTime       @map("document_date") @db.Date
-  postingDate             DateTime?      @map("posting_date") @db.Date
-  originalGoodsReceiptId  String?        @map("original_goods_receipt_id")
-  originalPurchaseInvoiceId String?      @map("original_purchase_invoice_id")
-  counterpartyId          String         @map("counterparty_id")
-  warehouseId             String?        @map("warehouse_id")
-  currencyId               String?       @map("currency_id")
-  returnReason            String?        @map("return_reason") // DAMAGED|WRONG_ITEM|QUALITY_ISSUE|EXCESS_DELIVERY|EXPIRED|CONTRACT_CANCELLATION|OTHER
-  status                  DocumentStatus @default(DRAFT)
-  postingStatus            PostingStatus @default(NOT_POSTED) @map("posting_status")
-  subtotal                Decimal        @default(0) @db.Decimal(18, 2)
-  taxTotal                Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
-  grandTotal              Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
-  description              String?
+  id                        String         @id @default(uuid())
+  tenantId                  String         @map("tenant_id")
+  organizationId            String         @map("organization_id")
+  documentType              String         @default("PURCHASE_RETURN") @map("document_type")
+  number                    String?
+  documentDate              DateTime       @map("document_date") @db.Date
+  postingDate               DateTime?      @map("posting_date") @db.Date
+  originalGoodsReceiptId    String?        @map("original_goods_receipt_id")
+  originalPurchaseInvoiceId String?        @map("original_purchase_invoice_id")
+  counterpartyId            String         @map("counterparty_id")
+  warehouseId               String?        @map("warehouse_id")
+  currencyId                String?        @map("currency_id")
+  returnReason              String?        @map("return_reason") // DAMAGED|WRONG_ITEM|QUALITY_ISSUE|EXCESS_DELIVERY|EXPIRED|CONTRACT_CANCELLATION|OTHER
+  status                    DocumentStatus @default(DRAFT)
+  postingStatus             PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  subtotal                  Decimal        @default(0) @db.Decimal(18, 2)
+  taxTotal                  Decimal        @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal                Decimal        @default(0) @map("grand_total") @db.Decimal(18, 2)
+  description               String?
 
   createdAt DateTime  @default(now()) @map("created_at")
   createdBy String?   @map("created_by")
@@ -3633,13 +3745,13 @@ model PurchaseReturn {
   postedBy  String?   @map("posted_by")
   version   Int       @default(1)
 
-  tenant                Tenant               @relation(fields: [tenantId], references: [id])
-  organization          Organization         @relation(fields: [organizationId], references: [id])
-  counterparty           Counterparty        @relation(fields: [counterpartyId], references: [id])
-  currency               Currency?           @relation(fields: [currencyId], references: [id])
-  warehouse               Warehouse?          @relation(fields: [warehouseId], references: [id])
-  originalGoodsReceipt    GoodsReceipt?       @relation(fields: [originalGoodsReceiptId], references: [id])
-  originalPurchaseInvoice PurchaseInvoice?    @relation(fields: [originalPurchaseInvoiceId], references: [id])
+  tenant                  Tenant               @relation(fields: [tenantId], references: [id])
+  organization            Organization         @relation(fields: [organizationId], references: [id])
+  counterparty            Counterparty         @relation(fields: [counterpartyId], references: [id])
+  currency                Currency?            @relation(fields: [currencyId], references: [id])
+  warehouse               Warehouse?           @relation(fields: [warehouseId], references: [id])
+  originalGoodsReceipt    GoodsReceipt?        @relation(fields: [originalGoodsReceiptId], references: [id])
+  originalPurchaseInvoice PurchaseInvoice?     @relation(fields: [originalPurchaseInvoiceId], references: [id])
   lines                   PurchaseReturnLine[]
 
   @@unique([tenantId, number])
@@ -3685,36 +3797,36 @@ model PurchaseReturnLine {
 /// Dr Inventory / Cr Supplier Payable, never the expense-recognition
 /// alternative the spec also allows.
 model AdditionalPurchaseCost {
-  id                String         @id @default(uuid())
-  tenantId          String         @map("tenant_id")
-  organizationId    String         @map("organization_id")
-  counterpartyId    String         @map("counterparty_id") // the cost supplier (may differ from the goods supplier)
-  documentType      String         @default("ADDITIONAL_PURCHASE_COST") @map("document_type")
-  number            String?
-  documentDate      DateTime       @map("document_date") @db.Date
-  postingDate       DateTime?      @map("posting_date") @db.Date
-  status            DocumentStatus @default(DRAFT)
-  postingStatus     PostingStatus  @default(NOT_POSTED) @map("posting_status")
-  currencyId        String?        @map("currency_id")
-  costType          String         @default("OTHER") @map("cost_type") // TRANSPORT|CUSTOMS|INSURANCE|LOADING|BROKER|FREIGHT|HANDLING|CERTIFICATION|OTHER
-  allocationMethod  String         @default("BY_VALUE") @map("allocation_method") // BY_QUANTITY|BY_WEIGHT|BY_VOLUME|BY_VALUE|EQUALLY|MANUAL
-  totalCost         Decimal        @db.Decimal(18, 2)
-  taxRate           Decimal        @default(0) @map("tax_rate") @db.Decimal(18, 2)
-  taxAmount         Decimal        @default(0) @map("tax_amount") @db.Decimal(18, 2)
-  description       String?
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  organizationId   String         @map("organization_id")
+  counterpartyId   String         @map("counterparty_id") // the cost supplier (may differ from the goods supplier)
+  documentType     String         @default("ADDITIONAL_PURCHASE_COST") @map("document_type")
+  number           String?
+  documentDate     DateTime       @map("document_date") @db.Date
+  postingDate      DateTime?      @map("posting_date") @db.Date
+  status           DocumentStatus @default(DRAFT)
+  postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  currencyId       String?        @map("currency_id")
+  costType         String         @default("OTHER") @map("cost_type") // TRANSPORT|CUSTOMS|INSURANCE|LOADING|BROKER|FREIGHT|HANDLING|CERTIFICATION|OTHER
+  allocationMethod String         @default("BY_VALUE") @map("allocation_method") // BY_QUANTITY|BY_WEIGHT|BY_VOLUME|BY_VALUE|EQUALLY|MANUAL
+  totalCost        Decimal        @db.Decimal(18, 2)
+  taxRate          Decimal        @default(0) @map("tax_rate") @db.Decimal(18, 2)
+  taxAmount        Decimal        @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  description      String?
 
-  createdAt    DateTime  @default(now()) @map("created_at")
-  createdBy    String?   @map("created_by")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  updatedBy    String?   @map("updated_by")
-  postedAt     DateTime? @map("posted_at")
-  postedBy     String?   @map("posted_by")
-  version      Int       @default(1)
+  createdAt DateTime  @default(now()) @map("created_at")
+  createdBy String?   @map("created_by")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  postedAt  DateTime? @map("posted_at")
+  postedBy  String?   @map("posted_by")
+  version   Int       @default(1)
 
-  tenant       Tenant                        @relation(fields: [tenantId], references: [id])
-  organization Organization                  @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty                  @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?                     @relation(fields: [currencyId], references: [id])
+  tenant       Tenant                       @relation(fields: [tenantId], references: [id])
+  organization Organization                 @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty                 @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?                    @relation(fields: [currencyId], references: [id])
   targetLines  AdditionalPurchaseCostLine[]
   allocations  PurchaseCostAllocation[]
 
@@ -3803,16 +3915,16 @@ model PurchaseMatchingResult {
 // ============================================================================
 
 model WarehouseLocation {
-  id               String   @id @default(uuid())
-  tenantId         String   @map("tenant_id")
-  warehouseId      String   @map("warehouse_id")
-  parentLocationId String?  @map("parent_location_id")
+  id               String  @id @default(uuid())
+  tenantId         String  @map("tenant_id")
+  warehouseId      String  @map("warehouse_id")
+  parentLocationId String? @map("parent_location_id")
   code             String
   name             String
-  locationType     String   @default("BIN") @map("location_type")
-  active           Boolean  @default(true)
-  allowReceipt     Boolean  @default(true) @map("allow_receipt")
-  allowIssue       Boolean  @default(true) @map("allow_issue")
+  locationType     String  @default("BIN") @map("location_type")
+  active           Boolean @default(true)
+  allowReceipt     Boolean @default(true) @map("allow_receipt")
+  allowIssue       Boolean @default(true) @map("allow_issue")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -3823,10 +3935,10 @@ model WarehouseLocation {
   parent    WarehouseLocation?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id])
   children  WarehouseLocation[] @relation("LocationHierarchy")
 
-  movements                   InventoryMovement[]
-  transferSourceLines         WarehouseTransferLine[] @relation("TransferSourceLocation")
-  transferDestinationLines    WarehouseTransferLine[] @relation("TransferDestinationLocation")
-  currentSerialNumbers        SerialNumber[]
+  movements                InventoryMovement[]
+  transferSourceLines      WarehouseTransferLine[] @relation("TransferSourceLocation")
+  transferDestinationLines WarehouseTransferLine[] @relation("TransferDestinationLocation")
+  currentSerialNumbers     SerialNumber[]
 
   @@unique([warehouseId, code])
   @@map("warehouse_locations")
@@ -3855,16 +3967,16 @@ model Batch {
   organization Organization @relation(fields: [organizationId], references: [id])
   product      Product      @relation(fields: [productId], references: [id])
 
-  movements                   InventoryMovement[]
-  reservations                StockReservation[]
+  movements                    InventoryMovement[]
+  reservations                 StockReservation[]
   goodsReceiptLines            GoodsReceiptLine[]
-  shipmentLines                 ShipmentLine[]
-  salesReturnLines               SalesReturnLine[]
-  purchaseReturnLines             PurchaseReturnLine[]
-  warehouseTransferLines           WarehouseTransferLine[]
-  internalConsumptionLines          InternalConsumptionLine[]
-  inventoryAdjustmentLines            InventoryAdjustmentLine[]
-  inventoryStatusTransferLines          InventoryStatusTransferLine[]
+  shipmentLines                ShipmentLine[]
+  salesReturnLines             SalesReturnLine[]
+  purchaseReturnLines          PurchaseReturnLine[]
+  warehouseTransferLines       WarehouseTransferLine[]
+  internalConsumptionLines     InternalConsumptionLine[]
+  inventoryAdjustmentLines     InventoryAdjustmentLine[]
+  inventoryStatusTransferLines InventoryStatusTransferLine[]
 
   @@unique([organizationId, productId, batchNumber])
   @@map("batches")
@@ -3890,11 +4002,11 @@ model SerialNumber {
   updatedAt DateTime @updatedAt @map("updated_at")
   version   Int      @default(1)
 
-  tenant           Tenant             @relation(fields: [tenantId], references: [id])
-  organization     Organization       @relation(fields: [organizationId], references: [id])
-  product          Product            @relation(fields: [productId], references: [id])
-  currentWarehouse Warehouse?         @relation(fields: [currentWarehouseId], references: [id])
-  currentLocation  WarehouseLocation? @relation(fields: [currentLocationId], references: [id])
+  tenant           Tenant               @relation(fields: [tenantId], references: [id])
+  organization     Organization         @relation(fields: [organizationId], references: [id])
+  product          Product              @relation(fields: [productId], references: [id])
+  currentWarehouse Warehouse?           @relation(fields: [currentWarehouseId], references: [id])
+  currentLocation  WarehouseLocation?   @relation(fields: [currentLocationId], references: [id])
   movements        InventoryMovement[]
   lineCaptures     DocumentLineSerial[]
 
@@ -3912,21 +4024,21 @@ model SerialNumber {
 /// stays consistent with the rest of the platform instead of adopting the
 /// spec's optional "reversal document" alternative (section 39).
 model InventoryMovement {
-  id                  String   @id @default(uuid())
-  tenantId            String   @map("tenant_id")
-  organizationId      String   @map("organization_id")
-  warehouseId         String   @map("warehouse_id")
-  locationId          String?  @map("location_id")
-  productId           String   @map("product_id")
-  unitId              String   @map("unit_id")
-  batchId             String?  @map("batch_id")
-  serialId            String?  @map("serial_id")
-  ownershipType       String   @default("OWN") @map("ownership_type")
-  ownerCounterpartyId String?  @map("owner_counterparty_id")
-  stockStatus         String   @default("AVAILABLE") @map("stock_status")
-  movementType        String   @map("movement_type")
-  quantity            Decimal  @db.Decimal(18, 6) // signed: + IN, - OUT
-  baseQuantity        Decimal  @map("base_quantity") @db.Decimal(18, 6) // signed, base unit
+  id                  String  @id @default(uuid())
+  tenantId            String  @map("tenant_id")
+  organizationId      String  @map("organization_id")
+  warehouseId         String  @map("warehouse_id")
+  locationId          String? @map("location_id")
+  productId           String  @map("product_id")
+  unitId              String  @map("unit_id")
+  batchId             String? @map("batch_id")
+  serialId            String? @map("serial_id")
+  ownershipType       String  @default("OWN") @map("ownership_type")
+  ownerCounterpartyId String? @map("owner_counterparty_id")
+  stockStatus         String  @default("AVAILABLE") @map("stock_status")
+  movementType        String  @map("movement_type")
+  quantity            Decimal @db.Decimal(18, 6) // signed: + IN, - OUT
+  baseQuantity        Decimal @map("base_quantity") @db.Decimal(18, 6) // signed, base unit
 
   effectiveDate         DateTime @map("effective_date") @db.Date
   registrarDocumentType String   @map("registrar_document_type")
@@ -4066,10 +4178,10 @@ model InternalConsumption {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant                     @relation(fields: [tenantId], references: [id])
-  organization Organization               @relation(fields: [organizationId], references: [id])
-  warehouse    Warehouse                  @relation(fields: [warehouseId], references: [id])
-  department   Department?                @relation(fields: [departmentId], references: [id])
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse                 @relation(fields: [warehouseId], references: [id])
+  department   Department?               @relation(fields: [departmentId], references: [id])
   lines        InternalConsumptionLine[]
 
   @@unique([tenantId, number])
@@ -4197,9 +4309,9 @@ model InventoryStatusTransfer {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant       Tenant                         @relation(fields: [tenantId], references: [id])
-  organization Organization                   @relation(fields: [organizationId], references: [id])
-  warehouse    Warehouse                      @relation(fields: [warehouseId], references: [id])
+  tenant       Tenant                        @relation(fields: [tenantId], references: [id])
+  organization Organization                  @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse                     @relation(fields: [warehouseId], references: [id])
   lines        InventoryStatusTransferLine[]
 
   @@unique([tenantId, number])
@@ -4207,25 +4319,25 @@ model InventoryStatusTransfer {
 }
 
 model InventoryStatusTransferLine {
-  id                         String  @id @default(uuid())
-  tenantId                   String  @map("tenant_id")
-  inventoryStatusTransferId  String  @map("inventory_status_transfer_id")
-  position                   Int     @default(0)
-  productId                  String  @map("product_id")
-  unitId                     String  @map("unit_id")
-  quantity                   Decimal @db.Decimal(18, 6)
-  batchId                    String? @map("batch_id")
-  fromStatus                 String  @map("from_status")
-  toStatus                   String  @map("to_status")
-  description                String?
+  id                        String  @id @default(uuid())
+  tenantId                  String  @map("tenant_id")
+  inventoryStatusTransferId String  @map("inventory_status_transfer_id")
+  position                  Int     @default(0)
+  productId                 String  @map("product_id")
+  unitId                    String  @map("unit_id")
+  quantity                  Decimal @db.Decimal(18, 6)
+  batchId                   String? @map("batch_id")
+  fromStatus                String  @map("from_status")
+  toStatus                  String  @map("to_status")
+  description               String?
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
-  inventoryStatusTransfer InventoryStatusTransfer  @relation(fields: [inventoryStatusTransferId], references: [id], onDelete: Cascade)
-  product                 Product                  @relation(fields: [productId], references: [id])
-  unit                    UnitOfMeasure            @relation("InventoryStatusTransferLineUnit", fields: [unitId], references: [id])
-  batch                   Batch?                   @relation(fields: [batchId], references: [id])
+  tenant                  Tenant                  @relation(fields: [tenantId], references: [id])
+  inventoryStatusTransfer InventoryStatusTransfer @relation(fields: [inventoryStatusTransferId], references: [id], onDelete: Cascade)
+  product                 Product                 @relation(fields: [productId], references: [id])
+  unit                    UnitOfMeasure           @relation("InventoryStatusTransferLineUnit", fields: [unitId], references: [id])
+  batch                   Batch?                  @relation(fields: [batchId], references: [id])
 
   @@index([inventoryStatusTransferId, position])
   @@map("inventory_status_transfer_lines")
@@ -4272,22 +4384,22 @@ model DocumentLineSerial {
 /// picks one main account regardless of currency; disclosed simplification
 /// in docs/COUNTERPARTY_MANAGEMENT.md).
 model CounterpartyBankAccount {
-  id                   String   @id @default(uuid())
-  tenantId             String   @map("tenant_id")
-  counterpartyId       String   @map("counterparty_id")
-  bankName             String   @map("bank_name")
-  bankTaxId            String?  @map("bank_tax_id")
-  bankCode             String?  @map("bank_code")
-  bankAddress          String?  @map("bank_address")
-  accountNumber        String   @map("account_number")
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  counterpartyId       String  @map("counterparty_id")
+  bankName             String  @map("bank_name")
+  bankTaxId            String? @map("bank_tax_id")
+  bankCode             String? @map("bank_code")
+  bankAddress          String? @map("bank_address")
+  accountNumber        String  @map("account_number")
   iban                 String?
-  swiftBic             String?  @map("swift_bic")
-  correspondentAccount String?  @map("correspondent_account")
-  currencyId           String?  @map("currency_id")
-  branchName           String?  @map("branch_name") // the counterparty's own bank branch (free text)
-  isPrimary            Boolean  @default(false) @map("is_primary")
+  swiftBic             String? @map("swift_bic")
+  correspondentAccount String? @map("correspondent_account")
+  currencyId           String? @map("currency_id")
+  branchName           String? @map("branch_name") // the counterparty's own bank branch (free text)
+  isPrimary            Boolean @default(false) @map("is_primary")
   notes                String?
-  active               Boolean  @default(true)
+  active               Boolean @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -4308,25 +4420,25 @@ model CounterpartyBankAccount {
 /// approval gate (never document-framework: no GL, no posting) — mirrors
 /// PurchaseRequirement's own non-posting shape.
 model CounterpartyContract {
-  id             String  @id @default(uuid())
-  tenantId       String  @map("tenant_id")
-  organizationId String  @map("organization_id")
-  counterpartyId String  @map("counterparty_id")
-  number         String
-  subject        String
-  contractType   String? @map("contract_type")
-  signedDate     DateTime? @map("signed_date") @db.Date
-  startDate      DateTime? @map("start_date") @db.Date
-  endDate        DateTime? @map("end_date") @db.Date
-  amount         Decimal?  @db.Decimal(18, 2)
-  currencyId     String?   @map("currency_id")
-  paymentTerms   String?   @map("payment_terms") // "qalan ödənişin şərtləri" — free text (e.g. "NET 30")
-  responsiblePersonId String? @map("responsible_person_id")
-  notes          String?
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  organizationId      String    @map("organization_id")
+  counterpartyId      String    @map("counterparty_id")
+  number              String
+  subject             String
+  contractType        String?   @map("contract_type")
+  signedDate          DateTime? @map("signed_date") @db.Date
+  startDate           DateTime? @map("start_date") @db.Date
+  endDate             DateTime? @map("end_date") @db.Date
+  amount              Decimal?  @db.Decimal(18, 2)
+  currencyId          String?   @map("currency_id")
+  paymentTerms        String?   @map("payment_terms") // "qalan ödənişin şərtləri" — free text (e.g. "NET 30")
+  responsiblePersonId String?   @map("responsible_person_id")
+  notes               String?
 
   // -- Commercial / delivery terms (spec section 10) ------------------------
-  hasAdvance              Boolean  @default(false) @map("has_advance")
-  advancePercent          Decimal? @map("advance_percent") @db.Decimal(5, 2)
+  hasAdvance              Boolean   @default(false) @map("has_advance")
+  advancePercent          Decimal?  @map("advance_percent") @db.Decimal(5, 2)
   // Auto-computed as grandTotal * advancePercent/100 whenever the total or
   // percent changes — UNLESS `advanceAmountManual` is true, meaning a user
   // with the right permission overrode it explicitly (see
@@ -4334,29 +4446,29 @@ model CounterpartyContract {
   // ever recorded in the audit trail (oldValues/newValues), never a second
   // schema column, matching how every other history requirement in this
   // module is satisfied.
-  advanceAmount           Decimal? @map("advance_amount") @db.Decimal(18, 2)
-  advanceAmountManual     Boolean  @default(false) @map("advance_amount_manual")
-  remainingPaymentDueDays Int?     @map("remaining_payment_due_days")
+  advanceAmount           Decimal?  @map("advance_amount") @db.Decimal(18, 2)
+  advanceAmountManual     Boolean   @default(false) @map("advance_amount_manual")
+  remainingPaymentDueDays Int?      @map("remaining_payment_due_days")
   deliveryDate            DateTime? @map("delivery_date") @db.Date
-  deliveryTermDays        Int?     @map("delivery_term_days")
-  deliveryAddress         String?  @map("delivery_address")
-  deliveryTerms           String?  @map("delivery_terms")
-  warrantyPeriod          String?  @map("warranty_period")
-  penaltyTerms            String?  @map("penalty_terms")
-  otherTerms              String?  @map("other_terms")
+  deliveryTermDays        Int?      @map("delivery_term_days")
+  deliveryAddress         String?   @map("delivery_address")
+  deliveryTerms           String?   @map("delivery_terms")
+  warrantyPeriod          String?   @map("warranty_period")
+  penaltyTerms            String?   @map("penalty_terms")
+  otherTerms              String?   @map("other_terms")
 
   // -- Nomenclature lines + live totals (spec sections 11-13) ---------------
-  priceIncludesTax        Boolean  @default(false) @map("price_includes_tax")
-  sourcePurchaseOrderId   String?  @map("source_purchase_order_id")
+  priceIncludesTax       Boolean  @default(false) @map("price_includes_tax")
+  sourcePurchaseOrderId  String?  @map("source_purchase_order_id")
   // Set whenever a line is added/edited/removed by hand after being pulled
   // from the source PO — the frontend warns before a "change source PO"
   // resync discards lines while this is true. Reset to false by every
   // (re)pull from a PO (create-from-PO, change-source-PO).
-  linesDirty              Boolean  @default(false) @map("lines_dirty")
-  subtotal                Decimal? @db.Decimal(18, 2) // pre-tax, post-discount sum of all lines
-  totalDiscount           Decimal? @map("total_discount") @db.Decimal(18, 2)
-  totalTax                Decimal? @map("total_tax") @db.Decimal(18, 2)
-  remainingPayableAmount  Decimal? @map("remaining_payable_amount") @db.Decimal(18, 2) // amount - advanceAmount
+  linesDirty             Boolean  @default(false) @map("lines_dirty")
+  subtotal               Decimal? @db.Decimal(18, 2) // pre-tax, post-discount sum of all lines
+  totalDiscount          Decimal? @map("total_discount") @db.Decimal(18, 2)
+  totalTax               Decimal? @map("total_tax") @db.Decimal(18, 2)
+  remainingPayableAmount Decimal? @map("remaining_payable_amount") @db.Decimal(18, 2) // amount - advanceAmount
 
   // Overall spend limit across every PurchaseOrder referencing this
   // contract (PurchaseOrder.contractId) — null means no limit. Policy
@@ -4378,11 +4490,11 @@ model CounterpartyContract {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant              Tenant                         @relation(fields: [tenantId], references: [id])
-  organization        Organization                   @relation(fields: [organizationId], references: [id])
-  counterparty        Counterparty                   @relation(fields: [counterpartyId], references: [id])
-  currency            Currency?                      @relation(fields: [currencyId], references: [id])
-  responsiblePerson   ResponsiblePerson?              @relation(fields: [responsiblePersonId], references: [id])
+  tenant              Tenant                                   @relation(fields: [tenantId], references: [id])
+  organization        Organization                             @relation(fields: [organizationId], references: [id])
+  counterparty        Counterparty                             @relation(fields: [counterpartyId], references: [id])
+  currency            Currency?                                @relation(fields: [currencyId], references: [id])
+  responsiblePerson   ResponsiblePerson?                       @relation(fields: [responsiblePersonId], references: [id])
   amendments          CounterpartyContractAmendment[]
   lines               CounterpartyContractLine[]
   paymentInstallments CounterpartyContractPaymentInstallment[]
@@ -4400,28 +4512,28 @@ model CounterpartyContract {
 /// quantity/price/discount/tax inputs change (spec section 13's
 /// recalculation rule).
 model CounterpartyContractLine {
-  id               String  @id @default(uuid())
-  tenantId         String  @map("tenant_id")
-  contractId       String  @map("contract_id")
-  position         Int     @default(0)
-  productId        String  @map("product_id")
-  description      String?
-  quantity         Decimal @db.Decimal(18, 6)
-  unitId           String  @map("unit_id")
-  unitPrice        Decimal @map("unit_price") @db.Decimal(18, 6)
-  discountPercent  Decimal @default(0) @map("discount_percent") @db.Decimal(9, 4)
-  discountAmount   Decimal @default(0) @map("discount_amount") @db.Decimal(18, 2)
-  lineAmount       Decimal @default(0) @map("line_amount") @db.Decimal(18, 2) // quantity * unitPrice
-  taxBase          Decimal @default(0) @map("tax_base") @db.Decimal(18, 2) // lineAmount - discountAmount
-  taxCategoryCode  String? @map("tax_category_code")
-  taxRatePercent   Decimal? @map("tax_rate_percent") @db.Decimal(9, 4)
-  taxAmount        Decimal? @map("tax_amount") @db.Decimal(18, 2)
-  lineTotal        Decimal? @map("line_total") @db.Decimal(18, 2) // taxBase + taxAmount
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  contractId             String   @map("contract_id")
+  position               Int      @default(0)
+  productId              String   @map("product_id")
+  description            String?
+  quantity               Decimal  @db.Decimal(18, 6)
+  unitId                 String   @map("unit_id")
+  unitPrice              Decimal  @map("unit_price") @db.Decimal(18, 6)
+  discountPercent        Decimal  @default(0) @map("discount_percent") @db.Decimal(9, 4)
+  discountAmount         Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  lineAmount             Decimal  @default(0) @map("line_amount") @db.Decimal(18, 2) // quantity * unitPrice
+  taxBase                Decimal  @default(0) @map("tax_base") @db.Decimal(18, 2) // lineAmount - discountAmount
+  taxCategoryCode        String?  @map("tax_category_code")
+  taxRatePercent         Decimal? @map("tax_rate_percent") @db.Decimal(9, 4)
+  taxAmount              Decimal? @map("tax_amount") @db.Decimal(18, 2)
+  lineTotal              Decimal? @map("line_total") @db.Decimal(18, 2) // taxBase + taxAmount
   // Set instead of taxRatePercent/taxAmount when TaxRuleResolverService
   // found no matching rule — the line still saves (DRAFT stays editable),
   // but the contract cannot approve while any line carries this.
-  taxCalculationError String? @map("tax_calculation_error")
-  sourceOrderLineId   String? @map("source_order_line_id") // PurchaseOrderLine — soft reference
+  taxCalculationError    String?  @map("tax_calculation_error")
+  sourceOrderLineId      String?  @map("source_order_line_id") // PurchaseOrderLine — soft reference
   // Snapshot of the source PO line's own tax, captured once at creation —
   // compared against the live-recalculated tax above every time the
   // counterparty's tax status (or another tax-point field) changes so a

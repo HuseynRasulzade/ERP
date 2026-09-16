@@ -157,6 +157,18 @@ export function Layout() {
               {t.nav.purchaseReports}
             </NavLink>
           )}
+          {hasPermission('treasury.payment_request.view') && (
+            <NavLink to="/payment-requests">
+              <span className="nav-icon">💳</span>
+              {t.nav.paymentRequests}
+            </NavLink>
+          )}
+          {hasPermission('treasury.payment_order.view') && (
+            <NavLink to="/payment-orders">
+              <span className="nav-icon">🏦</span>
+              {t.nav.paymentOrders}
+            </NavLink>
+          )}
 
           <div className="nav-group-label">{t.nav.groupWarehouse}</div>
           {hasPermission('inventory.view') && (

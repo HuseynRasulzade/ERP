@@ -33,6 +33,8 @@ import { SupplierProductCodePage } from './pages/procurement/SupplierProductCode
 // Phase 9 — Purchase Execution
 import { GoodsReceiptListPage, GoodsReceiptDetailPage } from './pages/purchasing/GoodsReceiptPage';
 import { PurchaseInvoiceListPage, PurchaseInvoiceDetailPage } from './pages/purchasing/PurchaseInvoicePage';
+import { PaymentRequestListPage, PaymentRequestDetailPage } from './pages/treasury/PaymentRequestPage';
+import { PaymentOrderListPage, PaymentOrderDetailPage } from './pages/treasury/PaymentOrderPage';
 import { PurchaseReturnListPage, PurchaseReturnDetailPage } from './pages/purchasing/PurchaseReturnPage';
 import { AdditionalPurchaseCostListPage, AdditionalPurchaseCostDetailPage } from './pages/purchasing/AdditionalPurchaseCostPage';
 import { PurchaseReportsPage } from './pages/purchasing/PurchaseReportsPage';
@@ -110,6 +112,10 @@ function AppRoutes() {
         <Route path="/additional-costs" element={<AdditionalPurchaseCostListPage />} />
         <Route path="/additional-costs/:id" element={<AdditionalPurchaseCostDetailPage />} />
         <Route path="/purchase-reports" element={<PurchaseReportsPage />} />
+        <Route path="/payment-requests" element={<PaymentRequestListPage />} />
+        <Route path="/payment-requests/:id" element={<PaymentRequestDetailPage />} />
+        <Route path="/payment-orders" element={<PaymentOrderListPage />} />
+        <Route path="/payment-orders/:id" element={<PaymentOrderDetailPage />} />
 
         <Route path="/warehouse-transfers" element={<WarehouseTransferListPage />} />
         <Route path="/warehouse-transfers/:id" element={<WarehouseTransferDetailPage />} />

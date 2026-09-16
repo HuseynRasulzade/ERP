@@ -33,6 +33,7 @@ import { SalesPreorderModule } from './sales-preorder/sales-preorder.module';
 import { SalesExecutionModule } from './sales-execution/sales-execution.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
+import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 
@@ -95,6 +96,7 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // Invoice with real input VAT + Accounts Payable, Purchase Return,
     // Additional Purchase Cost allocation, three-way matching, reporting).
     PurchaseExecutionModule,
+    TreasuryModule,
 
     // Warehouse / Stock Engine (docx spec Phase 10 — the Stock Truth
     // Engine every other module reads from, plus WarehouseTransfer,
