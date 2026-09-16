@@ -8,6 +8,11 @@ import { Decimal } from '@prisma/client/runtime/library';
 const VALID_TYPES = ['CUSTOMER', 'SUPPLIER', 'BOTH'];
 const VALID_ADDRESS_TYPES = ['LEGAL', 'ACTUAL', 'SHIPPING', 'BILLING', 'OTHER'];
 const VALID_RESIDENCY = ['RESIDENT', 'NON_RESIDENT'];
+/** Bank-account fields whose change reopens the approval gate — a change
+ * to any of these is exactly the "bank account changed" event the spec
+ * means; cosmetic fields (notes/branchName/isPrimary/active/bankAddress/
+ * bankTaxId) never touch it. */
+const SENSITIVE_BANK_ACCOUNT_FIELDS = ['bankName', 'accountNumber', 'iban', 'swiftBic', 'bankCode', 'correspondentAccount'];
 export const COUNTERPARTY_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRED', 'CANCELLED'];
 
 export interface CounterpartyInput {
@@ -305,7 +310,10 @@ export class CounterpartyService {
     }
 
     const account = await this.prisma.counterpartyBankAccount.create({
-      data: { tenantId, counterpartyId, createdBy: userId, updatedBy: userId, ...input, isPrimary },
+      // Every new account starts PENDING (see SENSITIVE_BANK_ACCOUNT_FIELDS
+      // comment above) — a payment referencing it is blocked until a
+      // counterparty.approve holder reviews it, same as any later change.
+      data: { tenantId, counterpartyId, createdBy: userId, updatedBy: userId, ...input, isPrimary, status: 'PENDING' },
     });
     await this.audit.record({
       tenantId, eventType: 'COUNTERPARTY_BANK_ACCOUNT_ADDED', entityType: 'Counterparty',
@@ -322,16 +330,73 @@ export class CounterpartyService {
     if (fields.isPrimary) {
       await this.prisma.counterpartyBankAccount.updateMany({ where: { counterpartyId, id: { not: accountId } }, data: { isPrimary: false } });
     }
+    const changesSensitiveField = SENSITIVE_BANK_ACCOUNT_FIELDS.some((f) => fields[f] !== undefined);
     const result = await this.prisma.counterpartyBankAccount.updateMany({
       where: { id: accountId, counterpartyId, version: expectedVersion },
-      data: { ...fields, updatedBy: userId, version: { increment: 1 } },
+      data: {
+        ...fields,
+        updatedBy: userId,
+        version: { increment: 1 },
+        // "Bank hesabı dəyişikliyi" reopens the approval gate — a payment
+        // already referencing this account is blocked again until it is
+        // re-approved (checked by PaymentOrderPostingHandler).
+        ...(changesSensitiveField ? { status: 'PENDING', approvedBy: null, approvedAt: null } : {}),
+      },
     });
     if (result.count === 0) throw new ConcurrencyConflictError();
     await this.audit.record({
       tenantId, eventType: 'COUNTERPARTY_BANK_ACCOUNT_UPDATED', entityType: 'Counterparty',
-      entityId: counterpartyId, action: 'UPDATE', userId, newValues: { bankAccountId: accountId, ...fields },
+      entityId: counterpartyId, action: 'UPDATE', userId, newValues: { bankAccountId: accountId, ...fields, reopenedApproval: changesSensitiveField },
     });
     return this.prisma.counterpartyBankAccount.findUnique({ where: { id: accountId } });
+  }
+
+  /** Bank-account-change control (spec): approving lets PaymentOrder use
+   * this account again; rejecting leaves it unusable for payment until
+   * it is corrected and re-submitted (a further update re-opens PENDING
+   * automatically). Reuses `counterparty.approve` — the same permission
+   * already gating the counterparty's own DRAFT->APPROVED transition —
+   * rather than a new code, since it's the same approver population. */
+  async approveBankAccount(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string, accountId: string, userId: string, expectedVersion: number) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, counterpartyId);
+    const account = await this.getOwnedBankAccount(counterpartyId, accountId);
+    if (account.status === 'APPROVED') throw new ValidationAppError('Bank account is already approved');
+
+    const result = await this.prisma.counterpartyBankAccount.updateMany({
+      where: { id: accountId, counterpartyId, version: expectedVersion },
+      data: { status: 'APPROVED', approvedBy: userId, approvedAt: new Date(), version: { increment: 1 } },
+    });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_BANK_ACCOUNT_APPROVED', entityType: 'Counterparty',
+      entityId: counterpartyId, action: 'APPROVE', userId, newValues: { bankAccountId: accountId },
+    });
+    return this.prisma.counterpartyBankAccount.findUnique({ where: { id: accountId } });
+  }
+
+  async rejectBankAccount(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string, accountId: string, userId: string, expectedVersion: number, reason?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, counterpartyId);
+    const account = await this.getOwnedBankAccount(counterpartyId, accountId);
+    if (account.status === 'REJECTED') throw new ValidationAppError('Bank account is already rejected');
+
+    const result = await this.prisma.counterpartyBankAccount.updateMany({
+      where: { id: accountId, counterpartyId, version: expectedVersion },
+      data: { status: 'REJECTED', approvedBy: null, approvedAt: null, version: { increment: 1 } },
+    });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_BANK_ACCOUNT_REJECTED', entityType: 'Counterparty',
+      entityId: counterpartyId, action: 'REJECT', userId, newValues: { bankAccountId: accountId, reason },
+    });
+    return this.prisma.counterpartyBankAccount.findUnique({ where: { id: accountId } });
+  }
+
+  private async getOwnedBankAccount(counterpartyId: string, accountId: string) {
+    const account = await this.prisma.counterpartyBankAccount.findFirst({ where: { id: accountId, counterpartyId } });
+    if (!account) throw new NotFoundAppError('CounterpartyBankAccount', accountId);
+    return account;
   }
 
   async deactivateBankAccount(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string, accountId: string, userId: string, expectedVersion: number) {

@@ -138,3 +138,8 @@ export class UpdateCounterpartyBankAccountDto {
 
   @IsInt() @Min(1) expectedVersion!: number;
 }
+
+export class RejectCounterpartyBankAccountDto {
+  @IsOptional() @IsString() reason?: string;
+  @IsInt() @Min(1) expectedVersion!: number;
+}

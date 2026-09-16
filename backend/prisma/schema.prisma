@@ -3692,22 +3692,27 @@ model PaymentRequest {
 /// bankStatementAmount/reconciliationDifference) rather than a separate
 /// statement-import/matching engine — see docs/APPROVALS.md.
 model PaymentOrder {
-  id               String         @id @default(uuid())
-  tenantId         String         @map("tenant_id")
-  organizationId   String         @map("organization_id")
-  documentType     String         @default("PAYMENT_ORDER") @map("document_type")
-  number           String?
-  documentDate     DateTime       @map("document_date") @db.Date
-  postingDate      DateTime?      @map("posting_date") @db.Date
-  status           DocumentStatus @default(DRAFT)
-  postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
-  approvalStatus   ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
-  paymentRequestId String         @map("payment_request_id")
-  counterpartyId   String         @map("counterparty_id")
-  bankAccountId    String         @map("bank_account_id")
-  currencyId       String?        @map("currency_id")
-  amount           Decimal        @db.Decimal(18, 2)
-  description      String?
+  id                        String         @id @default(uuid())
+  tenantId                  String         @map("tenant_id")
+  organizationId            String         @map("organization_id")
+  documentType              String         @default("PAYMENT_ORDER") @map("document_type")
+  number                    String?
+  documentDate              DateTime       @map("document_date") @db.Date
+  postingDate               DateTime?      @map("posting_date") @db.Date
+  status                    DocumentStatus @default(DRAFT)
+  postingStatus             PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  approvalStatus            ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
+  paymentRequestId          String         @map("payment_request_id")
+  counterpartyId            String         @map("counterparty_id")
+  bankAccountId             String         @map("bank_account_id")
+  // The counterparty's OWN receiving account (where the money is sent) —
+  // distinct from bankAccountId above (this tenant's own paying account).
+  // Optional: a caller who doesn't record it skips the approval gate
+  // below entirely, same as before this field existed.
+  counterpartyBankAccountId String?        @map("counterparty_bank_account_id")
+  currencyId                String?        @map("currency_id")
+  amount                    Decimal        @db.Decimal(18, 2)
+  description               String?
 
   // "Bank Ödənişi" fields — set at/after posting.
   bankReference     String? @map("bank_reference")
@@ -3730,11 +3735,12 @@ model PaymentOrder {
   cancelledBy String?   @map("cancelled_by")
   version     Int       @default(1)
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?    @relation(fields: [currencyId], references: [id])
-  bankAccount  BankAccount  @relation(fields: [bankAccountId], references: [id])
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  organization            Organization             @relation(fields: [organizationId], references: [id])
+  counterparty            Counterparty             @relation(fields: [counterpartyId], references: [id])
+  currency                Currency?                @relation(fields: [currencyId], references: [id])
+  bankAccount             BankAccount              @relation(fields: [bankAccountId], references: [id])
+  counterpartyBankAccount CounterpartyBankAccount? @relation(fields: [counterpartyBankAccountId], references: [id])
 
   @@unique([tenantId, number])
   @@index([organizationId, paymentRequestId])
@@ -4431,15 +4437,27 @@ model CounterpartyBankAccount {
   notes                String?
   active               Boolean @default(true)
 
+  // Bank-account-change control: a fresh account, or a change to any of
+  // its sensitive fields (bankName/accountNumber/iban/swiftBic/bankCode/
+  // correspondentAccount — see SENSITIVE_BANK_ACCOUNT_FIELDS in
+  // counterparty.service.ts), resets status to PENDING. A PaymentOrder
+  // may reference this account, but PaymentOrderPostingHandler refuses to
+  // post against anything but APPROVED — the unapproved change itself
+  // never blocks other, unrelated payments, only ones using this account.
+  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  approvedBy String?   @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
   updatedAt DateTime @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id])
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  currency     Currency?    @relation(fields: [currencyId], references: [id])
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  counterparty Counterparty   @relation(fields: [counterpartyId], references: [id])
+  currency     Currency?      @relation(fields: [currencyId], references: [id])
+  PaymentOrder PaymentOrder[]
 
   @@index([counterpartyId, active])
   @@index([counterpartyId, isPrimary])

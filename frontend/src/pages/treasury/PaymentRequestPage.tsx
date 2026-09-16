@@ -171,7 +171,9 @@ export function PaymentRequestDetailPage() {
 
   const [doc, setDoc] = useState<PaymentRequest | null>(null);
   const [bankAccounts, setBankAccounts] = useState<{ id: string; bankName: string; accountName: string; iban: string }[]>([]);
+  const [counterpartyBankAccounts, setCounterpartyBankAccounts] = useState<{ id: string; bankName: string; accountNumber: string; iban: string | null; status: string }[]>([]);
   const [bankAccountId, setBankAccountId] = useState('');
+  const [counterpartyBankAccountId, setCounterpartyBankAccountId] = useState('');
   const [orderAmount, setOrderAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const orgId = currentOrganizationId;
@@ -183,6 +185,8 @@ export function PaymentRequestDetailPage() {
       setDoc(d);
       const banks = await api.get<{ id: string; bankName: string; accountName: string; iban: string }[]>(`/organizations/${orgId}/bank-accounts`).catch(() => []);
       setBankAccounts(banks);
+      const cp = await api.get<{ bankAccounts?: { id: string; bankName: string; accountNumber: string; iban: string | null; status: string }[] }>(`/organizations/${orgId}/counterparties/${d.counterpartyId}`).catch(() => null);
+      setCounterpartyBankAccounts(cp?.bankAccounts ?? []);
     } catch (err) {
       showError(err);
     }
@@ -212,7 +216,9 @@ export function PaymentRequestDetailPage() {
     setBusy(true);
     try {
       const order = await api.post<{ id: string }>(`/organizations/${orgId}/payment-orders`, {
-        paymentRequestId: doc.id, documentDate: new Date().toISOString().slice(0, 10), bankAccountId, amount: orderAmount ? Number(orderAmount) : undefined,
+        paymentRequestId: doc.id, documentDate: new Date().toISOString().slice(0, 10), bankAccountId,
+        counterpartyBankAccountId: counterpartyBankAccountId || undefined,
+        amount: orderAmount ? Number(orderAmount) : undefined,
       });
       showSuccess(t.treasury.paymentOrderCreated);
       navigate(`/payment-orders/${order.id}`);
@@ -256,6 +262,17 @@ export function PaymentRequestDetailPage() {
               <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)}>
                 <option value="">{t.common.select}</option>
                 {bankAccounts.map((b) => <option key={b.id} value={b.id}>{b.bankName} — {b.accountName} ({b.iban})</option>)}
+              </select>
+            </label>
+            <label>
+              Counterparty's receiving account
+              <select value={counterpartyBankAccountId} onChange={(e) => setCounterpartyBankAccountId(e.target.value)}>
+                <option value="">{t.common.select} (optional)</option>
+                {counterpartyBankAccounts.map((b) => (
+                  <option key={b.id} value={b.id} disabled={b.status !== 'APPROVED'}>
+                    {b.bankName} — {b.accountNumber} ({b.status}){b.status !== 'APPROVED' ? ' — cannot use until approved' : ''}
+                  </option>
+                ))}
               </select>
             </label>
             <label>{t.common.amount}<input type="number" step="any" min="0" value={orderAmount} onChange={(e) => setOrderAmount(e.target.value)} placeholder={doc.amount} /></label>

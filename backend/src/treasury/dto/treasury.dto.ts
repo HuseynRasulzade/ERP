@@ -32,6 +32,13 @@ export class CreatePaymentOrderDto {
   @IsString()
   bankAccountId!: string;
 
+  /** The counterparty's OWN receiving account — optional; omitting it
+   * skips the bank-account-change approval gate entirely (see
+   * PaymentOrderPostingHandler.validateForPosting). */
+  @IsOptional()
+  @IsString()
+  counterpartyBankAccountId?: string;
+
   @IsOptional()
   @IsNumber()
   amount?: number; // defaults to the payment request's own amount

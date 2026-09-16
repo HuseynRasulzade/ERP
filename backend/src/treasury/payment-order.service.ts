@@ -54,6 +54,14 @@ export class PaymentOrderService {
     if (!bankAccount) throw new ValidationAppError('Bank account does not belong to this organization');
     if (!bankAccount.active) throw new ValidationAppError('Bank account is inactive');
 
+    if (dto.counterpartyBankAccountId) {
+      const counterpartyBankAccount = await this.prisma.counterpartyBankAccount.findFirst({ where: { id: dto.counterpartyBankAccountId, counterpartyId: request.counterpartyId } });
+      if (!counterpartyBankAccount) throw new ValidationAppError("Counterparty bank account does not belong to this payment request's counterparty");
+      if (counterpartyBankAccount.status !== 'APPROVED') {
+        throw new ValidationAppError(`Counterparty bank account is ${counterpartyBankAccount.status}, not APPROVED — a payment cannot use it until it is approved`);
+      }
+    }
+
     const amount = dto.amount != null ? new Decimal(dto.amount.toString()) : new Decimal(request.amount.toString());
     if (!amount.isFinite() || amount.lte(0)) throw new ValidationAppError('Amount must be positive');
     if (amount.gt(new Decimal(request.amount.toString()))) throw new ValidationAppError(`Amount ${amount.toString()} exceeds the payment request's own amount ${request.amount.toString()}`);
@@ -70,6 +78,7 @@ export class PaymentOrderService {
           paymentRequestId: request.id,
           counterpartyId: request.counterpartyId,
           bankAccountId: dto.bankAccountId,
+          counterpartyBankAccountId: dto.counterpartyBankAccountId,
           currencyId: request.currencyId,
           amount,
           description: dto.description,

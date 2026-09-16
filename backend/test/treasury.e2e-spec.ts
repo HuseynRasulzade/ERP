@@ -310,4 +310,58 @@ describe('Treasury (e2e)', () => {
       expect(reconciled.body.bankReference).toBe('STMT-0001');
     });
   });
+
+  describe('Counterparty bank-account-change control', () => {
+    it('refuses to create a payment order against an unapproved counterparty bank account, and refuses to post one that was approved-then-changed', async () => {
+      const invoice = await postedInvoice(6, 25);
+      const payreq = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-requests`))
+        .send({ purchaseInvoiceId: invoice.id, documentDate: DOC_DATE })
+        .expect(201);
+
+      const cpAccount = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/bank-accounts`))
+        .send({ bankName: "Supplier's Bank", accountNumber: `SUP-ACC-${run}` })
+        .expect(201);
+      expect(cpAccount.body.status).toBe('PENDING');
+
+      // Blocked at creation while PENDING.
+      const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-orders`))
+        .send({ paymentRequestId: payreq.body.id, documentDate: DOC_DATE, bankAccountId, counterpartyBankAccountId: cpAccount.body.id });
+      expect(blocked.status).toBe(400);
+      expect(blocked.body.message).toMatch(/not APPROVED/i);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/bank-accounts/${cpAccount.body.id}/approve`))
+        .send({ expectedVersion: cpAccount.body.version })
+        .expect(201);
+
+      const payord = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-orders`))
+        .send({ paymentRequestId: payreq.body.id, documentDate: DOC_DATE, bankAccountId, counterpartyBankAccountId: cpAccount.body.id })
+        .expect(201);
+
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-orders/${payord.body.id}/approve`)).send({}).expect(201);
+      const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/payment-orders/${payord.body.id}`)).expect(200);
+
+      // The counterparty's bank account is changed AFTER the payment order was created/approved — reopens PENDING.
+      await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/counterparties/${supplierId}/bank-accounts/${cpAccount.body.id}`))
+        .send({ iban: 'AZ00NABZ00000000000000005555', expectedVersion: cpAccount.body.version + 1 })
+        .expect(200);
+
+      // Posting is re-checked at posting time, not just at creation — still blocked.
+      const repostBlocked = await auth1(request(app.getHttpServer()).post(`/documents/${PAYMENT_ORDER_TYPE}/${payord.body.id}/post`))
+        .send({ expectedVersion: approved.body.version });
+      expect(repostBlocked.status).toBe(400);
+      expect(repostBlocked.body.message).toMatch(/counterparty bank account/i);
+
+      // Re-approving the account allows posting to proceed.
+      const reApproved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${supplierId}`)).expect(200);
+      const reApprovedAccount = reApproved.body.bankAccounts.find((a: any) => a.id === cpAccount.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/bank-accounts/${cpAccount.body.id}/approve`))
+        .send({ expectedVersion: reApprovedAccount.version })
+        .expect(201);
+
+      const posted = await auth1(request(app.getHttpServer()).post(`/documents/${PAYMENT_ORDER_TYPE}/${payord.body.id}/post`))
+        .send({ expectedVersion: approved.body.version })
+        .expect(201);
+      expect(posted.body.postingStatus).toBe('POSTED');
+    });
+  });
 });

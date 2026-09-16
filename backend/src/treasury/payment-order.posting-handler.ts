@@ -40,6 +40,17 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     const bankAccount = await tx.bankAccount.findFirst({ where: { id: order.bankAccountId, tenantId } });
     if (!bankAccount || !bankAccount.active) throw new ValidationAppError('Cannot post a payment order against a missing or inactive bank account');
 
+    // Bank-account-change control: re-checked here (not just at create
+    // time) because the counterparty's account can be edited — and its
+    // approval reopened to PENDING — any time between order creation and
+    // posting (see counterparty.service.ts's SENSITIVE_BANK_ACCOUNT_FIELDS).
+    if (order.counterpartyBankAccountId) {
+      const counterpartyBankAccount = await tx.counterpartyBankAccount.findFirst({ where: { id: order.counterpartyBankAccountId, tenantId } });
+      if (!counterpartyBankAccount || counterpartyBankAccount.status !== 'APPROVED') {
+        throw new ValidationAppError('Cannot post a payment order against a counterparty bank account that is not APPROVED');
+      }
+    }
+
     // Segregation of duties: the executor (current user, posting now) must
     // not be the same person who gave FINANCE approval.
     const approvalStep = await tx.approvalStep.findFirst({
