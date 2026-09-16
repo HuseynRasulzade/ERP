@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { PurchaseOrderService } from './purchase-order.service';
 import { ProcurementPlanningService } from './procurement-planning.service';
 import { CancelPurchaseOrderLineDto, CreatePurchaseOrderDto, CreatePurchaseOrderFromRequirementsDto, UpdatePurchaseOrderDto } from './dto/procurement.dto';
+import { ApprovalDecisionDto } from '../approvals/dto/approval-decision.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
@@ -74,6 +75,32 @@ export class PurchaseOrderController {
   ) {
     const { expectedVersion, ...patch } = dto;
     return this.orders.update(tenantId, membershipId, organizationId, id, user.userId, expectedVersion, patch);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_ORDER_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.orders.approve(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_ORDER_REJECT)
+  @Post(':id/reject')
+  reject(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.orders.reject(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
   }
 
   @RequirePermissions(PermissionCodes.PURCHASE_ORDER_EDIT)

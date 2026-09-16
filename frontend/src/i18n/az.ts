@@ -117,6 +117,16 @@ const az: Translations = {
     cancelled: 'ləğv edildi',
     created: 'Yaradıldı',
     updated: 'yeniləndi',
+    approve: 'Təsdiqlə',
+    reject: 'Rədd et',
+    approved: 'təsdiqləndi',
+    rejected: 'rədd edildi',
+    approvalStatus: 'Təsdiq statusu',
+    approvalSteps: 'Təsdiq addımları',
+    noApprovalSteps: 'Təsdiq tələb olunmur.',
+    approvalComment: 'Qeyd (istəyə bağlı)',
+    approvalRejectReasonRequired: 'Rədd etmək üçün səbəb daxil edilməlidir.',
+    pendingOn: 'Növbədə',
   },
 
   status: {
@@ -135,6 +145,25 @@ const az: Translations = {
       OPEN: 'Açıq',
       SOFT_CLOSED: 'Qismən bağlı',
       CLOSED: 'Bağlı',
+    },
+    approval: {
+      NOT_REQUIRED: 'Tələb olunmur',
+      PENDING: 'Təsdiq gözləyir',
+      APPROVED: 'Təsdiqləndi',
+      REJECTED: 'Rədd edildi',
+    },
+    approvalStep: {
+      PENDING: 'Gözləmədə',
+      APPROVED: 'Təsdiqləndi',
+      REJECTED: 'Rədd edildi',
+      SKIPPED: 'Keçildi',
+    },
+    approvalStepType: {
+      PROCUREMENT_OFFICER: 'Təchizat məsulu',
+      DEPARTMENT_HEAD: 'Şöbə rəhbəri',
+      DIRECTOR: 'Direktor',
+      FINANCE: 'Maliyyə',
+      ACCOUNTING: 'Mühasibatlıq',
     },
   },
 

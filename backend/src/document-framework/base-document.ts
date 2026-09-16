@@ -38,9 +38,12 @@ export type DocumentStatus = 'DRAFT' | 'ACTIVE' | 'CANCELLED' | 'DELETION_MARKED
 export type PostingStatus = 'NOT_POSTED' | 'POSTED' | 'POSTING_FAILED';
 
 /**
- * Approval status is intentionally NOT part of BaseDocumentFields yet
- * (section 9) — Phase 26 will add it as an independent axis alongside
- * document/posting status without requiring a redesign here. Reserved
- * codes: NOT_REQUIRED | PENDING | APPROVED | REJECTED (seeded in the
- * enumeration foundation already, see prisma/seed.ts APPROVAL_STATUS).
+ * Approval status is intentionally NOT part of BaseDocumentFields — a
+ * scoped MVP of the eventual full Phase 26 engine now exists for
+ * PurchaseRequirement/PurchaseOrder as an independent `approvalStatus`
+ * column on each document's own table (not here, since not every document
+ * type has adopted it yet), driven by `src/approvals/`. See
+ * `docs/APPROVALS.md`. Reserved codes: NOT_REQUIRED | PENDING | APPROVED |
+ * REJECTED (seeded in the enumeration foundation too, see
+ * prisma/seed.ts APPROVAL_STATUS).
  */

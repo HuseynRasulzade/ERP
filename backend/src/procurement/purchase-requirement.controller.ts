@@ -3,6 +3,7 @@ import { PurchaseRequirementService } from './purchase-requirement.service';
 import { ProcurementPlanningService } from './procurement-planning.service';
 import { CreatePurchaseRequirementDto, CreatePurchaseOrderFromRequirementDto, UpdatePurchaseRequirementDto } from './dto/procurement.dto';
 import { VersionedCommandDto } from '../org-structure/dto/common.dto';
+import { ApprovalDecisionDto } from '../approvals/dto/approval-decision.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
@@ -77,6 +78,32 @@ export class PurchaseRequirementController {
     @Body() dto: VersionedCommandDto,
   ) {
     return this.requirements.cancel(tenantId, membershipId, organizationId, id, user.userId, dto.expectedVersion);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_REQUIREMENT_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.requirements.approve(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_REQUIREMENT_REJECT)
+  @Post(':id/reject')
+  reject(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.requirements.reject(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
   }
 
   @RequirePermissions(PermissionCodes.PURCHASE_ORDER_CREATE)

@@ -142,6 +142,7 @@ model Tenant {
   inventoryAdjustmentLines                        InventoryAdjustmentLine[]
   inventoryStatusTransfers                          InventoryStatusTransfer[]
   inventoryStatusTransferLines                       InventoryStatusTransferLine[]
+  approvalSteps                                        ApprovalStep[]
 
   inventoryCostingPolicies             InventoryCostingPolicy[]
   inventoryCostLayers                  InventoryCostLayer[]
@@ -1751,6 +1752,59 @@ enum PostingStatus {
   NOT_POSTED
   POSTED
   POSTING_FAILED
+}
+
+// ----------------------------------------------------------------------------
+// Approval workflow MVP (scoped subset of the eventual Phase 26 engine) —
+// see docs/APPROVALS.md. approvalStatus is a THIRD axis independent of
+// DocumentStatus/PostingStatus: approving a document never posts it, and
+// posting is gated on approvalStatus for document types that opt in.
+// ----------------------------------------------------------------------------
+
+enum ApprovalStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum ApprovalStepType {
+  PROCUREMENT_OFFICER
+  DEPARTMENT_HEAD
+  DIRECTOR
+  FINANCE
+  ACCOUNTING
+}
+
+/// One row per required approval on a given document instance. documentType +
+/// documentId is a polymorphic reference (same convention as RegisterMovement
+/// / document-framework), not a real FK, since it spans unrelated tables.
+model ApprovalStep {
+  id           String             @id @default(uuid())
+  tenantId     String             @map("tenant_id")
+  documentType String             @map("document_type")
+  documentId   String             @map("document_id")
+  sequence     Int                @default(0)
+  stepType     ApprovalStepType   @map("step_type")
+  status       ApprovalStepStatus @default(PENDING)
+  approvedBy   String?            @map("approved_by")
+  approvedAt   DateTime?          @map("approved_at")
+  comment      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, documentType, documentId, sequence])
+  @@map("approval_steps")
 }
 
 model FoundationTestDocument {
@@ -3777,6 +3831,7 @@ model PurchaseRequirement {
   number         String?
   documentDate   DateTime  @map("document_date") @db.Date
   status         String    @default("DRAFT") // DRAFT|OPEN|PARTIALLY_ORDERED|FULLY_ORDERED|CANCELLED|CLOSED
+  approvalStatus ApprovalStatus @default(PENDING) @map("approval_status")
   warehouseId    String?   @map("warehouse_id")
   departmentId   String?   @map("department_id")
   requesterId    String?   @map("requester_id") // ResponsiblePerson (spec section 79)
@@ -3859,6 +3914,7 @@ model PurchaseOrder {
   postingDate      DateTime?      @map("posting_date") @db.Date
   status           DocumentStatus @default(DRAFT)
   postingStatus    PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  approvalStatus   ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
   currencyId       String?        @map("currency_id")
   exchangeRate     Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
   subtotal         Decimal        @default(0) @db.Decimal(18, 2)

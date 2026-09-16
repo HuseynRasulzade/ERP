@@ -115,6 +115,16 @@ const en = {
     cancelled: 'cancelled',
     created: 'Created',
     updated: 'updated',
+    approve: 'Approve',
+    reject: 'Reject',
+    approved: 'approved',
+    rejected: 'rejected',
+    approvalStatus: 'Approval status',
+    approvalSteps: 'Approval steps',
+    noApprovalSteps: 'No approval required.',
+    approvalComment: 'Comment (optional)',
+    approvalRejectReasonRequired: 'A reason is required to reject.',
+    pendingOn: 'Pending on',
   },
 
   status: {
@@ -133,6 +143,25 @@ const en = {
       OPEN: 'Open',
       SOFT_CLOSED: 'Soft closed',
       CLOSED: 'Closed',
+    },
+    approval: {
+      NOT_REQUIRED: 'Not required',
+      PENDING: 'Pending approval',
+      APPROVED: 'Approved',
+      REJECTED: 'Rejected',
+    },
+    approvalStep: {
+      PENDING: 'Pending',
+      APPROVED: 'Approved',
+      REJECTED: 'Rejected',
+      SKIPPED: 'Skipped',
+    },
+    approvalStepType: {
+      PROCUREMENT_OFFICER: 'Procurement officer',
+      DEPARTMENT_HEAD: 'Department head',
+      DIRECTOR: 'Director',
+      FINANCE: 'Finance',
+      ACCOUNTING: 'Accounting',
     },
   },
 

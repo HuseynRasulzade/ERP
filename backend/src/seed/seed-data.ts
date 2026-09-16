@@ -1,6 +1,122 @@
-import { ALL_PERMISSION_CODES } from '../rbac/permission-codes';
+import { ALL_PERMISSION_CODES, PermissionCodes } from '../rbac/permission-codes';
 
 export const SYSTEM_ROLE_TENANT_ADMIN = 'TENANT_ADMIN';
+
+// Approval workflow MVP demo tenant/org — see docs/APPROVALS.md. Recreated
+// idempotently by name (code) rather than a hardcoded id, since a fresh
+// dev database won't have it yet.
+export const DEMO_TENANT_CODE = 'acme';
+export const DEMO_ORG_CODE = 'sinteks';
+export const DEMO_DEPARTMENT_CODE = 'PROCUREMENT';
+
+/** Curated, tenant-scoped roles for the approval workflow MVP (and a few
+ * inert placeholders for named roles the wider spec asks for, holding only
+ * permissions that already exist today — ready for a future increment). */
+export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: string[] }[] = [
+  {
+    code: 'PROCUREMENT_OFFICER',
+    name: 'Procurement Officer',
+    permissions: [
+      PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
+      PermissionCodes.PURCHASE_ORDER_VIEW,
+      PermissionCodes.PURCHASE_ORDER_CREATE,
+      PermissionCodes.PURCHASE_ORDER_EDIT,
+      PermissionCodes.PURCHASE_ORDER_APPROVE,
+      PermissionCodes.PURCHASE_VIEW,
+      PermissionCodes.PURCHASE_CREATE,
+      PermissionCodes.DOCUMENTS_VIEW,
+    ],
+  },
+  {
+    code: 'DEPARTMENT_HEAD',
+    name: 'Department Head',
+    permissions: [
+      PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
+      PermissionCodes.PURCHASE_REQUIREMENT_APPROVE,
+      PermissionCodes.PURCHASE_REQUIREMENT_REJECT,
+      PermissionCodes.PURCHASE_ORDER_VIEW,
+      PermissionCodes.PURCHASE_ORDER_APPROVE,
+      PermissionCodes.PURCHASE_ORDER_REJECT,
+      PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.AUDIT_VIEW,
+    ],
+  },
+  {
+    code: 'DIRECTOR',
+    name: 'Director',
+    permissions: [
+      PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
+      PermissionCodes.PURCHASE_ORDER_VIEW,
+      PermissionCodes.PURCHASE_ORDER_APPROVE,
+      PermissionCodes.PURCHASE_ORDER_REJECT,
+      PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.AUDIT_VIEW,
+    ],
+  },
+  {
+    code: 'FINANCE_USER',
+    name: 'Finance',
+    permissions: [
+      PermissionCodes.PURCHASE_ORDER_VIEW,
+      PermissionCodes.PURCHASE_ORDER_APPROVE,
+      PermissionCodes.PURCHASE_ORDER_REJECT,
+      PermissionCodes.PURCHASE_PAYMENT_SCHEDULE_VIEW,
+      PermissionCodes.DOCUMENTS_VIEW,
+    ],
+  },
+  {
+    code: 'ACCOUNTING_USER',
+    name: 'Accounting',
+    permissions: [
+      PermissionCodes.PURCHASE_ORDER_VIEW,
+      PermissionCodes.PURCHASE_ORDER_APPROVE,
+      PermissionCodes.PURCHASE_ORDER_REJECT,
+      PermissionCodes.PURCHASE_VIEW_ACCOUNTING,
+      PermissionCodes.ACCOUNTING_JOURNAL_VIEW,
+      PermissionCodes.DOCUMENTS_VIEW,
+    ],
+  },
+  // Inert placeholders (spec's wider named-role list) — view-only today,
+  // ready for a future increment to extend.
+  {
+    code: 'WAREHOUSE_USER',
+    name: 'Warehouse',
+    permissions: [PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+  },
+  {
+    code: 'SALES_USER',
+    name: 'Sales',
+    permissions: [PermissionCodes.SALES_ORDER_VIEW, PermissionCodes.SALES_ORDER_CREATE, PermissionCodes.SALES_INVOICE_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+  },
+  {
+    code: 'SALES_MANAGER',
+    name: 'Sales Manager',
+    permissions: [PermissionCodes.SALES_ORDER_VIEW, PermissionCodes.SALES_ORDER_CREATE, PermissionCodes.SALES_ORDER_CONFIRM, PermissionCodes.SALES_INVOICE_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+  },
+  {
+    code: 'AUDITOR',
+    name: 'Auditor',
+    permissions: [
+      PermissionCodes.AUDIT_VIEW,
+      PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.PURCHASE_REQUIREMENT_VIEW,
+      PermissionCodes.PURCHASE_ORDER_VIEW,
+      PermissionCodes.SALES_ORDER_VIEW,
+      PermissionCodes.ACCOUNTING_JOURNAL_VIEW,
+    ],
+  },
+];
+
+export const SEED_DEMO_USERS: { email: string; password: string; displayName: string; roleCode: string; departmentCode?: string }[] = [
+  { email: 'procurement_officer@acme.test', password: 'Passw0rd!23', displayName: 'Procurement Officer', roleCode: 'PROCUREMENT_OFFICER' },
+  { email: 'department_head@acme.test', password: 'Passw0rd!23', displayName: 'Department Head', roleCode: 'DEPARTMENT_HEAD', departmentCode: DEMO_DEPARTMENT_CODE },
+  { email: 'director@acme.test', password: 'Passw0rd!23', displayName: 'Director', roleCode: 'DIRECTOR' },
+  { email: 'finance_user@acme.test', password: 'Passw0rd!23', displayName: 'Finance User', roleCode: 'FINANCE_USER' },
+  { email: 'accounting_user@acme.test', password: 'Passw0rd!23', displayName: 'Accounting User', roleCode: 'ACCOUNTING_USER' },
+  { email: 'warehouse_user@acme.test', password: 'Passw0rd!23', displayName: 'Warehouse User', roleCode: 'WAREHOUSE_USER' },
+  { email: 'sales_manager@acme.test', password: 'Passw0rd!23', displayName: 'Sales Manager', roleCode: 'SALES_MANAGER' },
+  { email: 'auditor@acme.test', password: 'Passw0rd!23', displayName: 'Auditor', roleCode: 'AUDITOR' },
+];
 
 export const SEED_CURRENCIES = [
   { code: 'AZN', name: 'Azerbaijani Manat', symbol: '₼', decimalPlaces: 2, numericCode: '944' },

@@ -71,6 +71,9 @@ export class GoodsReceiptService {
       const order = await this.prisma.purchaseOrder.findFirst({ where: { id: dto.supplierOrderId, organizationId } });
       if (!order) throw new ValidationAppError('Supplier order does not belong to this organization');
       await this.contractGate.assertApprovedContractExists(tenantId, dto.supplierOrderId);
+      if ((order as any).approvalStatus !== 'APPROVED') {
+        throw new ValidationAppError('Purchase order is not fully approved yet');
+      }
     }
 
     const lines = await this.resolveLines(tenantId, organizationId, dto.lines);

@@ -24,6 +24,7 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
 
   const run = Date.now();
   let token1: string;
+  let approverToken: string; // holds every approval-chain role, distinct from token1 (the creator)
   let tenant1Id: string;
   let org1Id: string;
   let unitId: string;
@@ -46,6 +47,7 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
 
     const s1 = await setupTenant(`cct1-${run}@e2e.test`, `cct-t1-${run}`, 'CCT1');
     token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
+    approverToken = await setupApprover(tenant1Id, org1Id);
 
     const u = await auth1(request(app.getHttpServer()).post('/units-of-measure'))
       .send({ code: `PCS-CCT-${run}`, name: 'Piece', symbol: 'pcs', unitType: 'QUANTITY' })
@@ -97,6 +99,44 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
     return req.set('Authorization', `Bearer ${token1}`).set('X-Tenant-Id', tenant1Id);
   }
 
+  /** Registers a second tenant1 user holding every approval-chain role,
+   * distinct from token1 (the creator of every fixture requirement/PO
+   * below) — see procurement.e2e-spec.ts's identical helper for the full
+   * rationale. No requirement in this file carries an explicit department,
+   * so DEPARTMENT_HEAD resolves tenant-wide with no extra scoping needed. */
+  async function setupApprover(tenantId: string, organizationId: string): Promise<string> {
+    const email = `cct-approver-${run}@e2e.test`;
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Approver' }).expect(201);
+    const membership = await prisma.tenantMembership.create({ data: { tenantId, userId: reg.body.userId, status: 'ACTIVE' } });
+    await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId, accessLevel: 'FULL' } });
+
+    const approvalPermissions = await prisma.permission.findMany({
+      where: { code: { in: ['purchase.order.view', 'purchase.order.approve', 'purchase.order.reject', 'purchase.requirement.view', 'purchase.requirement.approve', 'purchase.requirement.reject', 'documents.view'] } },
+    });
+    for (const roleCode of ['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'FINANCE_USER', 'ACCOUNTING_USER']) {
+      const role = await prisma.role.create({ data: { tenantId, code: roleCode, name: roleCode } });
+      await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+      await prisma.rolePermission.createMany({ data: approvalPermissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+    }
+    return reg.body.accessToken;
+  }
+
+  function approverAuth(req: request.Test) {
+    return req.set('Authorization', `Bearer ${approverToken}`).set('X-Tenant-Id', tenant1Id);
+  }
+
+  async function fullyApprovePurchaseOrder(orderId: string) {
+    for (let i = 0; i < 5; i++) {
+      const current = await approverAuth(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${orderId}`)).expect(200);
+      if (current.body.approvalStatus === 'APPROVED') return;
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${orderId}/approve`)).send({}).expect(201);
+    }
+  }
+
+  async function approveRequirement(requirementId: string) {
+    await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${requirementId}/approve`)).send({}).expect(201);
+  }
+
   let taxIdCounter = 0;
   function nextTaxId(): string {
     // Exactly 10 digits, unique per call within this run.
@@ -127,6 +167,7 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
     const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
       .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, currencyId, priceIncludesTax, lines: [{ productId, unitId, quantity, price }] })
       .expect(201);
+    await fullyApprovePurchaseOrder(po.body.id);
     await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${po.body.id}/post`))
       .send({ expectedVersion: po.body.version })
       .expect(201);
@@ -380,6 +421,7 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
       const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
         .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 10, description: 'Chain test' }] })
         .expect(201);
+      await approveRequirement(req.body.id);
       const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
         .send({ requirementIds: [req.body.id], counterpartyId: supplier.id, documentDate: DOC_DATE })
         .expect(201);
@@ -387,6 +429,7 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
       const priced = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/purchase-orders/${order.body.id}`))
         .send({ expectedVersion: order.body.version, lines: [{ productId, unitId, quantity: 10, price: 30, requirementLineId: req.body.lines[0].id }] })
         .expect(200);
+      await fullyApprovePurchaseOrder(order.body.id);
       await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${order.body.id}/post`))
         .send({ expectedVersion: priced.body.version })
         .expect(201);
@@ -409,6 +452,7 @@ describe('Kontragentlər — Contract terms, nomenclature & tax (e2e)', () => {
       const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
         .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5 }] })
         .expect(201);
+      await approveRequirement(req.body.id);
       const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
         .send({ requirementIds: [req.body.id], counterpartyId: supplier.id, documentDate: DOC_DATE })
         .expect(201);

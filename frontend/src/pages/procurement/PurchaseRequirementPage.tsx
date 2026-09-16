@@ -7,6 +7,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
+import { StatusBadge } from '../../components/StatusBadge';
+import { ApprovalStepsPanel } from '../docs/ApprovalStepsPanel';
 
 interface ReqLine {
   id: string;
@@ -20,6 +22,7 @@ interface Requirement {
   number: string | null;
   documentDate: string;
   status: string;
+  approvalStatus?: 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   priority: string;
   version: number;
   departmentId: string | null;
@@ -347,6 +350,7 @@ export function PurchaseRequirementDetailPage() {
           <h1>{doc.number ?? doc.id}</h1>
           <div className="badge-row">
             <span className={`badge badge-generic-${STATUS_CLASS[doc.status] ?? 'neutral'}`}>{doc.status}</span>
+            {doc.approvalStatus && <StatusBadge kind="approval" value={doc.approvalStatus} />}
           </div>
         </div>
         <div className="actions">
@@ -403,7 +407,19 @@ export function PurchaseRequirementDetailPage() {
         </table>
       </section>
 
-      {hasPermission('purchase.order.create') && doc.status !== 'CANCELLED' && doc.status !== 'FULLY_ORDERED' && doc.status !== 'CLOSED' && (
+      <ApprovalStepsPanel
+        orgId={orgId}
+        documentType="PURCHASE_REQUIREMENT"
+        documentId={doc.id}
+        approvalStatus={doc.approvalStatus}
+        approvePerm="purchase.requirement.approve"
+        rejectPerm="purchase.requirement.reject"
+        approveEndpoint={`purchase-requirements/${doc.id}/approve`}
+        rejectEndpoint={`purchase-requirements/${doc.id}/reject`}
+        onChanged={load}
+      />
+
+      {hasPermission('purchase.order.create') && doc.approvalStatus === 'APPROVED' && doc.status !== 'CANCELLED' && doc.status !== 'FULLY_ORDERED' && doc.status !== 'CLOSED' && (
         <section className="card">
           <h2>Allocate to a Purchase Order</h2>
           <p className="panel-note">Enter quantities above for the lines to allocate, pick a supplier, and create the order. Call this again with a different supplier for multi-supplier sourcing.</p>

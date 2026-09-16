@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
+import { ApprovalService } from '../approvals/approval.service';
 import { ConcurrencyConflictError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { CreatePurchaseRequirementDto, RequirementLineItemDto, UpdatePurchaseRequirementDto } from './dto/procurement.dto';
 
@@ -27,6 +28,7 @@ export class PurchaseRequirementService {
     private readonly numbering: NumberingService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string, status?: string) {
@@ -112,6 +114,8 @@ export class PurchaseRequirementService {
         { tenantId, eventType: 'PURCHASE_REQUIREMENT_CREATED', entityType: PURCHASE_REQUIREMENT_TYPE, entityId: header.id, action: 'CREATE', userId, newValues: { number: header.number, lineCount: lines.length } },
         tx,
       );
+
+      await this.approvals.createStepsForDocument(tenantId, organizationId, PURCHASE_REQUIREMENT_TYPE, header.id, tx);
 
       return tx.purchaseRequirement.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } }, department: true } });
     });
@@ -205,6 +209,22 @@ export class PurchaseRequirementService {
       await this.audit.record({ tenantId, eventType: 'PURCHASE_REQUIREMENT_CANCELLED', entityType: PURCHASE_REQUIREMENT_TYPE, entityId: id, action: 'CANCEL', userId }, tx);
       return tx.purchaseRequirement.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } }, department: true } });
     });
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id); // 404s if not found/not in this org
+    await this.approvals.approve(tenantId, organizationId, PURCHASE_REQUIREMENT_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, PURCHASE_REQUIREMENT_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   // -- helpers ----------------------------------------------------------------
