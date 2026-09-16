@@ -18,4 +18,11 @@ export class ApprovalPlanRegistryService {
   get(documentType: string): ApprovalPlanProvider | undefined {
     return this.providers.get(documentType);
   }
+
+  /** Every document type with a registered approval plan — used by the
+   * pending-approvals inbox (approval.service.ts) to scan across all of
+   * them rather than one document type at a time. */
+  listDocumentTypes(): string[] {
+    return Array.from(this.providers.keys());
+  }
 }

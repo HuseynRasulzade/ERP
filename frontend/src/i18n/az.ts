@@ -12,6 +12,7 @@ const az: Translations = {
     groupTreasury: 'Xəzinədarlıq',
     groupAdmin: 'İdarəetmə',
     documents: 'Sənədlər',
+    approvalsInbox: 'Təsdiq Qutusu',
     salesOrders: 'Satış Sifarişləri',
     salesInvoices: 'Satış Fakturaları',
     customerRequests: 'Müştəri Sorğuları',
@@ -218,6 +219,14 @@ const az: Translations = {
     noProductsYet: 'Hələ məhsul yoxdur.',
     noCategoriesYet: 'Hələ kateqoriya yoxdur.',
     noUnitsYet: 'Hələ ölçü vahidi yoxdur.',
+  },
+
+  approvalsInbox: {
+    empty: 'Hazırda gözləyən heç bir təsdiq addımı yoxdur.',
+    documentType: 'Sənəd növü',
+    step: 'Addım',
+    filedAt: 'Tarix',
+    review: 'Bax →',
   },
 
   procurement: {

@@ -52,6 +52,7 @@ import { ProductCatalogPage } from './pages/catalog/ProductCatalogPage';
 import { CounterpartyListPage } from './pages/counterparties/CounterpartyListPage';
 import { CounterpartyDetailPage } from './pages/counterparties/CounterpartyDetailPage';
 import { ContractDetailPage } from './pages/counterparties/ContractDetailPage';
+import { ApprovalsInboxPage } from './pages/ApprovalsInboxPage';
 
 // Accounting Core / Financial Reports
 import { ChartOfAccountsPage } from './pages/accounting/ChartOfAccountsPage';
@@ -138,6 +139,7 @@ function AppRoutes() {
         <Route path="/counterparties" element={<CounterpartyListPage />} />
         <Route path="/counterparties/:id" element={<CounterpartyDetailPage />} />
         <Route path="/counterparties/:id/contracts/:contractId" element={<ContractDetailPage />} />
+        <Route path="/approvals-inbox" element={<ApprovalsInboxPage />} />
 
         <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
         <Route path="/trial-balance" element={<TrialBalancePage />} />
