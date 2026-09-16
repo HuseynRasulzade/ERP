@@ -8,6 +8,7 @@ const en = {
     groupWarehouse: 'Warehouse',
     groupAdmin: 'Administration',
     documents: 'Documents',
+    approvalsInbox: 'Approvals Inbox',
     salesOrders: 'Sales Orders',
     salesInvoices: 'Sales Invoices',
     customerRequests: 'Customer Requests',
@@ -209,6 +210,14 @@ const en = {
     noProductsYet: 'No products yet.',
     noCategoriesYet: 'No categories yet.',
     noUnitsYet: 'No units of measure yet.',
+  },
+
+  approvalsInbox: {
+    empty: 'Nothing pending — you have no approval steps to act on right now.',
+    documentType: 'Document type',
+    step: 'Step',
+    filedAt: 'Filed',
+    review: 'Review →',
   },
 
   treasury: {

@@ -54,6 +54,7 @@ import { ProductCatalogPage } from './pages/catalog/ProductCatalogPage';
 import { CounterpartyListPage } from './pages/counterparties/CounterpartyListPage';
 import { CounterpartyDetailPage } from './pages/counterparties/CounterpartyDetailPage';
 import { ContractDetailPage } from './pages/counterparties/ContractDetailPage';
+import { ApprovalsInboxPage } from './pages/ApprovalsInboxPage';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -131,6 +132,7 @@ function AppRoutes() {
         <Route path="/counterparties" element={<CounterpartyListPage />} />
         <Route path="/counterparties/:id" element={<CounterpartyDetailPage />} />
         <Route path="/counterparties/:id/contracts/:contractId" element={<ContractDetailPage />} />
+        <Route path="/approvals-inbox" element={<ApprovalsInboxPage />} />
 
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />

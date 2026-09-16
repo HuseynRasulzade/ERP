@@ -61,6 +61,55 @@ export class ApprovalService {
     });
   }
 
+  /**
+   * "Bildiriş/tapşırıq paneli" — every currently-actionable approval step
+   * across EVERY registered document type that `userId` is eligible to
+   * decide right now. Scans each document type's own PENDING steps and
+   * keeps, per document, only the lowest-sequence one — the same "only
+   * the earliest PENDING step is actionable" rule `decide()` enforces
+   * procedurally via array order, made explicit here since this query
+   * has no natural per-document ordering to rely on. Eligibility reuses
+   * each provider's own `resolveApprover` (loading the document first) —
+   * never a duplicated role map — so this list can never drift from what
+   * the actual approve/reject endpoint would accept.
+   */
+  async getPendingApprovalsForUser(tenantId: string, userId: string) {
+    const results: Array<{ documentType: string; documentId: string; stepType: string; sequence: number; createdAt: Date; organizationId: string | null; documentNumber: string | null }> = [];
+
+    for (const documentType of this.registry.listDocumentTypes()) {
+      const provider = this.getProvider(documentType);
+      const pendingSteps = await this.prisma.approvalStep.findMany({
+        where: { tenantId, documentType, status: 'PENDING' },
+        orderBy: { sequence: 'asc' },
+      });
+
+      const earliestByDocument = new Map<string, (typeof pendingSteps)[number]>();
+      for (const step of pendingSteps) {
+        if (!earliestByDocument.has(step.documentId)) earliestByDocument.set(step.documentId, step);
+      }
+
+      for (const step of earliestByDocument.values()) {
+        const document = await provider.loadDocument(tenantId, step.documentId, this.prisma as unknown as PrismaTransactionClient);
+        if (!document) continue;
+        const organizationId: string | null = document.organizationId ?? null;
+        const eligible = await provider.resolveApprover(tenantId, organizationId ?? '', step.stepType, document, userId, this.prisma as unknown as PrismaTransactionClient);
+        if (!eligible) continue;
+
+        results.push({
+          documentType,
+          documentId: step.documentId,
+          stepType: step.stepType,
+          sequence: step.sequence,
+          createdAt: step.createdAt,
+          organizationId,
+          documentNumber: document.number ?? null,
+        });
+      }
+    }
+
+    return results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
   async approve(tenantId: string, organizationId: string, documentType: string, documentId: string, userId: string, comment?: string) {
     return this.decide(tenantId, organizationId, documentType, documentId, userId, 'APPROVE', comment);
   }
