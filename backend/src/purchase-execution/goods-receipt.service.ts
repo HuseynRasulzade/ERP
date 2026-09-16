@@ -4,11 +4,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
+import { RequestContextService } from '../common/context/request-context.service';
+import { PermissionCodes } from '../rbac/permission-codes';
+import { ApprovalService } from '../approvals/approval.service';
 import { ConcurrencyConflictError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { GOODS_RECEIPT_TYPE } from './goods-receipt.repository';
 import { CreateGoodsReceiptDto, GoodsReceiptLineItemDto } from './dto/purchase-execution.dto';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 import { PurchaseOrderContractGateService } from '../counterparty-contracts/purchase-order-contract-gate.service';
+import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
+import { redactGoodsReceiptPrices } from './goods-receipt-redaction.util';
 
 const SEQUENCE_PREFIX = 'GR';
 const SUPPLIER_TYPES = ['SUPPLIER', 'BOTH'];
@@ -27,6 +32,7 @@ interface ResolvedGRLine {
   description?: string;
   batchId?: string;
   serialNumbers?: string[];
+  overReceiptReason?: string;
 }
 
 /**
@@ -46,19 +52,23 @@ export class GoodsReceiptService {
     private readonly access: OrganizationAccessService,
     private readonly batchSerial: BatchSerialService,
     private readonly contractGate: PurchaseOrderContractGateService,
+    private readonly requestContext: RequestContextService,
+    private readonly fulfillment: PurchaseFulfillmentService,
+    private readonly approvals: ApprovalService,
   ) {}
 
-  list(tenantId: string, membershipId: string, organizationId: string) {
-    return this.access
-      .assertAccess(tenantId, membershipId, organizationId)
-      .then(() => this.prisma.goodsReceipt.findMany({ where: { organizationId }, orderBy: { createdAt: 'desc' } }));
+  async list(tenantId: string, membershipId: string, organizationId: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const rows = await this.prisma.goodsReceipt.findMany({ where: { organizationId }, orderBy: { createdAt: 'desc' } });
+    const canViewPrice = this.requestContext.hasPermission(PermissionCodes.PURCHASE_PRICE_VIEW);
+    return rows.map((row) => redactGoodsReceiptPrices(row, canViewPrice));
   }
 
   async get(tenantId: string, membershipId: string, organizationId: string, id: string) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     const row = await this.prisma.goodsReceipt.findFirst({ where: { id, organizationId }, include: { lines: { orderBy: { position: 'asc' } } } });
     if (!row) throw new NotFoundAppError('GoodsReceipt', id);
-    return row;
+    return redactGoodsReceiptPrices(row, this.requestContext.hasPermission(PermissionCodes.PURCHASE_PRICE_VIEW));
   }
 
   async create(tenantId: string, membershipId: string, organizationId: string, userId: string, dto: CreateGoodsReceiptDto) {
@@ -78,8 +88,9 @@ export class GoodsReceiptService {
 
     const lines = await this.resolveLines(tenantId, organizationId, dto.lines);
     await this.ensureSequence(tenantId);
+    const canViewPrice = this.requestContext.hasPermission(PermissionCodes.PURCHASE_PRICE_VIEW);
 
-    return this.prisma.runInTransaction(async (tx) => {
+    const created = await this.prisma.runInTransaction(async (tx) => {
       const allocated = await this.numbering.allocateNumber(tenantId, GOODS_RECEIPT_TYPE, businessDate, tx);
 
       const header = await tx.goodsReceipt.create({
@@ -120,6 +131,7 @@ export class GoodsReceiptService {
             expiryDate: line.expiryDate,
             batchId: line.batchId,
             description: line.description,
+            overReceiptReason: line.overReceiptReason,
             createdBy: userId,
           },
         });
@@ -133,8 +145,11 @@ export class GoodsReceiptService {
         tx,
       );
 
+      await this.approvals.createStepsForDocument(tenantId, organizationId, GOODS_RECEIPT_TYPE, header.id, tx);
+
       return tx.goodsReceipt.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
+    return redactGoodsReceiptPrices(created, canViewPrice);
   }
 
   async update(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, expectedVersion: number, patch: { documentDate?: string; warehouseId?: string; description?: string; lines?: GoodsReceiptLineItemDto[] }) {
@@ -182,6 +197,7 @@ export class GoodsReceiptService {
               expiryDate: line.expiryDate,
               batchId: line.batchId,
               description: line.description,
+              overReceiptReason: line.overReceiptReason,
               createdBy: userId,
             },
           });
@@ -189,13 +205,40 @@ export class GoodsReceiptService {
             await this.batchSerial.captureSerials(tenantId, GOODS_RECEIPT_TYPE, created.id, line.serialNumbers, tx);
           }
         }
+
+        // Re-plan approval steps since a line edit can newly introduce or
+        // resolve an over-delivery — but never discard a decision already
+        // made: skip re-planning if any step has already been acted on.
+        const decidedStep = await tx.approvalStep.findFirst({
+          where: { tenantId, documentType: GOODS_RECEIPT_TYPE, documentId: id, status: { in: ['APPROVED', 'REJECTED'] } },
+        });
+        if (!decidedStep) {
+          await tx.approvalStep.deleteMany({ where: { tenantId, documentType: GOODS_RECEIPT_TYPE, documentId: id, status: 'PENDING' } });
+          await this.approvals.createStepsForDocument(tenantId, organizationId, GOODS_RECEIPT_TYPE, id, tx);
+        }
       }
 
       return tx.goodsReceipt.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
 
     await this.audit.record({ tenantId, eventType: 'GOODS_RECEIPT_UPDATED', entityType: GOODS_RECEIPT_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { ...patch, lines: patch.lines?.length } });
-    return updated;
+    return redactGoodsReceiptPrices(updated, this.requestContext.hasPermission(PermissionCodes.PURCHASE_PRICE_VIEW));
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, GOODS_RECEIPT_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, GOODS_RECEIPT_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   // -- helpers ----------------------------------------------------------------
@@ -238,13 +281,35 @@ export class GoodsReceiptService {
         );
       }
 
+      const canOverridePrice = this.requestContext.hasPermission(PermissionCodes.PURCHASE_PRICE_VIEW);
+
       let price: Decimal;
-      if (line.price !== undefined) {
+      if (line.supplierOrderLineId) {
+        const orderLine = await this.prisma.purchaseOrderLine.findFirst({ where: { id: line.supplierOrderLineId, tenantId } });
+        const poPrice = orderLine ? new Decimal(orderLine.price.toString()) : new Decimal(0);
+        if (!canOverridePrice) {
+          // Backend always computes the price from the approved PO line
+          // for anyone without PURCHASE_PRICE_VIEW — a warehouse user's
+          // submitted (or omitted) price is silently replaced, never
+          // trusted, never rejected with an error.
+          price = poPrice;
+        } else if (line.price !== undefined) {
+          price = new Decimal(line.price.toString());
+          if (!price.isFinite() || price.lt(0)) throw new ValidationAppError('Line price must not be negative');
+        } else {
+          price = poPrice;
+        }
+
+        // Over-delivery gate (not just at posting): a line exceeding the
+        // PO line's remaining quantity must carry a reason, or the save
+        // is rejected outright — never silently allowed, even as a draft.
+        const remaining = await this.fulfillment.remainingToReceive(tenantId, line.supplierOrderLineId);
+        if (quantity.gt(remaining) && !line.overReceiptReason?.trim()) {
+          throw new ValidationAppError(`Line quantity ${quantity.toString()} exceeds the remaining ${remaining.toFixed(6)} for this order line — an overReceiptReason is required to save it`);
+        }
+      } else if (line.price !== undefined) {
         price = new Decimal(line.price.toString());
         if (!price.isFinite() || price.lt(0)) throw new ValidationAppError('Line price must not be negative');
-      } else if (line.supplierOrderLineId) {
-        const orderLine = await this.prisma.purchaseOrderLine.findFirst({ where: { id: line.supplierOrderLineId, tenantId } });
-        price = orderLine ? new Decimal(orderLine.price.toString()) : new Decimal(0);
       } else {
         price = new Decimal(0);
       }
@@ -263,6 +328,7 @@ export class GoodsReceiptService {
         description: line.description,
         batchId,
         serialNumbers: line.serialNumbers,
+        overReceiptReason: line.overReceiptReason,
       });
     }
     return resolved;

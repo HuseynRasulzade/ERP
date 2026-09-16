@@ -15,13 +15,17 @@ export interface DocLinesEditorProps {
   showTax?: boolean;
   showWarehouse?: boolean;
   priceHint?: string;
+  /** Goods Receipt only: shows an "over-receipt reason" input, required by
+   * the backend whenever a PO-linked line's quantity exceeds what remains
+   * on the order — advisory client-side, the server is authoritative. */
+  showOverReceiptReason?: boolean;
 }
 
 /** Generic editable line grid shared by every "priced document" kind
  * (Sales/Purchase Order, Sales/Purchase Invoice, Goods Receipt) — columns
  * toggle on/off per kind via props rather than duplicating this grid per
  * document type. A blank price/tax means "let the backend resolve it". */
-export function DocLinesEditor({ lines, setLines, products, units, warehouses, showPrice = true, showTax = true, showWarehouse = false, priceHint }: DocLinesEditorProps) {
+export function DocLinesEditor({ lines, setLines, products, units, warehouses, showPrice = true, showTax = true, showWarehouse = false, priceHint, showOverReceiptReason = false }: DocLinesEditorProps) {
   const { t } = useLocale();
   const patch = (index: number, field: keyof LineDraft, value: string) =>
     setLines(lines.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
@@ -90,6 +94,12 @@ export function DocLinesEditor({ lines, setLines, products, units, warehouses, s
             {t.common.description}
             <input value={line.description} onChange={(e) => patch(i, 'description', e.target.value)} />
           </label>
+          {showOverReceiptReason && line.supplierOrderLineId && (
+            <label>
+              {t.common.overReceiptReason}
+              <input value={line.overReceiptReason ?? ''} onChange={(e) => patch(i, 'overReceiptReason', e.target.value)} placeholder={t.common.overReceiptReasonHint} />
+            </label>
+          )}
           <button type="button" className="small" disabled={lines.length <= 1} onClick={() => setLines(lines.filter((_, j) => j !== i))}>
             {t.common.remove}
           </button>
@@ -114,5 +124,7 @@ export function serializeDocLines(lines: LineDraft[], opts: { showPrice?: boolea
     // Never edited through this grid — carried through so a line re-saved
     // after a manual price/tax fix keeps its Purchase Requirement link.
     ...(l.requirementLineId ? { requirementLineId: l.requirementLineId } : {}),
+    ...(l.supplierOrderLineId ? { supplierOrderLineId: l.supplierOrderLineId } : {}),
+    ...(l.overReceiptReason?.trim() ? { overReceiptReason: l.overReceiptReason.trim() } : {}),
   }));
 }

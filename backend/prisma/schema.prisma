@@ -1781,6 +1781,7 @@ enum ApprovalStepType {
   DIRECTOR
   FINANCE
   ACCOUNTING
+  WAREHOUSE_SUPERVISOR
 }
 
 /// One row per required approval on a given document instance. documentType +
@@ -4170,6 +4171,7 @@ model GoodsReceipt {
   postingDate    DateTime?      @map("posting_date") @db.Date
   status         DocumentStatus @default(DRAFT)
   postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  approvalStatus ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
   currencyId     String?        @map("currency_id")
   exchangeRate   Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
 
@@ -4221,6 +4223,11 @@ model GoodsReceiptLine {
   expiryDate          DateTime? @map("expiry_date") @db.Date
   batchId             String?   @map("batch_id") // Phase 10 — batch captured/created at receipt
   description         String?
+  // Requester's own justification for receiving more than the PO line's
+  // remaining quantity, captured at save time — distinct from
+  // ApprovalStep.comment, which is the WAREHOUSE_SUPERVISOR approver's own
+  // comment at decision time (a different person, a later moment).
+  overReceiptReason   String?   @map("over_receipt_reason")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -4257,6 +4264,7 @@ model PurchaseInvoice {
   dueDate               DateTime?      @map("due_date") @db.Date
   status                DocumentStatus @default(DRAFT)
   postingStatus         PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  approvalStatus        ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
   currencyId            String?        @map("currency_id")
   exchangeRate          Decimal?       @map("exchange_rate") @db.Decimal(24, 10)
   supplierInvoiceNumber String?        @map("supplier_invoice_number")

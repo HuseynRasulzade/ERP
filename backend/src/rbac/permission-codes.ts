@@ -251,6 +251,15 @@ export const PermissionCodes = {
   PURCHASE_EDIT: 'purchase_execution.edit',
   PURCHASE_RETURN: 'purchase_execution.return',
   PURCHASE_VIEW_ACCOUNTING: 'purchase_execution.view_accounting',
+  // Approval workflow increment 2 (docs/APPROVALS.md): price/tax
+  // visibility gate on Goods Receipt, plus approve/reject for the
+  // over-delivery (WAREHOUSE_SUPERVISOR) and price-variance (ACCOUNTING)
+  // approval steps.
+  PURCHASE_PRICE_VIEW: 'purchase_execution.price_view',
+  PURCHASE_RECEIPT_APPROVE: 'purchase_execution.receipt.approve',
+  PURCHASE_RECEIPT_REJECT: 'purchase_execution.receipt.reject',
+  PURCHASE_INVOICE_APPROVE: 'purchase_execution.invoice.approve',
+  PURCHASE_INVOICE_REJECT: 'purchase_execution.invoice.reject',
 
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
@@ -858,6 +867,11 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.PURCHASE_EDIT, module: 'purchase_execution', description: 'Edit draft goods receipts and purchase invoices' },
   { code: PermissionCodes.PURCHASE_RETURN, module: 'purchase_execution', description: 'Create purchase returns' },
   { code: PermissionCodes.PURCHASE_VIEW_ACCOUNTING, module: 'purchase_execution', description: 'View purchase reports and accounting entries' },
+  { code: PermissionCodes.PURCHASE_PRICE_VIEW, module: 'purchase_execution', description: 'View and override price/tax/monetary fields on goods receipts' },
+  { code: PermissionCodes.PURCHASE_RECEIPT_APPROVE, module: 'purchase_execution', description: 'Approve an over-delivery on a goods receipt' },
+  { code: PermissionCodes.PURCHASE_RECEIPT_REJECT, module: 'purchase_execution', description: 'Reject an over-delivery on a goods receipt' },
+  { code: PermissionCodes.PURCHASE_INVOICE_APPROVE, module: 'purchase_execution', description: 'Approve a purchase invoice price variance' },
+  { code: PermissionCodes.PURCHASE_INVOICE_REJECT, module: 'purchase_execution', description: 'Reject a purchase invoice price variance' },
 
   { code: PermissionCodes.INVENTORY_VIEW, module: 'inventory', description: 'View stock balances and movements for accessible warehouses' },
   { code: PermissionCodes.INVENTORY_VIEW_ALL_WAREHOUSES, module: 'inventory', description: 'View stock across all warehouses, not just assigned ones' },

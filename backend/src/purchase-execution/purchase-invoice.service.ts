@@ -5,6 +5,7 @@ import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
+import { ApprovalService } from '../approvals/approval.service';
 import { ConcurrencyConflictError, DuplicateSupplierInvoiceError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { PURCHASE_INVOICE_TYPE } from './purchase-invoice.repository';
 import { CreatePurchaseInvoiceDto, PurchaseInvoiceLineItemDto, UpdatePurchaseInvoiceDto } from './dto/purchase-execution.dto';
@@ -55,6 +56,7 @@ export class PurchaseInvoiceService {
     private readonly access: OrganizationAccessService,
     private readonly taxCalculation: TaxCalculationService,
     private readonly contractGate: PurchaseOrderContractGateService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -115,6 +117,8 @@ export class PurchaseInvoiceService {
         tx,
       );
 
+      await this.approvals.createStepsForDocument(tenantId, organizationId, PURCHASE_INVOICE_TYPE, header.id, tx);
+
       return tx.purchaseInvoice.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
   }
@@ -153,6 +157,16 @@ export class PurchaseInvoiceService {
       if (resolved) {
         await tx.purchaseInvoiceLine.deleteMany({ where: { purchaseInvoiceId: id } });
         await this.createLines(tx, tenantId, id, resolved);
+
+        // Re-plan approval steps since a price edit can newly introduce or
+        // resolve a variance — but never discard a decision already made.
+        const decidedStep = await tx.approvalStep.findFirst({
+          where: { tenantId, documentType: PURCHASE_INVOICE_TYPE, documentId: id, status: { in: ['APPROVED', 'REJECTED'] } },
+        });
+        if (!decidedStep) {
+          await tx.approvalStep.deleteMany({ where: { tenantId, documentType: PURCHASE_INVOICE_TYPE, documentId: id, status: 'PENDING' } });
+          await this.approvals.createStepsForDocument(tenantId, organizationId, PURCHASE_INVOICE_TYPE, id, tx);
+        }
       }
 
       return tx.purchaseInvoice.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
@@ -160,6 +174,22 @@ export class PurchaseInvoiceService {
 
     await this.audit.record({ tenantId, eventType: 'PURCHASE_INVOICE_UPDATED', entityType: PURCHASE_INVOICE_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { ...patch, lines: patch.lines?.length } });
     return updated;
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, PURCHASE_INVOICE_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, PURCHASE_INVOICE_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   // -- helpers ----------------------------------------------------------------

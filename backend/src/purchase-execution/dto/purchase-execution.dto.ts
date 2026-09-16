@@ -56,6 +56,13 @@ export class GoodsReceiptLineItemDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  // Requester's justification when this line's quantity exceeds the
+  // source PO line's remaining quantity — mandatory in that case (see
+  // GoodsReceiptService.resolveLines), otherwise ignored.
+  @IsOptional()
+  @IsString()
+  overReceiptReason?: string;
 }
 
 export class CreateGoodsReceiptDto {

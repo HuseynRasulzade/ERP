@@ -127,6 +127,8 @@ const az: Translations = {
     approvalComment: 'Qeyd (istəyə bağlı)',
     approvalRejectReasonRequired: 'Rədd etmək üçün səbəb daxil edilməlidir.',
     pendingOn: 'Növbədə',
+    overReceiptReason: 'Artıq qəbul səbəbi',
+    overReceiptReasonHint: 'Miqdar sifarişdə qalandan çoxdursa məcburidir',
   },
 
   status: {

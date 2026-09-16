@@ -46,6 +46,9 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     const receipt = await tx.goodsReceipt.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!receipt) throw new ValidationAppError('Document disappeared during posting');
+    if ((receipt as any).approvalStatus !== 'APPROVED' && (receipt as any).approvalStatus !== 'NOT_REQUIRED') {
+      throw new ValidationAppError('Cannot post a goods receipt until its over-delivery approval is resolved');
+    }
     if (receipt.lines.length === 0) throw new ValidationAppError('Cannot post a goods receipt with no lines');
 
     const supplier = await tx.counterparty.findFirst({ where: { id: receipt.counterpartyId, tenantId } });
@@ -58,8 +61,12 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
 
       // Server-side re-check (spec section 22): never trust a
       // client-computed "remaining" — recompute from the database inside
-      // this same posting transaction.
-      if (line.supplierOrderLineId) {
+      // this same posting transaction. Skipped when the receipt's
+      // approvalStatus is APPROVED — an over-delivery only reaches that
+      // status via an explicit WAREHOUSE_SUPERVISOR approval (see
+      // GoodsReceiptApprovalPlanProvider), which is the authorization to
+      // exceed remaining in the first place.
+      if (line.supplierOrderLineId && (receipt as any).approvalStatus !== 'APPROVED') {
         const remaining = await this.fulfillment.remainingToReceive(tenantId, line.supplierOrderLineId, tx);
         if (new Decimal(line.quantity.toString()).gt(remaining)) {
           throw new ReceiptQuantityExceedsRemainingError(remaining.toFixed(6), line.quantity.toString());

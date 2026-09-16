@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
+import { ApprovalStepsPanel } from '../docs/ApprovalStepsPanel';
 
 const LINE_TYPES = ['INVENTORY', 'SERVICE', 'EXPENSE', 'FIXED_ASSET', 'PREPAYMENT', 'OTHER'];
 
@@ -389,6 +390,7 @@ export function PurchaseInvoiceDetailPage() {
           <div className="badge-row">
             <StatusBadge kind="document" value={doc.status} />
             <StatusBadge kind="posting" value={doc.postingStatus} />
+            {doc.approvalStatus && <StatusBadge kind="approval" value={doc.approvalStatus} />}
             {matching && <span className={`badge badge-generic-${matching.overallStatus === 'MATCHED' ? 'ok' : 'warn'}`}>{matching.overallStatus}</span>}
           </div>
         </div>
@@ -396,7 +398,7 @@ export function PurchaseInvoiceDetailPage() {
           <Link to="/purchase-invoices" className="link-muted">
             {t.common.backToList}
           </Link>
-          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (
+          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (doc.approvalStatus === 'APPROVED' || doc.approvalStatus === 'NOT_REQUIRED' || !doc.approvalStatus) && (
             <button className="primary" disabled={busy} onClick={() => runCommand('post')}>
               {t.common.post}
             </button>
@@ -505,6 +507,20 @@ export function PurchaseInvoiceDetailPage() {
           </table>
         )}
       </section>
+
+      {orgId && (
+        <ApprovalStepsPanel
+          orgId={orgId}
+          documentType="PURCHASE_INVOICE"
+          documentId={doc.id}
+          approvalStatus={doc.approvalStatus}
+          approvePerm="purchase_execution.invoice.approve"
+          rejectPerm="purchase_execution.invoice.reject"
+          approveEndpoint={`purchase-invoices/${doc.id}/approve`}
+          rejectEndpoint={`purchase-invoices/${doc.id}/reject`}
+          onChanged={load}
+        />
+      )}
 
       {matching && (
         <section className="card">

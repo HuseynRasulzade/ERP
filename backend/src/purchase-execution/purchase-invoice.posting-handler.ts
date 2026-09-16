@@ -59,6 +59,9 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     const invoice = await tx.purchaseInvoice.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!invoice) throw new ValidationAppError('Document disappeared during posting');
+    if ((invoice as any).approvalStatus !== 'APPROVED' && (invoice as any).approvalStatus !== 'NOT_REQUIRED') {
+      throw new ValidationAppError('Cannot post a purchase invoice until its price-variance approval is resolved');
+    }
     if (invoice.lines.length === 0) throw new ValidationAppError('Cannot post a purchase invoice with no lines');
 
     for (const line of invoice.lines) {

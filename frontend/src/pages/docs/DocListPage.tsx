@@ -59,6 +59,8 @@ export function DocListPage({ kind }: { kind: DocKind }) {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
 
   const orgId = currentOrganizationId;
+  const showPrice = kind.priceViewPerm ? hasPermission(kind.priceViewPerm) : kind.showPrice;
+  const showTax = kind.priceViewPerm ? hasPermission(kind.priceViewPerm) : kind.showTax;
 
   const load = useCallback(async () => {
     if (!orgId) {
@@ -157,7 +159,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
           counterpartyId,
           documentDate,
           description: description || undefined,
-          lines: serializeDocLines(lines, { showPrice: kind.showPrice, showTax: kind.showTax, showWarehouse: kind.showLineWarehouse }),
+          lines: serializeDocLines(lines, { showPrice, showTax, showWarehouse: kind.showLineWarehouse }),
         };
         if (kind.hasPriceIncludesTax) payload.priceIncludesTax = priceIncludesTax;
         if (kind.headerWarehouse) payload.warehouseId = headerWarehouseId;
@@ -358,7 +360,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                   </table>
                 </div>
               ) : (
-                <DocLinesEditor lines={lines} setLines={setLines} products={products} units={units} warehouses={warehouses} showPrice={kind.showPrice} showTax={kind.showTax} showWarehouse={kind.showLineWarehouse} priceHint={kind.priceHint} />
+                <DocLinesEditor lines={lines} setLines={setLines} products={products} units={units} warehouses={warehouses} showPrice={showPrice} showTax={showTax} showWarehouse={kind.showLineWarehouse} priceHint={kind.priceHint} />
               )}
               <div className="inline-form">
                 <button type="submit" className="primary" disabled={submitting}>
@@ -379,7 +381,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                   <th>{t.common.number}</th>
                   <th>{t.common.date}</th>
                   <th>{kind.counterpartyLabel}</th>
-                  {kind.showPrice && <th>{t.common.grandTotal}</th>}
+                  {showPrice && <th>{t.common.grandTotal}</th>}
                   <th>{t.common.status}</th>
                   <th>{t.common.posting}</th>
                 </tr>
@@ -392,7 +394,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
                     </td>
                     <td>{d.documentDate.slice(0, 10)}</td>
                     <td>{counterparties.find((c) => c.id === d.counterpartyId)?.name ?? (d.counterpartyId ? `${d.counterpartyId.slice(0, 8)}…` : '—')}</td>
-                    {kind.showPrice && <td className="numeric">{d.grandTotal ?? d.totalCost ?? '—'}</td>}
+                    {showPrice && <td className="numeric">{d.grandTotal ?? d.totalCost ?? '—'}</td>}
                     <td>
                       <StatusBadge kind="document" value={d.status} />
                     </td>

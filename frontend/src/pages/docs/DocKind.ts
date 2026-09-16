@@ -58,6 +58,14 @@ export interface DocKind {
    * and the ApprovalStepsPanel only activate when this is set. */
   approvePerm?: string;
   rejectPerm?: string;
+  /** When set, showPrice/showTax are derived from hasPermission(priceViewPerm)
+   * instead of the static booleans above — used where price/tax visibility
+   * is itself role-gated (currently: Goods Receipt). Every other kind is
+   * unaffected. */
+  priceViewPerm?: string;
+  /** Shows an over-receipt-reason input on lines sourced from a Purchase
+   * Order (currently: Goods Receipt only). */
+  showOverReceiptReason?: boolean;
   extraFields?: DocExtraField[];
   createBasedOnTargets?: CreateBasedOnTarget[];
   requirementPicker?: RequirementPickerConfig;

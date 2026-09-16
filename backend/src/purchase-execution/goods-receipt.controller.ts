@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { GoodsReceiptService } from './goods-receipt.service';
 import { CreateGoodsReceiptDto, UpdateGoodsReceiptDto } from './dto/purchase-execution.dto';
+import { ApprovalDecisionDto } from '../approvals/dto/approval-decision.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
@@ -47,5 +48,31 @@ export class GoodsReceiptController {
   ) {
     const { expectedVersion, ...patch } = dto;
     return this.receipts.update(tenantId, membershipId, organizationId, id, user.userId, expectedVersion, patch);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_RECEIPT_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.receipts.approve(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
+  }
+
+  @RequirePermissions(PermissionCodes.PURCHASE_RECEIPT_REJECT)
+  @Post(':id/reject')
+  reject(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.receipts.reject(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
   }
 }

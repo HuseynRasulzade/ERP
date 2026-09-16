@@ -48,6 +48,11 @@ import {
   PurchaseInvoiceToPurchaseReturnMapper,
 } from './purchase-execution.mappers';
 
+import { ApprovalsModule } from '../approvals/approvals.module';
+import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
+import { GoodsReceiptApprovalPlanProvider } from './goods-receipt-approval-plan.provider';
+import { PurchaseInvoiceApprovalPlanProvider } from './purchase-invoice-approval-plan.provider';
+
 /**
  * Purchase Execution (docx spec Phase 9). See docs/PURCHASE_EXECUTION.md
  * for the architecture (Model A GRNI clearing, disclosed simplifications:
@@ -58,7 +63,7 @@ import {
  * mappers covering the spec's core document chains (section 25).
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, InventoryCostingModule, SettlementModule, CounterpartyContractsModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, InventoryCostingModule, SettlementModule, CounterpartyContractsModule, ApprovalsModule],
   controllers: [GoodsReceiptController, PurchaseInvoiceController, PurchaseReturnController, AdditionalPurchaseCostController, PurchaseExecutionQueriesController],
   providers: [
     PurchaseFulfillmentService,
@@ -82,6 +87,8 @@ import {
     GoodsReceiptToPurchaseInvoiceMapper,
     GoodsReceiptToPurchaseReturnMapper,
     PurchaseInvoiceToPurchaseReturnMapper,
+    GoodsReceiptApprovalPlanProvider,
+    PurchaseInvoiceApprovalPlanProvider,
   ],
   exports: [PurchaseFulfillmentService],
 })
@@ -101,6 +108,9 @@ export class PurchaseExecutionModule implements OnModuleInit {
     private readonly goodsReceiptToPurchaseInvoice: GoodsReceiptToPurchaseInvoiceMapper,
     private readonly goodsReceiptToPurchaseReturn: GoodsReceiptToPurchaseReturnMapper,
     private readonly purchaseInvoiceToPurchaseReturn: PurchaseInvoiceToPurchaseReturnMapper,
+    private readonly approvalPlanRegistry: ApprovalPlanRegistryService,
+    private readonly goodsReceiptApprovalPlan: GoodsReceiptApprovalPlanProvider,
+    private readonly purchaseInvoiceApprovalPlan: PurchaseInvoiceApprovalPlanProvider,
   ) {}
 
   onModuleInit() {
@@ -118,5 +128,8 @@ export class PurchaseExecutionModule implements OnModuleInit {
     this.registry.registerMapper(this.goodsReceiptToPurchaseInvoice);
     this.registry.registerMapper(this.goodsReceiptToPurchaseReturn);
     this.registry.registerMapper(this.purchaseInvoiceToPurchaseReturn);
+
+    this.approvalPlanRegistry.register(this.goodsReceiptApprovalPlan);
+    this.approvalPlanRegistry.register(this.purchaseInvoiceApprovalPlan);
   }
 }
