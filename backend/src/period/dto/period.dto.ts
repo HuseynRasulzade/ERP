@@ -20,3 +20,17 @@ export class ReopenPeriodDto {
   @IsString()
   reason?: string;
 }
+
+export class CreatePeriodReopenRequestDto {
+  @IsString()
+  periodId!: string;
+
+  @IsString()
+  reason!: string;
+}
+
+export class DecidePeriodReopenRequestDto {
+  @IsOptional()
+  @IsString()
+  comment?: string;
+}

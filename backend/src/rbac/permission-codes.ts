@@ -23,6 +23,7 @@ export const PermissionCodes = {
   PERIODS_VIEW: 'periods.view',
   PERIODS_CLOSE: 'periods.close',
   PERIODS_REOPEN: 'periods.reopen',
+  PERIODS_REOPEN_REQUEST: 'periods.reopen_request.create',
 
   AUDIT_VIEW: 'audit.view',
 
@@ -315,6 +316,7 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.PERIODS_VIEW, module: 'periods', description: 'View accounting periods' },
   { code: PermissionCodes.PERIODS_CLOSE, module: 'periods', description: 'Close accounting periods' },
   { code: PermissionCodes.PERIODS_REOPEN, module: 'periods', description: 'Reopen accounting periods' },
+  { code: PermissionCodes.PERIODS_REOPEN_REQUEST, module: 'periods', description: 'Request that a closed accounting period be reopened' },
 
   { code: PermissionCodes.AUDIT_VIEW, module: 'audit', description: 'View audit events' },
 

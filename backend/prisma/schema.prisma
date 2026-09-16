@@ -145,6 +145,7 @@ model Tenant {
   approvalSteps                           ApprovalStep[]
   PaymentRequest                          PaymentRequest[]
   PaymentOrder                            PaymentOrder[]
+  PeriodReopenRequest                     PeriodReopenRequest[]
 
   @@map("tenants")
 }
@@ -862,12 +863,40 @@ model AccountingPeriod {
   reopenedBy     String?      @map("reopened_by")
   version        Int          @default(1)
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  organization Organization? @relation(fields: [organizationId], references: [id])
+  tenant         Tenant                @relation(fields: [tenantId], references: [id])
+  organization   Organization?         @relation(fields: [organizationId], references: [id])
+  reopenRequests PeriodReopenRequest[]
 
   @@unique([tenantId, organizationId, year, month])
   @@index([tenantId, startDate, endDate])
   @@map("accounting_periods")
+}
+
+/// Maker-checker request to reopen a CLOSED period (docs/PERIODS.md) —
+/// PeriodService.reopen() itself stays a direct, permission-gated action
+/// (unchanged, still usable by anyone holding periods.reopen); this is an
+/// additive parallel path for a requester who only holds
+/// periods.reopen_request.create to ask, and a periods.reopen holder to
+/// decide. Approving calls the same PeriodService.reopen() internally —
+/// there is no second reopen mechanism, just a request gate in front of it.
+model PeriodReopenRequest {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  periodId    String    @map("period_id")
+  reason      String
+  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  requestedBy String    @map("requested_by")
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  decidedBy   String?   @map("decided_by")
+  decidedAt   DateTime? @map("decided_at")
+  comment     String?
+  version     Int       @default(1)
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id])
+  period AccountingPeriod @relation(fields: [periodId], references: [id])
+
+  @@index([tenantId, periodId, status])
+  @@map("period_reopen_requests")
 }
 
 // ----------------------------------------------------------------------------

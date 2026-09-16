@@ -73,6 +73,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.PAYMENT_ORDER_REJECT,
       PermissionCodes.PAYMENT_ORDER_RECONCILE,
       PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.PERIODS_VIEW,
+      PermissionCodes.PERIODS_REOPEN,
     ],
   },
   {
@@ -88,6 +90,9 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.PURCHASE_INVOICE_REJECT,
       PermissionCodes.ACCOUNTING_JOURNAL_VIEW,
       PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.PERIODS_VIEW,
+      PermissionCodes.PERIODS_CLOSE,
+      PermissionCodes.PERIODS_REOPEN_REQUEST,
     ],
   },
   {
