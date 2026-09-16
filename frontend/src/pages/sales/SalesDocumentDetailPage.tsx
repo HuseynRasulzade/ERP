@@ -18,6 +18,7 @@ import { useToast } from '../../context/ToastContext';
 import type { SalesKind } from './SalesDocumentListPage';
 import { SalesLinesEditor, emptyLine, serializeLines } from './SalesLinesEditor';
 import { ApprovalStepsPanel } from '../docs/ApprovalStepsPanel';
+import { AccountingEntriesPanel } from '../docs/AccountingEntriesPanel';
 
 const KIND_CONFIG = {
   order: {
@@ -339,6 +340,8 @@ export function SalesDocumentDetailPage({ kind }: { kind: SalesKind }) {
           onChanged={load}
         />
       )}
+
+      {orgId && <AccountingEntriesPanel orgId={orgId} documentType={cfg.docType} documentId={doc.id} />}
 
       <section className="card">
         <h2>Document links</h2>

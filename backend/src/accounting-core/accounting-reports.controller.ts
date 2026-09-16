@@ -47,6 +47,18 @@ export class AccountingReportsController {
     });
   }
 
+  @RequirePermissions(PermissionCodes.ACCOUNTING_JOURNAL_VIEW)
+  @Get('journal-entries')
+  journalEntriesForDocument(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Query('sourceDocumentType') sourceDocumentType: string,
+    @Query('sourceDocumentId') sourceDocumentId: string,
+  ) {
+    return this.query.journalEntriesForDocument(tenantId, membershipId, organizationId, sourceDocumentType, sourceDocumentId);
+  }
+
   @RequirePermissions(PermissionCodes.ACCOUNTING_GENERAL_LEDGER_VIEW)
   @Get('accounts/:accountId/card')
   accountCard(
