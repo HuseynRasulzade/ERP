@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
+import { exportToCsv } from '../../utils/csvExport';
 
 const COUNTRIES = ['AZ', 'TR', 'RU', 'DE', 'GB', 'US', 'GE', 'NL', 'CN', 'AE'];
 
@@ -145,11 +146,33 @@ export function CounterpartyListPage() {
     <div>
       <div className="page-header">
         <h1>{t.counterparty.title}</h1>
-        {hasPermission('counterparty.create') && orgId && (
-          <button className="primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? t.common.cancel : t.counterparty.create}
-          </button>
-        )}
+        <div className="actions">
+          {filtered.length > 0 && (
+            <button
+              onClick={() =>
+                exportToCsv(
+                  t.counterparty.title,
+                  [
+                    { header: t.counterparty.code, value: (c: Counterparty) => c.code },
+                    { header: t.common.name, value: (c: Counterparty) => c.name },
+                    { header: 'Type', value: (c: Counterparty) => c.counterpartyType },
+                    { header: 'Tax ID', value: (c: Counterparty) => c.taxId },
+                    { header: t.common.status, value: (c: Counterparty) => c.status },
+                    { header: 'Risk status', value: (c: Counterparty) => c.riskStatus },
+                  ],
+                  filtered,
+                )
+              }
+            >
+              {t.common.exportExcel}
+            </button>
+          )}
+          {hasPermission('counterparty.create') && orgId && (
+            <button className="primary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? t.common.cancel : t.counterparty.create}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="inline-form">

@@ -39,6 +39,7 @@ const en = {
   },
 
   common: {
+    exportExcel: 'Export to Excel',
     loading: 'Loading…',
     select: 'Select…',
     save: 'Save',

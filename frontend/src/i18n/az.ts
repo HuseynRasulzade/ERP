@@ -41,6 +41,7 @@ const az: Translations = {
   },
 
   common: {
+    exportExcel: 'Excel-ə ixrac et',
     loading: 'Yüklənir…',
     select: 'Seçin…',
     save: 'Yadda saxla',

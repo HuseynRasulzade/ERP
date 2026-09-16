@@ -10,6 +10,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
 import type { DocKind } from './DocKind';
 import { DocLinesEditor, emptyDocLine, serializeDocLines } from './DocLinesEditor';
+import { exportToCsv } from '../../utils/csvExport';
 
 interface PickerSourceLine {
   id: string;
@@ -205,11 +206,33 @@ export function DocListPage({ kind }: { kind: DocKind }) {
     <div>
       <div className="page-header">
         <h1>{kind.title}</h1>
-        {hasPermission(kind.createPerm) && orgId && (
-          <button className="primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? t.common.cancel : `+ ${t.common.create} ${kind.singular}`}
-          </button>
-        )}
+        <div className="actions">
+          {documents.length > 0 && (
+            <button
+              onClick={() =>
+                exportToCsv(
+                  kind.title,
+                  [
+                    { header: t.common.number, value: (d: BizDoc) => d.number ?? d.id },
+                    { header: t.common.date, value: (d: BizDoc) => d.documentDate.slice(0, 10) },
+                    { header: kind.counterpartyLabel, value: (d: BizDoc) => counterparties.find((c) => c.id === d.counterpartyId)?.name ?? d.counterpartyId ?? '' },
+                    ...(showPrice ? [{ header: t.common.grandTotal, value: (d: BizDoc) => d.grandTotal ?? d.totalCost ?? '' }] : []),
+                    { header: t.common.status, value: (d: BizDoc) => d.status },
+                    { header: t.common.posting, value: (d: BizDoc) => d.postingStatus },
+                  ],
+                  documents,
+                )
+              }
+            >
+              {t.common.exportExcel}
+            </button>
+          )}
+          {hasPermission(kind.createPerm) && orgId && (
+            <button className="primary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? t.common.cancel : `+ ${t.common.create} ${kind.singular}`}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="inline-form">
