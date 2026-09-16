@@ -10,6 +10,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
 import type { DocKind } from './DocKind';
 import { DocLinesEditor, serializeDocLines } from './DocLinesEditor';
+import { ApprovalStepsPanel } from './ApprovalStepsPanel';
 
 const ROUTE_BY_DOC_TYPE: Record<string, string> = {
   SALES_ORDER: 'sales-orders',
@@ -161,6 +162,7 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
           <div className="badge-row">
             <StatusBadge kind="document" value={doc.status} />
             <StatusBadge kind="posting" value={doc.postingStatus} />
+            {kind.approvePerm && doc.approvalStatus && <StatusBadge kind="approval" value={doc.approvalStatus} />}
           </div>
         </div>
         <div className="actions">
@@ -172,7 +174,7 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
               {t.common.edit}
             </button>
           )}
-          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (
+          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (!kind.approvePerm || doc.approvalStatus === 'APPROVED') && (
             <button className="primary" disabled={busy} onClick={() => runCommand('post')}>
               {t.common.post}
             </button>
@@ -305,6 +307,20 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
           </table>
         )}
       </section>
+
+      {kind.approvePerm && orgId && (
+        <ApprovalStepsPanel
+          orgId={orgId}
+          documentType={kind.docType}
+          documentId={doc.id}
+          approvalStatus={doc.approvalStatus}
+          approvePerm={kind.approvePerm}
+          rejectPerm={kind.rejectPerm}
+          approveEndpoint={`${kind.basePath}/${doc.id}/approve`}
+          rejectEndpoint={`${kind.basePath}/${doc.id}/reject`}
+          onChanged={load}
+        />
+      )}
 
       {renderExtras?.(doc, load)}
 

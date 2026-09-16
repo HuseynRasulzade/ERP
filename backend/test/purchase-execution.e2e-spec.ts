@@ -32,6 +32,7 @@ describe('Purchase Execution (e2e)', () => {
   const run = Date.now();
   let token1: string;
   let token2: string;
+  let approverToken: string; // holds every approval-chain role, distinct from token1 (the creator)
   let tenant1Id: string;
   let tenant2Id: string;
   let org1Id: string;
@@ -55,6 +56,7 @@ describe('Purchase Execution (e2e)', () => {
 
     const s1 = await setupTenant(`pex1-${run}@e2e.test`, `pex-t1-${run}`, 'PEX1');
     token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
+    approverToken = await setupApprover(tenant1Id, org1Id);
     const s2 = await setupTenant(`pex2-${run}@e2e.test`, `pex-t2-${run}`, 'PEX2');
     token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
 
@@ -114,10 +116,45 @@ describe('Purchase Execution (e2e)', () => {
     return req.set('Authorization', `Bearer ${token2}`).set('X-Tenant-Id', tenant2Id);
   }
 
+  /** Registers a second tenant1 user holding every approval-chain role,
+   * distinct from token1 (the creator of every fixture PO below) — see
+   * procurement.e2e-spec.ts's identical helper for the full rationale. */
+  async function setupApprover(tenantId: string, organizationId: string): Promise<string> {
+    const email = `pex-approver-${run}@e2e.test`;
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Approver' }).expect(201);
+    const membership = await prisma.tenantMembership.create({ data: { tenantId, userId: reg.body.userId, status: 'ACTIVE' } });
+    await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId, accessLevel: 'FULL' } });
+
+    const approvalPermissions = await prisma.permission.findMany({
+      where: { code: { in: ['purchase.order.view', 'purchase.order.approve', 'purchase.order.reject', 'documents.view'] } },
+    });
+    for (const roleCode of ['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'FINANCE_USER', 'ACCOUNTING_USER']) {
+      const role = await prisma.role.create({ data: { tenantId, code: roleCode, name: roleCode } });
+      await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+      await prisma.rolePermission.createMany({ data: approvalPermissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+    }
+    return reg.body.accessToken;
+  }
+
+  function approverAuth(req: request.Test) {
+    return req.set('Authorization', `Bearer ${approverToken}`).set('X-Tenant-Id', tenant1Id);
+  }
+
+  /** Every PurchaseOrder fixture here is manual (no requirement link), so
+   * DEPARTMENT_HEAD is always auto-SKIPPED — no department scoping needed. */
+  async function fullyApprovePurchaseOrder(orderId: string) {
+    for (let i = 0; i < 5; i++) {
+      const current = await approverAuth(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${orderId}`)).expect(200);
+      if (current.body.approvalStatus === 'APPROVED') return;
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${orderId}/approve`)).send({}).expect(201);
+    }
+  }
+
   async function createConfirmedSupplierOrder(quantity: number, price = 10) {
     const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
       .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity, price }] })
       .expect(201);
+    await fullyApprovePurchaseOrder(po.body.id);
     const confirmed = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
       .send({ expectedVersion: po.body.version })
       .expect(201);
@@ -350,6 +387,25 @@ describe('Purchase Execution (e2e)', () => {
       expect(checked.body.overallStatus).toBe('QUANTITY_MISMATCH');
       const history = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-invoices/${invPartial.body.id}/matching-history`)).expect(200);
       expect(history.body).toHaveLength(1);
+    });
+  });
+
+  describe('Approval workflow MVP — Goods Receipt gated on full PO approval', () => {
+    it('rejects a Goods Receipt against a not-fully-approved PO, and allows it once approved', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 6, price: 9 }] })
+        .expect(201);
+
+      const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 6, price: 9, supplierOrderLineId: po.body.lines[0].id }] })
+        .expect(400);
+      expect(blocked.body.message).toMatch(/not fully approved/i);
+
+      await fullyApprovePurchaseOrder(po.body.id);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 6, price: 9, supplierOrderLineId: po.body.lines[0].id }] })
+        .expect(201);
     });
   });
 

@@ -5,6 +5,7 @@ import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
+import { ApprovalService } from '../approvals/approval.service';
 import { PurchasePriceResolverService } from './purchase-price-resolver.service';
 import { ConcurrencyConflictError, NotFoundAppError, SupplierNotEligibleError, ValidationAppError } from '../common/errors/app-error';
 import { computeLineTotals, sumDocumentTotals } from '../sales-documents/sales-totals.util';
@@ -60,6 +61,7 @@ export class PurchaseOrderService {
     private readonly access: OrganizationAccessService,
     private readonly priceResolver: PurchasePriceResolverService,
     private readonly taxCalculation: TaxCalculationService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(tenantId: string, membershipId: string, organizationId: string) {
@@ -121,6 +123,8 @@ export class PurchaseOrderService {
         { tenantId, eventType: 'PURCHASE_ORDER_CREATED', entityType: PURCHASE_ORDER_TYPE, entityId: header.id, action: 'CREATE', userId, newValues: { number: header.number, grandTotal: totals.grandTotal.toString() } },
         tx,
       );
+
+      await this.approvals.createStepsForDocument(tenantId, organizationId, PURCHASE_ORDER_TYPE, header.id, tx);
 
       return tx.purchaseOrder.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
@@ -216,6 +220,22 @@ export class PurchaseOrderService {
     return updated;
   }
 
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, PURCHASE_ORDER_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, comment?: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, PURCHASE_ORDER_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
   // -- validation / resolution helpers ---------------------------------------
 
   private parseDate(value: string): Date {
@@ -307,6 +327,22 @@ export class PurchaseOrderService {
           taxpayerSide: 'BUYER',
         }, { amount: quantity.mul(price), priceIncludesTax });
         taxRate = preview.rate;
+      }
+
+      // Approval gate (closes a direct-API bypass of
+      // ProcurementPlanningService.createPurchaseOrderFromRequirements'
+      // own approval check): a line sourced from a Purchase Requirement
+      // may only be used once that requirement is fully approved,
+      // regardless of which endpoint the caller went through.
+      if (line.requirementLineId) {
+        const requirementLine = await this.prisma.purchaseRequirementLine.findFirst({
+          where: { id: line.requirementLineId, tenantId },
+          include: { purchaseRequirement: true },
+        });
+        if (!requirementLine) throw new ValidationAppError('Requirement line not found');
+        if (requirementLine.purchaseRequirement.approvalStatus !== 'APPROVED') {
+          throw new ValidationAppError(`Requirement ${requirementLine.purchaseRequirement.number ?? requirementLine.purchaseRequirement.id} is not approved yet`);
+        }
       }
 
       // Supplier product code snapshot (spec section 130): captured at

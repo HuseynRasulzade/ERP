@@ -131,6 +131,9 @@ export class ProcurementPlanningService {
     if (requirement.status === 'CANCELLED' || requirement.status === 'CLOSED') {
       throw new ValidationAppError(`Requirement is ${requirement.status} and cannot be allocated`);
     }
+    if ((requirement as any).approvalStatus !== 'APPROVED') {
+      throw new ValidationAppError(`Requirement ${requirement.number ?? requirement.id} is not approved yet`);
+    }
 
     const poLines: PurchaseLineItemDto[] = [];
     for (const alloc of dto.lines) {
@@ -229,6 +232,9 @@ export class ProcurementPlanningService {
       const requirement = await this.requirements.get(tenantId, membershipId, organizationId, id);
       if (requirement.status === 'CANCELLED' || requirement.status === 'CLOSED') {
         throw new ValidationAppError(`Requirement ${requirement.number ?? requirement.id} is ${requirement.status} and cannot be allocated`);
+      }
+      if ((requirement as any).approvalStatus !== 'APPROVED') {
+        throw new ValidationAppError(`Requirement ${requirement.number ?? requirement.id} is not approved yet`);
       }
       requirements.push(requirement);
     }

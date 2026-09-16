@@ -30,6 +30,11 @@ import { SupplierProductCodeController } from './supplier-product-code.controlle
 import { SupplyPegService } from './supply-peg.service';
 import { SupplyPegController } from './supply-peg.controller';
 
+import { ApprovalsModule } from '../approvals/approvals.module';
+import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
+import { PurchaseRequirementApprovalPlanProvider } from './purchase-requirement-approval-plan.provider';
+import { PurchaseOrderApprovalPlanProvider } from './purchase-order-approval-plan.provider';
+
 /**
  * Procurement & Purchase Order Management (docx spec Phase 8). See
  * docs/PROCUREMENT.md for the architecture and deliberate simplifications
@@ -43,7 +48,7 @@ import { SupplyPegController } from './supply-peg.controller';
  * more than SalesOrder's.
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, CounterpartyPricingModule, TaxEngineModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, CounterpartyPricingModule, TaxEngineModule, ApprovalsModule],
   controllers: [
     PurchaseRequirementController,
     PurchaseOrderController,
@@ -66,6 +71,8 @@ import { SupplyPegController } from './supply-peg.controller';
     ExpectedStockService,
     SupplierProductCodeService,
     SupplyPegService,
+    PurchaseRequirementApprovalPlanProvider,
+    PurchaseOrderApprovalPlanProvider,
   ],
   exports: [PurchasePriceResolverService, ProcurementPlanningService, ExpectedStockService],
 })
@@ -74,10 +81,15 @@ export class ProcurementModule implements OnModuleInit {
     private readonly registry: DocumentFrameworkRegistry,
     private readonly purchaseOrderRepository: PurchaseOrderRepository,
     private readonly purchaseOrderPostingHandler: PurchaseOrderPostingHandler,
+    private readonly approvalPlanRegistry: ApprovalPlanRegistryService,
+    private readonly requirementApprovalPlan: PurchaseRequirementApprovalPlanProvider,
+    private readonly orderApprovalPlan: PurchaseOrderApprovalPlanProvider,
   ) {}
 
   onModuleInit() {
     this.registry.registerRepository(this.purchaseOrderRepository);
     this.registry.registerHandler(this.purchaseOrderPostingHandler);
+    this.approvalPlanRegistry.register(this.requirementApprovalPlan);
+    this.approvalPlanRegistry.register(this.orderApprovalPlan);
   }
 }

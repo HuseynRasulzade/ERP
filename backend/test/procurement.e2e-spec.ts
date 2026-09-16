@@ -25,6 +25,9 @@ describe('Procurement (e2e)', () => {
   const run = Date.now();
   let token1: string;
   let token2: string;
+  let approverToken: string; // holds every approval-chain role, distinct from token1 (the creator)
+  let approverMembershipId: string;
+  let autoFillDepartmentId: string; // set once token1's own OrganizationAccess gets a department (see "auto-fills department" test)
   let tenant1Id: string;
   let tenant2Id: string;
   let org1Id: string;
@@ -48,6 +51,9 @@ describe('Procurement (e2e)', () => {
 
     const s1 = await setupTenant(`proc1-${run}@e2e.test`, `proc-t1-${run}`, 'PRO1');
     token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
+    const approverSetup = await setupApprover(tenant1Id, org1Id);
+    approverToken = approverSetup.token;
+    approverMembershipId = approverSetup.membershipId;
     const s2 = await setupTenant(`proc2-${run}@e2e.test`, `proc-t2-${run}`, 'PRO2');
     token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
 
@@ -116,6 +122,63 @@ describe('Procurement (e2e)', () => {
       .send({ code: orgCode, name: `${orgCode} Org` })
       .expect(201);
     return { token, tenantId, orgId: orgRes.body.id };
+  }
+
+  /** Registers a second tenant1 user holding every approval-chain role
+   * (PROCUREMENT_OFFICER/DEPARTMENT_HEAD/DIRECTOR/FINANCE_USER/
+   * ACCOUNTING_USER), distinct from token1 (the creator of every fixture
+   * document below) — approval requires an approver who isn't the
+   * document's own creator. No invite API exists yet, so membership/role
+   * assignment goes straight through Prisma, same as phase1.e2e-spec.ts's
+   * "outsider" fixture. */
+  async function setupApprover(tenantId: string, organizationId: string): Promise<{ token: string; membershipId: string }> {
+    const email = `proc-approver-${run}@e2e.test`;
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Approver' }).expect(201);
+    const membership = await prisma.tenantMembership.create({ data: { tenantId, userId: reg.body.userId, status: 'ACTIVE' } });
+    await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId, accessLevel: 'FULL' } });
+
+    const approvalPermissions = await prisma.permission.findMany({
+      where: { code: { in: ['purchase.order.view', 'purchase.order.approve', 'purchase.order.reject', 'purchase.requirement.view', 'purchase.requirement.approve', 'purchase.requirement.reject', 'documents.view'] } },
+    });
+    for (const roleCode of ['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'FINANCE_USER', 'ACCOUNTING_USER']) {
+      // resolveApprover matches on Role.code exactly — this tenant is
+      // freshly created per test run, so the real code is free to use.
+      const role = await prisma.role.create({ data: { tenantId, code: roleCode, name: roleCode } });
+      await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+      await prisma.rolePermission.createMany({ data: approvalPermissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+    }
+    return { token: reg.body.accessToken, membershipId: membership.id };
+  }
+
+  function approverAuth(req: request.Test) {
+    return req.set('Authorization', `Bearer ${approverToken}`).set('X-Tenant-Id', tenant1Id);
+  }
+
+  /** The approver's DEPARTMENT_HEAD eligibility is scoped by
+   * OrganizationAccess.departmentId (a single row per membership+org) — set
+   * it to whichever department the document being approved needs, or
+   * `null` for a department-less document. */
+  async function setApproverDepartment(organizationId: string, departmentId: string | null) {
+    await prisma.organizationAccess.update({
+      where: { tenantMembershipId_organizationId: { tenantMembershipId: approverMembershipId, organizationId } },
+      data: { departmentId },
+    });
+  }
+
+  /** Drives a PurchaseOrder's approval chain to completion as the
+   * dedicated approver user (never the creator). Safe to call on an order
+   * whose chain is already fully approved (no-op). */
+  async function fullyApprovePurchaseOrder(organizationId: string, orderId: string) {
+    for (let i = 0; i < 5; i++) {
+      const current = await approverAuth(request(app.getHttpServer()).get(`/organizations/${organizationId}/purchase-orders/${orderId}`)).expect(200);
+      if (current.body.approvalStatus === 'APPROVED') return;
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${organizationId}/purchase-orders/${orderId}/approve`)).send({}).expect(201);
+    }
+  }
+
+  /** Approves a PurchaseRequirement's single DEPARTMENT_HEAD step. */
+  async function approveRequirement(organizationId: string, requirementId: string) {
+    await approverAuth(request(app.getHttpServer()).post(`/organizations/${organizationId}/purchase-requirements/${requirementId}/approve`)).send({}).expect(201);
   }
 
   function auth1(req: request.Test) {
@@ -190,6 +253,7 @@ describe('Procurement (e2e)', () => {
       expect(po.body.number).toMatch(/^PO-2026-\d+$/);
       expect(Number(po.body.lines[0].price)).toBeCloseTo(20, 6); // resolved from PURCHASE price list
 
+      await fullyApprovePurchaseOrder(org1Id, po.body.id);
       const confirmedPatch = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
         .send({ expectedVersion: po.body.version })
         .expect(201);
@@ -230,6 +294,7 @@ describe('Procurement (e2e)', () => {
       const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 10 }] })
         .expect(201);
+      await fullyApprovePurchaseOrder(org1Id, po.body.id);
 
       const hold = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/holds`))
         .send({ holdType: 'BUDGET', reason: 'Awaiting budget approval' })
@@ -258,6 +323,7 @@ describe('Procurement (e2e)', () => {
         .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 100 }] })
         .expect(201);
       const reqLineId = req.body.lines[0].id;
+      await approveRequirement(org1Id, req.body.id);
 
       const poA = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, lines: [{ requirementLineId: reqLineId, quantity: 60, price: 20 }] })
@@ -296,6 +362,7 @@ describe('Procurement (e2e)', () => {
 
       const mine = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/access/mine`)).expect(200);
       expect(mine.body.departmentId).toBe(dept.body.id);
+      autoFillDepartmentId = dept.body.id;
 
       const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
         .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 12 }] })
@@ -325,6 +392,10 @@ describe('Procurement (e2e)', () => {
       const req2 = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
         .send({ documentDate: DOC_DATE, warehouseId, departmentId: deptA.body.id, lines: [{ productId, unitId, quantity: 25 }] })
         .expect(201);
+
+      await setApproverDepartment(org1Id, deptA.body.id);
+      await approveRequirement(org1Id, req1.body.id);
+      await approveRequirement(org1Id, req2.body.id);
 
       const combined = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
         .send({ requirementIds: [req1.body.id, req2.body.id], counterpartyId: supplierId, documentDate: DOC_DATE, priceIncludesTax: false })
@@ -357,6 +428,11 @@ describe('Procurement (e2e)', () => {
         .send({ documentDate: DOC_DATE, warehouseId, departmentId: deptB.body.id, lines: [{ productId, unitId, quantity: 10 }] })
         .expect(201);
 
+      await setApproverDepartment(org1Id, deptA.body.id);
+      await approveRequirement(org1Id, reqA.body.id);
+      await setApproverDepartment(org1Id, deptB.body.id);
+      await approveRequirement(org1Id, reqB.body.id);
+
       const rejected = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
         .send({ requirementIds: [reqA.body.id, reqB.body.id], counterpartyId: supplierId, documentDate: DOC_DATE })
         .expect(400);
@@ -377,10 +453,13 @@ describe('Procurement (e2e)', () => {
       const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
         .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId: noPriceProduct.body.id, unitId, quantity: 8, description: 'Needed urgently' }] })
         .expect(201);
+      await setApproverDepartment(org1Id, autoFillDepartmentId ?? null);
+      await approveRequirement(org1Id, req.body.id);
 
       const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/from-requirements`))
         .send({ requirementIds: [req.body.id], counterpartyId: supplierId, documentDate: DOC_DATE })
         .expect(201);
+      await fullyApprovePurchaseOrder(org1Id, order.body.id);
 
       expect(order.body.lines).toHaveLength(1);
       const line = order.body.lines[0];
@@ -459,6 +538,115 @@ describe('Procurement (e2e)', () => {
         request(app.getHttpServer()).get(`/organizations/${org1Id}/supply-pegs`).query({ demandType: 'SALES_ORDER', demandId: order.body.id, demandLineId }),
       ).expect(200);
       expect(afterRemove.body).toHaveLength(0);
+    });
+  });
+
+  describe('Approval workflow MVP (department-head requirement approval, multi-step PO approval chain)', () => {
+    it('a new requirement starts PENDING with one DEPARTMENT_HEAD step, and blocks create-order until approved', async () => {
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5 }] })
+        .expect(201);
+      expect(req.body.approvalStatus).toBe('PENDING');
+
+      const steps = await auth1(
+        request(app.getHttpServer()).get('/approval-steps').query({ documentType: 'PURCHASE_REQUIREMENT', documentId: req.body.id }),
+      ).expect(200);
+      expect(steps.body).toHaveLength(1);
+      expect(steps.body[0].stepType).toBe('DEPARTMENT_HEAD');
+      expect(steps.body[0].status).toBe('PENDING');
+
+      const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, lines: [{ requirementLineId: req.body.lines[0].id, quantity: 5, price: 20 }] })
+        .expect(400);
+      expect(blocked.body.message).toMatch(/not approved/i);
+
+      // Also blocked through the direct endpoint, bypassing planning entirely.
+      const bypassed = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 20, requirementLineId: req.body.lines[0].id }] })
+        .expect(400);
+      expect(bypassed.body.message).toMatch(/not approved/i);
+
+      // The creator (token1) cannot approve their own requirement.
+      const selfApprove = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/approve`)).send({});
+      expect(selfApprove.status).toBe(400);
+      expect(selfApprove.body.message).toMatch(/yourself/i);
+
+      await approveRequirement(org1Id, req.body.id);
+      const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${req.body.id}`)).expect(200);
+      expect(approved.body.approvalStatus).toBe('APPROVED');
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, lines: [{ requirementLineId: req.body.lines[0].id, quantity: 5, price: 20 }] })
+        .expect(201);
+    });
+
+    it('runs a manual PO through its PROCUREMENT_OFFICER -> DIRECTOR chain in order, and blocks posting until fully approved', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 3, price: 20 }] })
+        .expect(201);
+      expect(po.body.approvalStatus).toBe('PENDING');
+
+      const steps = await auth1(
+        request(app.getHttpServer()).get('/approval-steps').query({ documentType: 'PURCHASE_ORDER', documentId: po.body.id }),
+      ).expect(200);
+      // No requirement-linked line -> DEPARTMENT_HEAD is auto-SKIPPED.
+      expect(steps.body.map((s: any) => s.stepType)).toEqual(['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR']);
+      expect(steps.body[1].status).toBe('SKIPPED');
+
+      // Out-of-order: DIRECTOR cannot act before PROCUREMENT_OFFICER's step.
+      // (resolveApprover would grant this approver DIRECTOR eligibility,
+      // but decide() only ever looks at the earliest PENDING step, which
+      // is still PROCUREMENT_OFFICER — so there's nothing to force out of
+      // order to begin with; instead we verify the sequence is honored.)
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/approve`)).send({}).expect(201);
+      let mid = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${po.body.id}`)).expect(200);
+      expect(mid.body.approvalStatus).toBe('PENDING');
+
+      const blockedPost = await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${po.body.id}/post`))
+        .send({ expectedVersion: po.body.version })
+        .expect(400);
+      expect(blockedPost.body.message).toMatch(/approved/i);
+
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/approve`)).send({}).expect(201);
+      mid = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${po.body.id}`)).expect(200);
+      expect(mid.body.approvalStatus).toBe('APPROVED');
+
+      await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_ORDER/${po.body.id}/post`))
+        .send({ expectedVersion: po.body.version })
+        .expect(201);
+    });
+
+    it('adds a FINANCE step once the AZN-equivalent grand total exceeds the threshold', async () => {
+      const bigPo = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 600, price: 20 }] })
+        .expect(201);
+      expect(Number(bigPo.body.grandTotal)).toBeGreaterThan(10000);
+
+      const steps = await auth1(
+        request(app.getHttpServer()).get('/approval-steps').query({ documentType: 'PURCHASE_ORDER', documentId: bigPo.body.id }),
+      ).expect(200);
+      expect(steps.body.map((s: any) => s.stepType)).toEqual(['PROCUREMENT_OFFICER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'FINANCE']);
+
+      await fullyApprovePurchaseOrder(org1Id, bigPo.body.id);
+      const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${bigPo.body.id}`)).expect(200);
+      expect(approved.body.approvalStatus).toBe('APPROVED');
+    });
+
+    it('rejecting a step skips the remaining ones and sets the requirement REJECTED', async () => {
+      const req = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements`))
+        .send({ documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5 }] })
+        .expect(201);
+
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/reject`))
+        .send({ comment: 'Not needed this quarter' })
+        .expect(201);
+
+      const rejected = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-requirements/${req.body.id}`)).expect(200);
+      expect(rejected.body.approvalStatus).toBe('REJECTED');
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-requirements/${req.body.id}/create-order`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, lines: [{ requirementLineId: req.body.lines[0].id, quantity: 5, price: 20 }] })
+        .expect(400);
     });
   });
 

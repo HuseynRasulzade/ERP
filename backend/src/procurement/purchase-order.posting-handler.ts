@@ -33,6 +33,9 @@ export class PurchaseOrderPostingHandler implements DocumentPostingHandler {
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     const order = await tx.purchaseOrder.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!order) throw new ValidationAppError('Document disappeared during posting');
+    if (order.approvalStatus !== 'APPROVED') {
+      throw new ValidationAppError('Cannot confirm a purchase order until it is fully approved');
+    }
     if (order.lines.length === 0) throw new ValidationAppError('Cannot confirm a purchase order with no lines');
 
     // Collect EVERY problem across every line (never fail-fast on the

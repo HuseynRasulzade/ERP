@@ -17,6 +17,8 @@ function usePurchaseOrderKind(): DocKind {
     viewPerm: 'purchase.order.view',
     createPerm: 'purchase.order.create',
     editLinesPerm: 'purchase.order.edit',
+    approvePerm: 'purchase.order.approve',
+    rejectPerm: 'purchase.order.reject',
     counterpartyTypes: ['SUPPLIER', 'BOTH'],
     counterpartyLabel: t.common.supplier,
     showPrice: true,

@@ -111,6 +111,18 @@ export interface DocumentLink {
   createdAt: string;
 }
 
+export interface ApprovalStep {
+  id: string;
+  documentType: string;
+  documentId: string;
+  sequence: number;
+  stepType: 'PROCUREMENT_OFFICER' | 'DEPARTMENT_HEAD' | 'DIRECTOR' | 'FINANCE' | 'ACCOUNTING';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED';
+  approvedBy: string | null;
+  approvedAt: string | null;
+  comment: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Phase 1 — Organization & Business Structure
 // ---------------------------------------------------------------------------
@@ -625,6 +637,7 @@ export interface BizDoc {
   postingDate?: string | null;
   status: DocumentStatus;
   postingStatus: PostingStatus;
+  approvalStatus?: 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   counterpartyId?: string;
   currencyId?: string | null;
   warehouseId?: string | null;

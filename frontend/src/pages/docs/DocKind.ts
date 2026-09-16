@@ -53,6 +53,11 @@ export interface DocKind {
    * The permission code required to use it; omitted entirely for kinds
    * that don't offer post-creation line editing. */
   editLinesPerm?: string;
+  /** Opt-in Approve/Reject workflow (currently: Purchase Order). Omitted
+   * entirely for kinds that don't have an approval stage — Post's gating
+   * and the ApprovalStepsPanel only activate when this is set. */
+  approvePerm?: string;
+  rejectPerm?: string;
   extraFields?: DocExtraField[];
   createBasedOnTargets?: CreateBasedOnTarget[];
   requirementPicker?: RequirementPickerConfig;
