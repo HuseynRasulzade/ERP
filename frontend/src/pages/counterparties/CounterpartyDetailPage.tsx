@@ -53,6 +53,21 @@ export function CounterpartyDetailPage() {
     }
   };
 
+  const setRiskStatus = async (riskStatus: string) => {
+    if (!cp || !orgId) return;
+    const note = riskStatus !== 'NORMAL' ? window.prompt('Reason (optional):') ?? undefined : undefined;
+    setBusy(true);
+    try {
+      await api.post(`/organizations/${orgId}/counterparties/${cp.id}/risk-status`, { riskStatus, note, expectedVersion: cp.version });
+      showSuccess('Risk status updated');
+      await load();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!orgId) return <p className="panel-note">{t.common.selectOrganization}</p>;
   if (!cp) return <p className="panel-note">{t.common.loading}</p>;
 
@@ -63,12 +78,26 @@ export function CounterpartyDetailPage() {
           <h1>{cp.name}</h1>
           <div className="badge-row">
             <span className={`badge badge-generic-${CP_STATUS_CLASS[cp.status] ?? 'neutral'}`}>{cp.status}</span>
+            {cp.riskStatus && cp.riskStatus !== 'NORMAL' && (
+              <span className={`badge badge-generic-${cp.riskStatus === 'BLACKLISTED' ? 'bad' : 'warn'}`} title={cp.riskNote ?? undefined}>
+                {cp.riskStatus}
+              </span>
+            )}
           </div>
         </div>
         <div className="actions">
           <Link to="/counterparties" className="link-muted">{t.common.backToList}</Link>
           {hasPermission('counterparty.approve') && (cp.status === 'DRAFT' || cp.status === 'PENDING_APPROVAL') && (
             <button className="primary" disabled={busy} onClick={approve}>{t.counterparty.approve}</button>
+          )}
+          {hasPermission('counterparty.risk.manage') && cp.riskStatus !== 'WATCH' && (
+            <button disabled={busy} onClick={() => setRiskStatus('WATCH')}>Flag for review</button>
+          )}
+          {hasPermission('counterparty.risk.manage') && cp.riskStatus !== 'BLACKLISTED' && (
+            <button className="danger" disabled={busy} onClick={() => setRiskStatus('BLACKLISTED')}>Blacklist</button>
+          )}
+          {hasPermission('counterparty.risk.manage') && cp.riskStatus && cp.riskStatus !== 'NORMAL' && (
+            <button disabled={busy} onClick={() => setRiskStatus('NORMAL')}>Clear risk status</button>
           )}
         </div>
       </div>
@@ -356,7 +385,7 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
             </tr>
           </thead>
           <tbody>
-            {cp.bankAccounts!.map((a: any) => (
+            {cp.bankAccounts!.map((a) => (
               <tr key={a.id}>
                 <td>{a.bankName}</td>
                 <td>{a.accountNumber}</td>

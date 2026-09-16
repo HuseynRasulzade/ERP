@@ -271,6 +271,20 @@ describe('Sales Pre-Order & Order Management (e2e)', () => {
       expect(blocked.body.code).toBe('CREDIT_CHECK_BLOCKED');
     });
 
+    it('refuses to create a sales order for a blacklisted counterparty', async () => {
+      const blacklistCustomer = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
+        .send({ counterpartyType: 'CUSTOMER', code: `CUST-BL-${run}`, name: 'Blacklisted Buyer' })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${blacklistCustomer.body.id}/risk-status`))
+        .send({ riskStatus: 'BLACKLISTED', note: 'chronic non-payment', expectedVersion: blacklistCustomer.body.version })
+        .expect(201);
+
+      const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/sales-orders`))
+        .send({ counterpartyId: blacklistCustomer.body.id, documentDate: DOC_DATE, lines: [{ productId, unitId, quantity: 1, price: 100 }] });
+      expect(blocked.status).toBe(400);
+      expect(blocked.body.message).toMatch(/blacklisted/i);
+    });
+
     it('blocks confirmation while an active hold exists, and allows it once released', async () => {
       const order = await createOrder(1);
       const hold = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/sales-orders/${order.id}/holds`))

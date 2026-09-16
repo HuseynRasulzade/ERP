@@ -243,6 +243,24 @@ describe('Procurement (e2e)', () => {
         .send({ counterpartyId: customerOnlyId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 20 }] })
         .expect(422);
     });
+
+    it('rejects a blacklisted counterparty as a purchase order supplier', async () => {
+      const before = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${supplierId}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/risk-status`))
+        .send({ riskStatus: 'BLACKLISTED', note: 'quality dispute', expectedVersion: before.body.version })
+        .expect(201);
+
+      const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 20 }] });
+      expect(blocked.status).toBe(422);
+      expect(blocked.body.message).toMatch(/blacklisted/i);
+
+      // Restore for every other test in this file that relies on supplierId being usable.
+      const cp = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${supplierId}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/risk-status`))
+        .send({ riskStatus: 'NORMAL', expectedVersion: cp.body.version })
+        .expect(201);
+    });
   });
 
   describe('Purchase Order confirmation — no GL / AP / TaxMovement consequence (spec sections 94-97, 110-113)', () => {

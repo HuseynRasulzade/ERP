@@ -341,6 +341,9 @@ export class SalesOrderService {
     if (!CUSTOMER_TYPES.includes(cp.counterpartyType)) {
       throw new ValidationAppError('Counterparty is not a customer');
     }
+    if (cp.riskStatus === 'BLACKLISTED') {
+      throw new ValidationAppError('Cannot create a sales order for a blacklisted counterparty');
+    }
   }
 
   private async assertCurrency(currencyId?: string) {

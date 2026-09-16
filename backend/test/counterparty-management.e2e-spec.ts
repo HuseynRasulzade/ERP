@@ -360,6 +360,60 @@ describe('Kontragentlər — Counterparty Management (e2e)', () => {
     });
   });
 
+  describe('Risk status ("qara siyahı")', () => {
+    it('defaults to NORMAL, can be set to WATCH/BLACKLISTED and back, and is audited', async () => {
+      const cp = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${counterpartyId}`)).expect(200);
+      expect(cp.body.riskStatus).toBe('NORMAL');
+
+      const watched = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${counterpartyId}/risk-status`))
+        .send({ riskStatus: 'WATCH', note: 'late payment last quarter', expectedVersion: cp.body.version })
+        .expect(201);
+      expect(watched.body.riskStatus).toBe('WATCH');
+      expect(watched.body.riskNote).toBe('late payment last quarter');
+      expect(watched.body.riskUpdatedBy).toBeTruthy();
+
+      const blacklisted = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${counterpartyId}/risk-status`))
+        .send({ riskStatus: 'BLACKLISTED', note: 'unresolved dispute', expectedVersion: watched.body.version })
+        .expect(201);
+      expect(blacklisted.body.riskStatus).toBe('BLACKLISTED');
+
+      const cleared = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${counterpartyId}/risk-status`))
+        .send({ riskStatus: 'NORMAL', expectedVersion: blacklisted.body.version })
+        .expect(201);
+      expect(cleared.body.riskStatus).toBe('NORMAL');
+
+      const events = await auth1(request(app.getHttpServer()).get(`/audit-events?entityType=Counterparty&entityId=${counterpartyId}`)).expect(200);
+      expect(events.body.filter((e: any) => e.eventType === 'COUNTERPARTY_RISK_STATUS_CHANGED')).toHaveLength(3);
+    });
+
+    it('rejects an unknown risk status value', async () => {
+      const cp = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${counterpartyId}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${counterpartyId}/risk-status`))
+        .send({ riskStatus: 'ON_FIRE', expectedVersion: cp.body.version })
+        .expect(400);
+    });
+
+    it('a caller without counterparty.risk.manage cannot change risk status', async () => {
+      const email = `cpm-editor-${run}@e2e.test`;
+      const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Editor Only' }).expect(201);
+      const membership = await prisma.tenantMembership.create({ data: { tenantId: tenant1Id, userId: reg.body.userId, status: 'ACTIVE' } });
+      await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId: org1Id, accessLevel: 'FULL' } });
+      const editPermission = await prisma.permission.findFirst({ where: { code: 'counterparty.edit' } });
+      const viewPermission = await prisma.permission.findFirst({ where: { code: 'counterparty.view' } });
+      const role = await prisma.role.create({ data: { tenantId: tenant1Id, code: `CPM-EDITOR-${run}`, name: 'Editor Only' } });
+      await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+      await prisma.rolePermission.createMany({ data: [editPermission!, viewPermission!].map((p) => ({ roleId: role.id, permissionId: p.id })) });
+
+      const cp = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/counterparties/${counterpartyId}`)).expect(200);
+      const blocked = await request(app.getHttpServer())
+        .post(`/organizations/${org1Id}/counterparties/${counterpartyId}/risk-status`)
+        .set('Authorization', `Bearer ${reg.body.accessToken}`)
+        .set('X-Tenant-Id', tenant1Id)
+        .send({ riskStatus: 'WATCH', expectedVersion: cp.body.version });
+      expect(blocked.status).toBe(403);
+    });
+  });
+
   describe('Tenant isolation', () => {
     it('tenant B cannot see tenant A counterparty, contract, or documents', async () => {
       await auth2(request(app.getHttpServer()).get(`/organizations/${org2Id}/counterparties/${counterpartyId}`)).expect(404);

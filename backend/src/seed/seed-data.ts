@@ -52,6 +52,8 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.PURCHASE_ORDER_REJECT,
       PermissionCodes.DOCUMENTS_VIEW,
       PermissionCodes.AUDIT_VIEW,
+      PermissionCodes.COUNTERPARTY_VIEW,
+      PermissionCodes.COUNTERPARTY_RISK_MANAGE,
     ],
   },
   {
