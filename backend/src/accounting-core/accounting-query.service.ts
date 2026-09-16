@@ -152,6 +152,41 @@ export class AccountingQueryService {
     };
   }
 
+  /** "Mühasibat yazılışlarına bax" — every document's own accounting-
+   * entries viewer, generic across document types (same shape as
+   * /document-links and /approval-steps): every AccountingMovement this
+   * document's posting produced, grouped by JournalEntry so the UI can
+   * show one balanced entry per posting/repost generation rather than a
+   * flat movement list. Reads AccountingMovement directly (it already
+   * carries sourceDocumentType/sourceDocumentId) rather than joining
+   * through JournalEntryLine. */
+  async journalEntriesForDocument(tenantId: string, membershipId: string, organizationId: string, sourceDocumentType: string, sourceDocumentId: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+
+    const movements = await this.prisma.accountingMovement.findMany({
+      where: { tenantId, organizationId, sourceDocumentType, sourceDocumentId },
+      include: { account: true, dimensions: { include: { dimension: true } } },
+      orderBy: [{ journalEntryId: 'asc' }, { postingSequence: 'asc' }],
+    });
+    if (movements.length === 0) return [];
+
+    const journalEntryIds = Array.from(new Set(movements.map((m) => m.journalEntryId)));
+    const journalEntries = await this.prisma.journalEntry.findMany({ where: { id: { in: journalEntryIds } } });
+    const byId = new Map(journalEntries.map((j) => [j.id, j]));
+
+    const grouped = new Map<string, typeof movements>();
+    for (const m of movements) {
+      const list = grouped.get(m.journalEntryId) ?? [];
+      list.push(m);
+      grouped.set(m.journalEntryId, list);
+    }
+
+    return Array.from(grouped.entries()).map(([journalEntryId, lines]) => ({
+      journalEntry: byId.get(journalEntryId),
+      lines,
+    }));
+  }
+
   private async descendantIdsIncludingSelf(tenantId: string, accountId: string): Promise<string[]> {
     const ids = [accountId];
     let frontier = [accountId];

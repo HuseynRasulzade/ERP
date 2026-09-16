@@ -11,6 +11,7 @@ import { useLocale } from '../../i18n/LocaleContext';
 import type { DocKind } from './DocKind';
 import { DocLinesEditor, serializeDocLines } from './DocLinesEditor';
 import { ApprovalStepsPanel } from './ApprovalStepsPanel';
+import { AccountingEntriesPanel } from './AccountingEntriesPanel';
 
 const ROUTE_BY_DOC_TYPE: Record<string, string> = {
   SALES_ORDER: 'sales-orders',
@@ -330,6 +331,8 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
           onChanged={load}
         />
       )}
+
+      {orgId && <AccountingEntriesPanel orgId={orgId} documentType={kind.docType} documentId={doc.id} />}
 
       {renderExtras?.(doc, load)}
 

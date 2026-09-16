@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import type { AuditEvent } from '../../api/types';
 import { StatusBadge } from '../../components/StatusBadge';
 import { ApprovalStepsPanel } from '../docs/ApprovalStepsPanel';
+import { AccountingEntriesPanel } from '../docs/AccountingEntriesPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -216,6 +217,8 @@ export function PaymentOrderDetailPage() {
         rejectEndpoint={`payment-orders/${doc.id}/reject`}
         onChanged={load}
       />
+
+      <AccountingEntriesPanel orgId={orgId} documentType="PAYMENT_ORDER" documentId={doc.id} />
 
       {hasPermission('treasury.payment_order.reconcile') && doc.postingStatus === 'POSTED' && (
         <section className="card">

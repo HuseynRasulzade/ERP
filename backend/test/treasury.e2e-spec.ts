@@ -364,4 +364,36 @@ describe('Treasury (e2e)', () => {
       expect(posted.body.postingStatus).toBe('POSTED');
     });
   });
+
+  describe('Accounting entries viewer ("Mühasibat yazılışlarına bax")', () => {
+    it('GET .../accounting/journal-entries?sourceDocumentType=&sourceDocumentId= returns the balanced entry behind a posted payment order', async () => {
+      const invoice = await postedInvoice(3, 25);
+      const payreq = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-requests`))
+        .send({ purchaseInvoiceId: invoice.id, documentDate: DOC_DATE })
+        .expect(201);
+      const payord = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-orders`))
+        .send({ paymentRequestId: payreq.body.id, documentDate: DOC_DATE, bankAccountId })
+        .expect(201);
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/payment-orders/${payord.body.id}/approve`)).send({}).expect(201);
+      const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/payment-orders/${payord.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${PAYMENT_ORDER_TYPE}/${payord.body.id}/post`)).send({ expectedVersion: approved.body.version }).expect(201);
+
+      const entries = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/accounting/journal-entries?sourceDocumentType=${PAYMENT_ORDER_TYPE}&sourceDocumentId=${payord.body.id}`),
+      ).expect(200);
+      expect(entries.body).toHaveLength(1);
+      const [entry] = entries.body;
+      expect(entry.journalEntry.sourceDocumentType).toBe(PAYMENT_ORDER_TYPE);
+      expect(entry.journalEntry.sourceDocumentId).toBe(payord.body.id);
+      const debit = entry.lines.filter((l: any) => l.side === 'DEBIT').reduce((s: number, l: any) => s + Number(l.amountBase), 0);
+      const credit = entry.lines.filter((l: any) => l.side === 'CREDIT').reduce((s: number, l: any) => s + Number(l.amountBase), 0);
+      expect(debit).toBeCloseTo(credit, 2);
+
+      // A different, unrelated document type/id returns nothing.
+      const empty = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/accounting/journal-entries?sourceDocumentType=${PAYMENT_ORDER_TYPE}&sourceDocumentId=nonexistent`),
+      ).expect(200);
+      expect(empty.body).toHaveLength(0);
+    });
+  });
 });
