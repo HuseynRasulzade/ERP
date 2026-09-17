@@ -42,6 +42,7 @@ describe('Purchase Execution (e2e)', () => {
   let supplierId: string;
   let warehouseId: string;
   let currencyId: string;
+  let responsiblePersonId: string;
 
   const DOC_DATE = '2026-08-01';
 
@@ -74,9 +75,17 @@ describe('Purchase Execution (e2e)', () => {
     productId = p.body.id;
 
     const supplier = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties`))
-      .send({ counterpartyType: 'SUPPLIER', code: 'SUP-P9', name: 'Purchase Supply Co', paymentTerms: 30 })
+      .send({ counterpartyType: 'SUPPLIER', code: 'SUP-P9', name: 'Purchase Supply Co', paymentTerms: 30, taxId: '1234567890', countryCode: 'AZ' })
       .expect(201);
     supplierId = supplier.body.id;
+    // Approved (not just DRAFT) — CounterpartyContractService derives its own
+    // required "counterpartyTaxStatus" approval field from this status.
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/addresses`))
+      .send({ addressType: 'LEGAL', addressLine1: '1 Purchase St', city: 'Baku', countryCode: 'AZ' })
+      .expect(201);
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/counterparties/${supplierId}/approve`))
+      .send({ expectedVersion: supplier.body.version })
+      .expect(201);
 
     const wh = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/warehouses`))
       .send({ code: 'WH-P9', name: 'Purchase Warehouse' })
@@ -85,11 +94,46 @@ describe('Purchase Execution (e2e)', () => {
 
     const curRes = await auth1(request(app.getHttpServer()).get('/currencies')).expect(200);
     currencyId = curRes.body.find((c: any) => c.code === 'USD')?.id;
+
+    const personRes = await auth1(request(app.getHttpServer()).post('/responsible-persons'))
+      .send({ displayName: 'Purchase Execution Contract Manager' })
+      .expect(201);
+    responsiblePersonId = personRes.body.id;
   });
 
   afterAll(async () => {
     await app.close();
   });
+
+  /** PurchaseOrderContractGateService (counterparty-contracts) refuses any
+   * Goods Receipt / Purchase Invoice created directly against a Purchase
+   * Order (via `supplierOrderId`) until that order has an APPROVED
+   * CounterpartyContract — independent of, and checked before, this
+   * file's own PO-approval / over-delivery / price-visibility gates. Every
+   * direct-create fixture below must draw up and approve one first. Only
+   * a confirmed (posted) PO can source a contract, so callers must
+   * confirm/post the PO before calling this. */
+  async function createApprovedContractFor(poId: string, number: string) {
+    const contract = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/from-purchase-order`))
+      .send({ purchaseOrderId: poId, number });
+    if (contract.status !== 201) throw new Error(`from-purchase-order failed: ${contract.status} ${JSON.stringify(contract.body)}`);
+    const filled = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/contracts/${contract.body.id}`))
+      .send({
+        expectedVersion: contract.body.version, contractType: 'SUPPLY', signedDate: DOC_DATE, startDate: DOC_DATE, endDate: '2026-12-31',
+        paymentTerms: 'NET 30', deliveryTerms: 'EXW', responsiblePersonId, currencyId,
+      })
+      .expect(200);
+    await auth1(
+      request(app.getHttpServer())
+        .post(`/organizations/${org1Id}/counterparty-documents`)
+        .field('ownerType', 'CONTRACT')
+        .field('ownerId', contract.body.id)
+        .attach('file', Buffer.from('%PDF-1.4 signed contract'), { filename: 'signed.pdf', contentType: 'application/pdf' }),
+    ).expect(201);
+    const approved = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/contracts/${contract.body.id}/approve`))
+      .send({ expectedVersion: filled.body.version });
+    if (approved.status !== 201) throw new Error(`contract approve failed: ${approved.status} ${JSON.stringify(approved.body)}`);
+  }
 
   async function setupTenant(email: string, tenantCode: string, orgCode: string) {
     const regRes = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Test User' }).expect(201);
@@ -324,6 +368,7 @@ describe('Purchase Execution (e2e)', () => {
 
     it('rejects a duplicate supplier invoice number for the same supplier', async () => {
       const order = await createConfirmedSupplierOrder(5, 8);
+      await createApprovedContractFor(order.id, `C-DUP-${run}`);
       const invoiceNumber = `DUP-${run}`;
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-invoices`))
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, supplierInvoiceNumber: invoiceNumber, supplierOrderId: order.id, lines: [{ productId, unitId, quantity: 5, price: 8, supplierOrderLineId: order.lines[0].id }] })
@@ -455,12 +500,20 @@ describe('Purchase Execution (e2e)', () => {
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 6, price: 9 }] })
         .expect(201);
 
+      // Not yet approved (or posted) — a contract cannot exist against it
+      // either (contracts/from-purchase-order itself requires a posted
+      // PO), so the receipt is blocked regardless of which gate fires
+      // first; either way, an unapproved PO can never receive goods.
       const blocked = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
         .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 6, price: 9, supplierOrderLineId: po.body.lines[0].id }] })
         .expect(400);
-      expect(blocked.body.message).toMatch(/not fully approved/i);
+      expect(blocked.body.message).toMatch(/not fully approved|no contract yet/i);
 
       await fullyApprovePurchaseOrder(po.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
+        .send({ expectedVersion: po.body.version })
+        .expect(201);
+      await createApprovedContractFor(po.body.id, `C-GRNA-${run}`);
 
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
         .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po.body.id, lines: [{ productId, unitId, quantity: 6, price: 9, supplierOrderLineId: po.body.lines[0].id }] })
@@ -472,6 +525,10 @@ describe('Purchase Execution (e2e)', () => {
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 9 }] })
         .expect(201);
       await fullyApprovePurchaseOrder(po.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
+        .send({ expectedVersion: po.body.version })
+        .expect(201);
+      await createApprovedContractFor(po.body.id, `C-GRNB-${run}`);
 
       // Requesting 8 against an order of 5, with no reason, is rejected outright.
       const rejected = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
@@ -513,6 +570,10 @@ describe('Purchase Execution (e2e)', () => {
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 10, price: 20 }] })
         .expect(201);
       await fullyApprovePurchaseOrder(po.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po.body.id}/confirm`))
+        .send({ expectedVersion: po.body.version })
+        .expect(201);
+      await createApprovedContractFor(po.body.id, `C-GRNC1-${run}`);
 
       const warehouseToken = await setupWarehouseUser();
       const warehouseAuth = (req: request.Test) => req.set('Authorization', `Bearer ${warehouseToken}`).set('X-Tenant-Id', tenant1Id);
@@ -533,6 +594,10 @@ describe('Purchase Execution (e2e)', () => {
         .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId, unitId, quantity: 5, price: 20 }] })
         .expect(201);
       await fullyApprovePurchaseOrder(po2.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${po2.body.id}/confirm`))
+        .send({ expectedVersion: po2.body.version })
+        .expect(201);
+      await createApprovedContractFor(po2.body.id, `C-GRNC2-${run}`);
       const gr2 = await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/goods-receipts`))
         .send({ counterpartyId: supplierId, warehouseId, documentDate: DOC_DATE, supplierOrderId: po2.body.id, lines: [{ productId, unitId, quantity: 5, price: 18, supplierOrderLineId: po2.body.lines[0].id }] })
         .expect(201);
