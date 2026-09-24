@@ -349,5 +349,16 @@ All run against a real PostgreSQL instance — no mocked database.
   wiring into Goods Receipt/Shipment yet; boolean negative-stock policy,
   not the spec's 3-state enum — see docs/WAREHOUSE_INVENTORY.md for the
   full list. No frontend UI yet.
-- **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
+- **Fixed Assets / Əsas vəsaitlər (Phase 16)** — backend done, tested
+  (`test/phase16-fixed-assets.e2e-spec.ts`), documented in
+  backend/docs/PHASE16_FIXED_ASSETS.md. Acquisition candidates (auto-created
+  from Purchase Invoice FIXED_ASSET lines, never auto-capitalized), CIP
+  projects + cost register, cost-component traceability, acceptance vs
+  commissioning, the immutable FixedAssetMovement subledger, effective-dated
+  book policies, a straight-line (+ declining / SYD) depreciation engine
+  with versioned idempotent runs and balanced GL entries through
+  AccountingPostingEngine, transfers, modernization / repair, impairment,
+  revaluation foundation, physical inventory, disposal gain/loss, opening
+  balances, reports, health and FA-vs-GL reconciliation. No frontend UI yet.
+- **Inventory Costing, Payroll, Banking, ...** — not
   started. Later phases building on this foundation.

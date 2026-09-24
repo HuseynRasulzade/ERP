@@ -353,4 +353,26 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   // Goods Receipt posts to a clearing liability distinct from the real
   // Supplier Payable (531) — Purchase Invoice posting clears it.
   GOODS_RECEIVED_NOT_INVOICED: '538', // Digər qısamüddətli kreditor borcları
+  // Fixed Assets (docx spec Phase 16, section 86) — every FA posting
+  // resolves through these keys; nothing in src/fixed-assets hardcodes a
+  // code. A category's accountingMappingProfile may override any of them
+  // with a "<KEY>:<PROFILE>" mapping row.
+  FA_COST: '111', // Torpaq, tikili və avadanlıqların dəyəri
+  FA_CIP: '113', // məsrəflərin kapitallaşdırılması — CIP / acquisition clearing
+  FA_ACCUMULATED_DEPRECIATION: '112',
+  FA_ACCUMULATED_IMPAIRMENT: '112', // 112 = yığılmış amortizasiya VƏ qiymətdəndüşmə zərərləri
+  FA_DEPRECIATION_EXPENSE: '721', // administrative (default expense type)
+  FA_DEPRECIATION_EXPENSE_SALES: '711',
+  FA_DEPRECIATION_EXPENSE_PRODUCTION: '202', // production overhead
+  FA_DEPRECIATION_EXPENSE_OTHER: '731',
+  FA_IMPAIRMENT_LOSS: '731',
+  FA_IMPAIRMENT_REVERSAL_GAIN: '611',
+  FA_REVALUATION_RESERVE: '331',
+  FA_REVALUATION_LOSS: '731',
+  FA_DISPOSAL_GAIN: '611',
+  FA_DISPOSAL_LOSS: '731',
+  FA_DISPOSAL_PROCEEDS: '217', // proceeds clearing receivable — the linked sales invoice clears it
+  FA_NON_CAPITALIZABLE_EXPENSE: '721',
+  FA_REPAIR_EXPENSE: '721',
+  FA_OPENING_BALANCE_OFFSET: '343', // migration offset
 };

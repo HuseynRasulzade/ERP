@@ -46,6 +46,7 @@ import {
 } from './purchase-execution.mappers';
 
 import { ApprovalsModule } from '../approvals/approvals.module';
+import { FixedAssetsModule } from '../fixed-assets/fixed-assets.module';
 import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
 import { GoodsReceiptApprovalPlanProvider } from './goods-receipt-approval-plan.provider';
 import { PurchaseInvoiceApprovalPlanProvider } from './purchase-invoice-approval-plan.provider';
@@ -60,7 +61,7 @@ import { PurchaseInvoiceApprovalPlanProvider } from './purchase-invoice-approval
  * mappers covering the spec's core document chains (section 25).
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule, FixedAssetsModule],
   controllers: [GoodsReceiptController, PurchaseInvoiceController, PurchaseReturnController, AdditionalPurchaseCostController, PurchaseExecutionQueriesController],
   providers: [
     PurchaseFulfillmentService,
