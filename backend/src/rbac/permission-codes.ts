@@ -308,6 +308,21 @@ export const PermissionCodes = {
   INVENTORY_COST_REOPEN: 'inventory_cost.reopen',
   INVENTORY_COST_ADJUST: 'inventory_cost.adjust',
   INVENTORY_COST_MANUAL_OVERRIDE: 'inventory_cost.manual_override',
+
+  // Inventory Count / Reconciliation Engine (docx spec Phase 12)
+  INVENTORY_COUNT_VIEW: 'inventory_count.view',
+  INVENTORY_COUNT_PLAN: 'inventory_count.plan',
+  INVENTORY_COUNT_MANAGE_SCOPE: 'inventory_count.manage_scope',
+  INVENTORY_COUNT_START_SESSION: 'inventory_count.start_session',
+  INVENTORY_COUNT_ENTER: 'inventory_count.enter',
+  INVENTORY_COUNT_VIEW_ACCOUNTING_QUANTITY: 'inventory_count.view_accounting_quantity',
+  INVENTORY_COUNT_RECOUNT: 'inventory_count.recount',
+  INVENTORY_COUNT_DECIDE_VARIANCE: 'inventory_count.decide_variance',
+  INVENTORY_COUNT_APPROVE: 'inventory_count.approve',
+  INVENTORY_COUNT_POST_ADJUSTMENTS: 'inventory_count.post_adjustments',
+  INVENTORY_COUNT_RECONCILE: 'inventory_count.reconcile',
+  INVENTORY_COUNT_CLOSE: 'inventory_count.close',
+  INVENTORY_COUNT_CANCEL: 'inventory_count.cancel',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -591,4 +606,18 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.INVENTORY_COST_REOPEN, module: 'inventory_cost', description: 'Reopen a finalized inventory costing period' },
   { code: PermissionCodes.INVENTORY_COST_ADJUST, module: 'inventory_cost', description: 'Create/post manual inventory cost adjustments' },
   { code: PermissionCodes.INVENTORY_COST_MANUAL_OVERRIDE, module: 'inventory_cost', description: 'Override a computed cost with a manual value' },
+
+  { code: PermissionCodes.INVENTORY_COUNT_VIEW, module: 'inventory_count', description: 'View inventory count plans, sessions, and results' },
+  { code: PermissionCodes.INVENTORY_COUNT_PLAN, module: 'inventory_count', description: 'Create and configure inventory count plans' },
+  { code: PermissionCodes.INVENTORY_COUNT_MANAGE_SCOPE, module: 'inventory_count', description: 'Define which inventory a count plan covers' },
+  { code: PermissionCodes.INVENTORY_COUNT_START_SESSION, module: 'inventory_count', description: 'Start a count session and generate its snapshot' },
+  { code: PermissionCodes.INVENTORY_COUNT_ENTER, module: 'inventory_count', description: 'Enter physical count quantities' },
+  { code: PermissionCodes.INVENTORY_COUNT_VIEW_ACCOUNTING_QUANTITY, module: 'inventory_count', description: 'View the accounting (book) quantity during a blind count' },
+  { code: PermissionCodes.INVENTORY_COUNT_RECOUNT, module: 'inventory_count', description: 'Perform a recount' },
+  { code: PermissionCodes.INVENTORY_COUNT_DECIDE_VARIANCE, module: 'inventory_count', description: 'Decide how a counted variance should be resolved' },
+  { code: PermissionCodes.INVENTORY_COUNT_APPROVE, module: 'inventory_count', description: 'Approve variance decisions for posting' },
+  { code: PermissionCodes.INVENTORY_COUNT_POST_ADJUSTMENTS, module: 'inventory_count', description: 'Post the stock/GL corrections a count session produced' },
+  { code: PermissionCodes.INVENTORY_COUNT_RECONCILE, module: 'inventory_count', description: 'Run and view count reconciliation' },
+  { code: PermissionCodes.INVENTORY_COUNT_CLOSE, module: 'inventory_count', description: 'Close a completed count session' },
+  { code: PermissionCodes.INVENTORY_COUNT_CANCEL, module: 'inventory_count', description: 'Cancel a count plan or session' },
 ];

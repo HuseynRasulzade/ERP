@@ -13,6 +13,7 @@ import { InventoryLedgerService } from '../sales-execution/inventory-ledger.serv
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for GoodsReceipt (spec sections 3-5). Real physical
@@ -41,6 +42,7 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
     private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -56,8 +58,14 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     const warehouse = await tx.warehouse.findFirst({ where: { id: receipt.warehouseId, tenantId } });
     if (!warehouse || !warehouse.active) throw new ValidationAppError('Cannot post a goods receipt for a missing or inactive warehouse');
 
+    const frozenChecked = new Set<string>();
     for (const line of receipt.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a goods receipt line with non-positive quantity');
+      const lineWarehouseId = line.warehouseId ?? receipt.warehouseId;
+      if (!frozenChecked.has(lineWarehouseId)) {
+        frozenChecked.add(lineWarehouseId);
+        await this.freeze.assertNotFrozen(tenantId, lineWarehouseId, null, GOODS_RECEIPT_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
+      }
 
       // Server-side re-check (spec section 22): never trust a
       // client-computed "remaining" — recompute from the database inside

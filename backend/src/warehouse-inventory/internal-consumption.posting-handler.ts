@@ -11,6 +11,7 @@ import { AccountingMappingService } from '../accounting-core/accounting-mapping.
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 const EXPENSE_MAPPING_BY_OPERATION: Record<string, string> = {
   OFFICE_CONSUMPTION: MappingKeys.ADMIN_EXPENSE,
@@ -44,12 +45,14 @@ export class InternalConsumptionPostingHandler implements DocumentPostingHandler
     private readonly availability: StockAvailabilityService,
     private readonly mappings: AccountingMappingService,
     private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     const consumption = await tx.internalConsumption.findFirst({ where: { id: document.id, tenantId }, include: { lines: true, warehouse: true } });
     if (!consumption) throw new ValidationAppError('Document disappeared during posting');
     if (consumption.lines.length === 0) throw new ValidationAppError('Cannot post an internal consumption with no lines');
+    await this.freeze.assertNotFrozen(tenantId, consumption.warehouseId, null, INTERNAL_CONSUMPTION_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
 
     for (const line of consumption.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a consumption line with non-positive quantity');

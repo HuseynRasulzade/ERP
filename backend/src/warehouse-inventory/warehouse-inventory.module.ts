@@ -6,6 +6,7 @@ import { AuditModule } from '../audit/audit.module';
 import { OrgStructureModule } from '../org-structure/org-structure.module';
 import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
 import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
+import { InventoryFreezeModule } from '../inventory-count/inventory-freeze.module';
 
 import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
@@ -47,7 +48,7 @@ import { InventoryStatusTransferController } from './inventory-status-transfer.c
  * repository+handler registration pattern as every other document module.
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule, InventoryCostingModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule, InventoryCostingModule, InventoryFreezeModule],
   controllers: [WarehouseInventoryQueriesController, WarehouseTransferController, InternalConsumptionController, InventoryAdjustmentController, InventoryStatusTransferController],
   providers: [
     InventoryMovementService,

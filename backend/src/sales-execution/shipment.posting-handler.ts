@@ -15,6 +15,7 @@ import { ReservationService } from '../sales-preorder/reservation.service';
 import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -42,6 +43,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly fulfillment: OrderFulfillmentService,
     private readonly batchSerial: BatchSerialService,
     private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -58,8 +60,14 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
       throw new ValidationAppError('Cannot post a shipment for a missing or inactive warehouse');
     }
 
+    const frozenChecked = new Set<string>();
     for (const line of shipment.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a shipment line with non-positive quantity');
+      const lineWarehouseId = line.warehouseId ?? shipment.warehouseId;
+      if (!frozenChecked.has(lineWarehouseId)) {
+        frozenChecked.add(lineWarehouseId);
+        await this.freeze.assertNotFrozen(tenantId, lineWarehouseId, null, SHIPMENT_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
+      }
 
       if (line.sourceOrderLineId) {
         const orderLine = await tx.salesOrderLine.findFirst({ where: { id: line.sourceOrderLineId, tenantId } });

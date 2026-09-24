@@ -11,6 +11,7 @@ import { AccountingMappingService } from '../accounting-core/accounting-mapping.
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for InventoryAdjustment (spec sections 17, 34, 42, 77) —
@@ -47,12 +48,14 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
     private readonly availability: StockAvailabilityService,
     private readonly mappings: AccountingMappingService,
     private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     const adjustment = await tx.inventoryAdjustment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true, warehouse: true } });
     if (!adjustment) throw new ValidationAppError('Document disappeared during posting');
     if (adjustment.lines.length === 0) throw new ValidationAppError('Cannot post an inventory adjustment with no lines');
+    await this.freeze.assertNotFrozen(tenantId, adjustment.warehouseId, null, INVENTORY_ADJUSTMENT_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
 
     for (const line of adjustment.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post an adjustment line with non-positive quantity');

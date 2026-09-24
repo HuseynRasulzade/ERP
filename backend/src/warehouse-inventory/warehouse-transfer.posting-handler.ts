@@ -8,6 +8,7 @@ import { WAREHOUSE_TRANSFER_TYPE } from './warehouse-transfer.repository';
 import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
 import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for WarehouseTransfer (spec sections 11-13). Never
@@ -41,6 +42,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
     private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -50,6 +52,9 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
     if (transfer.transferType !== 'INTERNAL_LOCATION_TRANSFER' && transfer.sourceWarehouseId === transfer.destinationWarehouseId) {
       throw new ValidationAppError('Source and destination warehouse must differ for a warehouse-to-warehouse transfer');
     }
+    const postedBy = document.postedBy ?? document.createdBy ?? undefined;
+    await this.freeze.assertNotFrozen(tenantId, transfer.sourceWarehouseId, null, WAREHOUSE_TRANSFER_TYPE, document.id, postedBy, tx);
+    await this.freeze.assertNotFrozen(tenantId, transfer.destinationWarehouseId, null, WAREHOUSE_TRANSFER_TYPE, document.id, postedBy, tx);
 
     for (const line of transfer.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a transfer line with non-positive quantity');

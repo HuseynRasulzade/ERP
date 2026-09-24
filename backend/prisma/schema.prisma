@@ -160,6 +160,21 @@ model Tenant {
   inventoryCostingErrors       InventoryCostingError[]
   inventoryCostRecalcQueueRows InventoryCostRecalculationQueue[]
 
+  // Inventory Count / Reconciliation Engine (docx spec Phase 12)
+  inventoryCountPlans           InventoryCountPlan[]
+  inventoryCountScopes          InventoryCountScope[]
+  inventoryCountSessions        InventoryCountSession[]
+  inventoryCountSnapshotLines   InventoryCountSnapshotLine[]
+  inventoryCountSheets          InventoryCountSheet[]
+  inventoryCountEntries         InventoryCountEntry[]
+  inventoryCountEntrySerials    InventoryCountEntrySerial[]
+  inventoryCountEntryVersions   InventoryCountEntryVersion[]
+  inventoryRecounts             InventoryRecount[]
+  inventoryVariances            InventoryVariance[]
+  inventoryVarianceDecisions    InventoryVarianceDecision[]
+  inventoryCountAdjustmentLinks InventoryCountAdjustmentLink[]
+  inventoryCountReconciliations InventoryCountReconciliation[]
+
   @@map("tenants")
 }
 
@@ -269,6 +284,10 @@ model Organization {
   inventoryCostingPeriods      InventoryCostingPeriod[]
   inventoryCostingErrors       InventoryCostingError[]
   inventoryCostRecalcQueueRows InventoryCostRecalculationQueue[]
+
+  // Inventory Count / Reconciliation Engine (docx spec Phase 12)
+  inventoryCountPlans    InventoryCountPlan[]
+  inventoryCountSessions InventoryCountSession[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -5130,4 +5149,412 @@ model InventoryCostRecalculationQueue {
 
   @@index([tenantId, status, earliestAffectedDate])
   @@map("inventory_cost_recalculation_queue")
+}
+
+// ============================================================================
+// INVENTORY COUNT / RECONCILIATION ENGINE (docx spec Phase 12)
+//
+// Not a single "count document" — a process aggregate (spec section 3):
+// Plan -> Scope -> Session -> Snapshot -> Sheets -> Entries -> Variance ->
+// Recount -> Decision -> Adjustment (reusing Phase 10's InventoryAdjustment/
+// WarehouseTransfer/InventoryStatusTransfer documents, never a duplicate
+// posting mechanism) -> Reconciliation -> Close. "Characteristic" is
+// dropped throughout (never implemented anywhere in this codebase — Phase
+// 2/3's own already-disclosed simplification, not a new one). Task-level
+// granularity (spec section 17) is folded into the Sheet itself (one
+// sheet = one assignable unit of work) rather than a separate Task
+// entity — a disclosed simplification, same "collapse sub-entities
+// without losing the business concept" allowance spec section 3 itself
+// grants. `InventoryCountTeam` is not modeled as its own entity either —
+// team composition is a UI/process concern, not persisted state this
+// engine's own reconciliation math depends on.
+// ============================================================================
+
+model InventoryCountPlan {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  organizationId    String    @map("organization_id")
+  branchId          String?   @map("branch_id")
+  number            String?
+  planDate          DateTime  @map("plan_date") @db.Date
+  plannedStartAt    DateTime? @map("planned_start_at")
+  plannedEndAt      DateTime? @map("planned_end_at")
+  countType         String    @default("FULL") @map("count_type") // FULL|PARTIAL|CYCLE|ANNUAL|AD_HOC|INVESTIGATION|RECOUNT
+  reason            String?
+  responsibleUserId String?   @map("responsible_user_id")
+  countManagerId    String?   @map("count_manager_id")
+  status            String    @default("DRAFT") // DRAFT|READY|ACTIVE|CLOSED|CANCELLED
+
+  blindCountEnabled Boolean @default(true) @map("blind_count_enabled")
+  freezePolicy      String  @default("NO_FREEZE_WITH_MOVEMENT_TRACKING") @map("freeze_policy") // HARD_FREEZE|SOFT_FREEZE|NO_FREEZE_WITH_MOVEMENT_TRACKING
+  cutoffMode        String  @default("GLOBAL_SNAPSHOT_CUTOFF") @map("cutoff_mode") // GLOBAL_SNAPSHOT_CUTOFF|TASK_COMPLETION_CUTOFF|LOCATION_COUNT_TIMESTAMP
+
+  recountPolicy              String   @default("RECOUNT_ABOVE_VALUE_THRESHOLD") @map("recount_policy")
+  recountQuantityThreshold   Decimal? @map("recount_quantity_threshold") @db.Decimal(18, 6)
+  recountValueThreshold      Decimal? @map("recount_value_threshold") @db.Decimal(18, 2)
+  recountPercentageThreshold Decimal? @map("recount_percentage_threshold") @db.Decimal(9, 4)
+  maxRecountAttempts         Int      @default(2) @map("max_recount_attempts")
+
+  varianceQuantityTolerance   Decimal? @map("variance_quantity_tolerance") @db.Decimal(18, 6)
+  varianceValueTolerance      Decimal? @map("variance_value_tolerance") @db.Decimal(18, 2)
+  variancePercentageTolerance Decimal? @map("variance_percentage_tolerance") @db.Decimal(9, 4)
+  surplusCostPolicy           String   @default("CURRENT_AVERAGE") @map("surplus_cost_policy") // CURRENT_AVERAGE|LATEST_PURCHASE|MANUAL|ZERO_PENDING
+
+  comment String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  scopes       InventoryCountScope[]
+  sessions     InventoryCountSession[]
+
+  @@index([tenantId, organizationId, status])
+  @@map("inventory_count_plans")
+}
+
+/// A count session's scope is IMMUTABLE once the session starts (spec
+/// section 6) — enforced at the service layer (InventoryCountScopeService
+/// refuses to write once any session on this plan has left DRAFT), not by
+/// a DB constraint, since a plan can still be revised before any session
+/// starts from it.
+model InventoryCountScope {
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  inventoryCountPlanId String  @map("inventory_count_plan_id")
+  includeExclude       String  @default("INCLUDE") @map("include_exclude") // INCLUDE | EXCLUDE
+  warehouseId          String? @map("warehouse_id")
+  locationId           String? @map("location_id")
+  locationSubtree      Boolean @default(false) @map("location_subtree")
+  productId            String? @map("product_id")
+  productGroupId       String? @map("product_group_id")
+  batchId              String? @map("batch_id")
+  serialId             String? @map("serial_id")
+  ownershipType        String? @map("ownership_type")
+  qualityStatus        String? @map("quality_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id])
+  plan   InventoryCountPlan @relation(fields: [inventoryCountPlanId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryCountPlanId])
+  @@map("inventory_count_scopes")
+}
+
+model InventoryCountSession {
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  organizationId       String  @map("organization_id")
+  inventoryCountPlanId String  @map("inventory_count_plan_id")
+  sessionNumber        String? @map("session_number")
+  status               String  @default("DRAFT") // DRAFT|READY|SNAPSHOT_CREATED|COUNTING|RECOUNT_REQUIRED|UNDER_REVIEW|PENDING_APPROVAL|APPROVED|POSTED|RECONCILED|CLOSED|CANCELLED
+
+  startedAt     DateTime? @map("started_at")
+  snapshotAt    DateTime? @map("snapshot_at")
+  countCutoffAt DateTime? @map("count_cutoff_at")
+  completedAt   DateTime? @map("completed_at")
+  startedBy     String?   @map("started_by")
+  completedBy   String?   @map("completed_by")
+
+  freezePolicy         String  @map("freeze_policy")
+  blindCount           Boolean @map("blind_count")
+  cutoffMode           String  @default("GLOBAL_SNAPSHOT_CUTOFF") @map("cutoff_mode")
+  snapshotVersion      Int     @default(0) @map("snapshot_version")
+  reconciliationStatus String  @default("NOT_STARTED") @map("reconciliation_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant          Tenant                         @relation(fields: [tenantId], references: [id])
+  organization    Organization                   @relation(fields: [organizationId], references: [id])
+  plan            InventoryCountPlan             @relation(fields: [inventoryCountPlanId], references: [id])
+  snapshotLines   InventoryCountSnapshotLine[]
+  sheets          InventoryCountSheet[]
+  entries         InventoryCountEntry[]
+  recounts        InventoryRecount[]
+  variances       InventoryVariance[]
+  reconciliation  InventoryCountReconciliation?
+  adjustmentLinks InventoryCountAdjustmentLink[]
+
+  @@index([tenantId, organizationId, status])
+  @@map("inventory_count_sessions")
+}
+
+/// Authoritative, IMMUTABLE stock snapshot (spec sections 8-10) — written
+/// once from Phase 10's InventoryMovement register (never a cached UI
+/// figure), one row per full dimension tuple. Never updated after the
+/// session leaves SNAPSHOT_CREATED.
+model InventoryCountSnapshotLine {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  sessionId     String  @map("session_id")
+  warehouseId   String  @map("warehouse_id")
+  locationId    String? @map("location_id")
+  productId     String  @map("product_id")
+  batchId       String? @map("batch_id")
+  serialId      String? @map("serial_id")
+  ownershipType String  @default("OWN") @map("ownership_type")
+  qualityStatus String  @map("quality_status") // the physical stockStatus at snapshot time
+  unitId        String  @map("unit_id")
+
+  accountingQuantity Decimal  @map("accounting_quantity") @db.Decimal(18, 6)
+  unitCost           Decimal? @map("unit_cost") @db.Decimal(18, 6)
+  inventoryValue     Decimal? @map("inventory_value") @db.Decimal(18, 2)
+  costingStatus      String?  @map("costing_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id])
+  session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([tenantId, sessionId, warehouseId, productId])
+  @@map("inventory_count_snapshot_lines")
+}
+
+model InventoryCountSheet {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  sessionId      String    @map("session_id")
+  sheetNumber    String?   @map("sheet_number")
+  warehouseId    String    @map("warehouse_id")
+  locationId     String?   @map("location_id")
+  assignedUserId String?   @map("assigned_user_id")
+  status         String    @default("DRAFT") // DRAFT|IN_PROGRESS|COMPLETED
+  generatedAt    DateTime  @default(now()) @map("generated_at")
+  startedAt      DateTime? @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  blindCount     Boolean   @map("blind_count")
+  sequence       Int       @default(0)
+  comment        String?
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id])
+  session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  entries InventoryCountEntry[]
+
+  @@index([sessionId])
+  @@map("inventory_count_sheets")
+}
+
+/// A physical count line (spec section 21). `entryVersion`/
+/// `InventoryCountEntryVersion` preserve every prior value (spec section
+/// 29: a correction is never a silent overwrite). `countedQuantity = 0`
+/// (explicit zero, spec section 86) is a real, distinct entry from no
+/// entry existing at all (spec section 85's UNCOUNTED).
+model InventoryCountEntry {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  sessionId     String  @map("session_id")
+  sheetId       String  @map("sheet_id")
+  warehouseId   String  @map("warehouse_id")
+  locationId    String? @map("location_id")
+  productId     String  @map("product_id")
+  batchId       String? @map("batch_id")
+  ownershipType String  @default("OWN") @map("ownership_type")
+  qualityStatus String  @default("AVAILABLE") @map("quality_status")
+  unitId        String  @map("unit_id")
+
+  countedQuantity Decimal  @map("counted_quantity") @db.Decimal(18, 6) // in the counter's own unit
+  baseQuantity    Decimal  @map("base_quantity") @db.Decimal(18, 6) // converted, frozen conversion factor
+  countedAt       DateTime @default(now()) @map("counted_at")
+  countedBy       String   @map("counted_by")
+  entryMethod     String   @default("MANUAL") @map("entry_method") // MANUAL|BARCODE|IMPORT|MOBILE|API|SYSTEM_RECOUNT
+  barcode         String?
+  notes           String?
+  clientEntryId   String?  @map("client_entry_id") // offline/mobile sync idempotency (spec sections 81, 104)
+  entryVersion    Int      @default(1) @map("entry_version")
+  voided          Boolean  @default(false)
+
+  tenant   Tenant                       @relation(fields: [tenantId], references: [id])
+  session  InventoryCountSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sheet    InventoryCountSheet          @relation(fields: [sheetId], references: [id])
+  serials  InventoryCountEntrySerial[]
+  versions InventoryCountEntryVersion[]
+
+  @@index([sessionId])
+  @@index([sheetId])
+  @@index([tenantId, sessionId, warehouseId, productId, batchId])
+  @@map("inventory_count_entries")
+}
+
+/// Specific serials physically found for a serial-controlled entry (spec
+/// section 24) — quantity alone is never enough for a serialized product.
+model InventoryCountEntrySerial {
+  id           String @id @default(uuid())
+  tenantId     String @map("tenant_id")
+  entryId      String @map("entry_id")
+  serialNumber String @map("serial_number")
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id])
+  entry  InventoryCountEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, serialNumber])
+  @@map("inventory_count_entry_serials")
+}
+
+model InventoryCountEntryVersion {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  entryId     String   @map("entry_id")
+  oldQuantity Decimal  @map("old_quantity") @db.Decimal(18, 6)
+  newQuantity Decimal  @map("new_quantity") @db.Decimal(18, 6)
+  changedBy   String   @map("changed_by")
+  changedAt   DateTime @default(now()) @map("changed_at")
+  reason      String?
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id])
+  entry  InventoryCountEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@map("inventory_count_entry_versions")
+}
+
+/// A recount NEVER overwrites the original count (spec section 38) —
+/// history stays in `InventoryCountEntry`/`InventoryCountEntryVersion`;
+/// this is its own row per recount attempt.
+model InventoryRecount {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  sessionId        String    @map("session_id")
+  varianceId       String?   @map("variance_id")
+  originalEntryId  String?   @map("original_entry_id")
+  recountNumber    Int       @default(1) @map("recount_number")
+  assignedUserId   String?   @map("assigned_user_id")
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  physicalQuantity Decimal?  @map("physical_quantity") @db.Decimal(18, 6)
+  reason           String?
+  resultStatus     String    @default("PENDING") @map("result_status") // PENDING|COMPLETED|CANCELLED
+  countedBy        String?   @map("counted_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id])
+  session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([tenantId, varianceId])
+  @@map("inventory_recounts")
+}
+
+/// One row per FULL dimension tuple (spec section 33: never collapse to a
+/// product-level net) — a Batch A -10 / Batch B +10 pair stays two
+/// variance rows even though the product-level net is zero.
+model InventoryVariance {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  sessionId     String  @map("session_id")
+  warehouseId   String  @map("warehouse_id")
+  locationId    String? @map("location_id")
+  productId     String  @map("product_id")
+  batchId       String? @map("batch_id")
+  serialId      String? @map("serial_id")
+  ownershipType String  @default("OWN") @map("ownership_type")
+  qualityStatus String  @map("quality_status")
+
+  accountingQuantity         Decimal  @map("accounting_quantity") @db.Decimal(18, 6)
+  adjustedAccountingQuantity Decimal  @map("adjusted_accounting_quantity") @db.Decimal(18, 6)
+  physicalQuantity           Decimal? @map("physical_quantity") @db.Decimal(18, 6)
+  quantityDifference         Decimal  @map("quantity_difference") @db.Decimal(18, 6)
+  varianceType               String   @map("variance_type") // MATCH|SURPLUS|SHORTAGE|LOCATION_MISMATCH|BATCH_MISMATCH|SERIAL_MISSING|SERIAL_UNEXPECTED|OWNERSHIP_MISMATCH|QUALITY_STATUS_MISMATCH|UNKNOWN_PRODUCT|UNCOUNTED_ITEM
+  unitCost                   Decimal? @map("unit_cost") @db.Decimal(18, 6)
+  valueDifference            Decimal? @map("value_difference") @db.Decimal(18, 2)
+  severity                   String   @default("NORMAL") @map("severity") // NORMAL|WARNING|CRITICAL
+  resolutionStatus           String   @default("OPEN") @map("resolution_status") // OPEN|RECOUNT_REQUIRED|UNDER_INVESTIGATION|EXPLAINED|APPROVED|REJECTED|POSTED
+  reasonCode                 String?  @map("reason_code")
+  recountRequired            Boolean  @default(false) @map("recount_required")
+  recountCount               Int      @default(0) @map("recount_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant                     @relation(fields: [tenantId], references: [id])
+  session  InventoryCountSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  decision InventoryVarianceDecision?
+
+  @@index([sessionId])
+  @@index([tenantId, sessionId, varianceType])
+  @@index([tenantId, sessionId, resolutionStatus])
+  @@map("inventory_variances")
+}
+
+model InventoryVarianceDecision {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  varianceId            String    @unique @map("variance_id")
+  finalPhysicalQuantity Decimal   @map("final_physical_quantity") @db.Decimal(18, 6)
+  acceptedDifference    Decimal   @map("accepted_difference") @db.Decimal(18, 6)
+  resolutionType        String    @map("resolution_type") // ADJUST_STOCK|LOCATION_TRANSFER|STATUS_TRANSFER|BATCH_CORRECTION|SERIAL_CORRECTION|NO_ADJUSTMENT|SOURCE_DOCUMENT_CORRECTION|WRITE_OFF|SURPLUS_RECOGNITION
+  reasonCode            String?   @map("reason_code")
+  approvedCost          Decimal?  @map("approved_cost") @db.Decimal(18, 6)
+  approver              String?
+  approvedAt            DateTime? @map("approved_at")
+  comment               String?
+  status                String    @default("PENDING") @map("status") // PENDING|APPROVED|REJECTED|POSTED
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id])
+  variance InventoryVariance @relation(fields: [varianceId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_variance_decisions")
+}
+
+/// Traceability from a count session to whatever real document actually
+/// carried the correction (spec section 51: reuse Phase 10's generic
+/// adjustment foundation — InventoryAdjustment for surplus/shortage,
+/// WarehouseTransfer for a location correction, InventoryStatusTransfer
+/// for a quality-status correction — never a fourth, duplicate posting
+/// mechanism).
+model InventoryCountAdjustmentLink {
+  id                     String  @id @default(uuid())
+  tenantId               String  @map("tenant_id")
+  sessionId              String  @map("session_id")
+  varianceId             String? @map("variance_id")
+  adjustmentDocumentType String  @map("adjustment_document_type") // INVENTORY_ADJUSTMENT | WAREHOUSE_TRANSFER | INVENTORY_STATUS_TRANSFER
+  adjustmentDocumentId   String  @map("adjustment_document_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id])
+  session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([tenantId, adjustmentDocumentType, adjustmentDocumentId])
+  @@map("inventory_count_adjustment_links")
+}
+
+model InventoryCountReconciliation {
+  id                         String    @id @default(uuid())
+  tenantId                   String    @map("tenant_id")
+  sessionId                  String    @unique @map("session_id")
+  snapshotTotalQuantity      Decimal   @default(0) @map("snapshot_total_qty") @db.Decimal(18, 6)
+  adjustedAccountingQuantity Decimal   @default(0) @map("adjusted_accounting_qty") @db.Decimal(18, 6)
+  physicalQuantity           Decimal   @default(0) @map("physical_qty") @db.Decimal(18, 6)
+  surplusQuantity            Decimal   @default(0) @map("surplus_qty") @db.Decimal(18, 6)
+  shortageQuantity           Decimal   @default(0) @map("shortage_qty") @db.Decimal(18, 6)
+  locationMismatchQuantity   Decimal   @default(0) @map("location_mismatch_qty") @db.Decimal(18, 6)
+  totalSurplusValue          Decimal   @default(0) @map("total_surplus_value") @db.Decimal(18, 2)
+  totalShortageValue         Decimal   @default(0) @map("total_shortage_value") @db.Decimal(18, 2)
+  netValueDifference         Decimal   @default(0) @map("net_value_difference") @db.Decimal(18, 2)
+  adjustmentDocumentCount    Int       @default(0) @map("adjustment_document_count")
+  unresolvedVarianceCount    Int       @default(0) @map("unresolved_variance_count")
+  status                     String    @default("NOT_STARTED") // NOT_STARTED|IN_PROGRESS|DIFFERENCES_FOUND|ADJUSTMENTS_PENDING|BALANCED|ERROR|CLOSED
+  reconciledAt               DateTime? @map("reconciled_at")
+  reconciledBy               String?   @map("reconciled_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id])
+  session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_count_reconciliations")
 }

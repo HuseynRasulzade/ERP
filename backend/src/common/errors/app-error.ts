@@ -115,6 +115,15 @@ export const ErrorCode = {
   COSTING_PERIOD_FINALIZED: 'COSTING_PERIOD_FINALIZED',
   COSTING_FINALIZATION_BLOCKED: 'COSTING_FINALIZATION_BLOCKED',
   COST_LAYER_BALANCE_INVALID: 'COST_LAYER_BALANCE_INVALID',
+
+  // Inventory Count / Reconciliation Engine (docx spec Phase 12)
+  COUNT_SCOPE_IMMUTABLE: 'COUNT_SCOPE_IMMUTABLE',
+  COUNT_WAREHOUSE_LOCKED: 'COUNT_WAREHOUSE_LOCKED',
+  COUNT_SESSION_INVALID_STATE: 'COUNT_SESSION_INVALID_STATE',
+  COUNT_SERIAL_DUPLICATE: 'COUNT_SERIAL_DUPLICATE',
+  COUNT_RECOUNT_PENDING: 'COUNT_RECOUNT_PENDING',
+  COUNT_RECONCILIATION_STALE: 'COUNT_RECONCILIATION_STALE',
+  COUNT_ADJUSTMENT_COSTING_UNRESOLVED: 'COUNT_ADJUSTMENT_COSTING_UNRESOLVED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -734,5 +743,47 @@ export class CostLayerBalanceInvalidError extends AppError {
       `Quantity/cost-layer mismatch for ${costingKey}: quantity register ${quantityRegister} vs cost layer remaining quantity ${costLayerRegister}`,
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
+  }
+}
+
+export class CountScopeImmutableError extends AppError {
+  constructor() {
+    super(ErrorCode.COUNT_SCOPE_IMMUTABLE, 'This inventory count plan already has a session that has left DRAFT — its scope can no longer be changed', HttpStatus.CONFLICT);
+  }
+}
+
+export class CountWarehouseLockedError extends AppError {
+  constructor(warehouseCode: string, sessionNumber: string) {
+    super(ErrorCode.COUNT_WAREHOUSE_LOCKED, `Warehouse/location ${warehouseCode} is locked for inventory count session ${sessionNumber}`, HttpStatus.CONFLICT);
+  }
+}
+
+export class CountSessionInvalidStateError extends AppError {
+  constructor(message: string) {
+    super(ErrorCode.COUNT_SESSION_INVALID_STATE, message, HttpStatus.CONFLICT);
+  }
+}
+
+export class CountSerialDuplicateError extends AppError {
+  constructor(serialNumber: string) {
+    super(ErrorCode.COUNT_SERIAL_DUPLICATE, `Serial ${serialNumber} was counted twice in this session`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class CountRecountPendingError extends AppError {
+  constructor(count: number) {
+    super(ErrorCode.COUNT_RECOUNT_PENDING, `Inventory adjustment cannot be posted because recount is still pending for ${count} variance line(s)`, HttpStatus.CONFLICT);
+  }
+}
+
+export class CountReconciliationStaleError extends AppError {
+  constructor() {
+    super(ErrorCode.COUNT_RECONCILIATION_STALE, 'Inventory count result is stale because new stock movements occurred after variance approval', HttpStatus.CONFLICT);
+  }
+}
+
+export class CountAdjustmentCostingUnresolvedError extends AppError {
+  constructor(productId: string) {
+    super(ErrorCode.COUNT_ADJUSTMENT_COSTING_UNRESOLVED, `Shortage adjustment cannot be costed because inventory costing for product ${productId} is unresolved`, HttpStatus.UNPROCESSABLE_ENTITY);
   }
 }
