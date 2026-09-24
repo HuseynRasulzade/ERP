@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -51,6 +52,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -231,10 +233,31 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
 
     await tx.purchaseReturn.update({ where: { id: ret.id }, data: { subtotal: netTotal.toString(), taxTotal: taxTotal.toString(), grandTotal: grossTotal.toString() } });
 
+    // Costing (spec sections 28-29, 125): inventory leaves at the SOURCE
+    // receipt layer's (adjusted) cost, not at the document price. The
+    // document-price inventory credits above are replaced by the engine's
+    // cost; the difference (e.g. capitalized freight reversed
+    // proportionally) goes to the purchase-cost variance account.
+    const cost = await this.costing.onDocumentPosted(tenantId, PURCHASE_RETURN_TYPE, ret.id, tx, document.postedBy ?? document.createdBy ?? 'system');
+    if (cost && cost.inventoryLines.length > 0) {
+      const inventory = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
+      const documentCredit = lines.filter((l) => l.accountId === inventory.id && l.side === 'CREDIT').reduce((s, l) => s.plus(new Decimal(l.amountBase)), new Decimal(0));
+      const kept = lines.filter((l) => !(l.accountId === inventory.id && l.side === 'CREDIT'));
+      const costCredit = cost.totalValue.abs();
+      const variance = documentCredit.minus(costCredit);
+      kept.push(...cost.inventoryLines);
+      if (!variance.isZero()) {
+        const varianceAccount = await this.mappings.resolve(tenantId, organizationId, MappingKeys.OTHER_OPERATING_EXPENSE, businessDate, tx);
+        kept.push({ accountId: varianceAccount.id, side: variance.gt(0) ? 'CREDIT' : 'DEBIT', amountBase: variance.abs(), description: `Purchase return cost variance — ${ret.number ?? ret.id}`, dimensions: [{ dimensionCode: 'PRODUCT', referenceId: ret.lines[0].productId }, ...(ret.warehouseId ? [{ dimensionCode: 'WAREHOUSE', referenceId: ret.warehouseId }] : [])] });
+      }
+      return { description: `Purchase return ${ret.number ?? ret.id}`, operationType: 'SYSTEM_DOCUMENT', lines: kept };
+    }
+
     return { description: `Purchase return ${ret.number ?? ret.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.onDocumentUnposted(tenantId, PURCHASE_RETURN_TYPE, document.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.inventory.deleteMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     const ret = await tx.purchaseReturn.findFirst({ where: { id: document.id, tenantId } });
     if (ret?.warehouseId) {

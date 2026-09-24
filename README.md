@@ -286,6 +286,19 @@ also closed a password-hash leak in the member and access listings, added
 DB-level immutability of the audit, ledger and tax registers, and added
 DB-level non-overlap of policy and tax-profile versions. The flaky numbering
 concurrency test is fixed as well.
+### Inventory Costing (maya dəyəri)
+
+Opt-in per organization via an effective-dated `InventoryCostingPolicy`:
+a separate cost subledger (FIFO layers / moving or periodic weighted
+average) on top of the quantity register, COGS at Shipment, original-cost
+sales returns, source-layer purchase returns, additional costs and invoice
+price differences split between sold and on-hand stock, backdated
+recalculation with delta-only adjustments, negative-stock provisional
+costing, month-end finalization with snapshots and audited reopen, and
+valuation / COGS / layer / health / GL-reconciliation reports.
+
+Full write-up: [`backend/docs/INVENTORY_COSTING.md`](backend/docs/INVENTORY_COSTING.md);
+Phases 6-11 audit: [`backend/docs/AUDIT_PHASES_06_11.md`](backend/docs/AUDIT_PHASES_06_11.md).
 
 ### Frontend
 

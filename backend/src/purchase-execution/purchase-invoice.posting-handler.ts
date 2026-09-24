@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { grniClearingAmount } from '../inventory-costing/cost-source.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -50,6 +52,7 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
     private readonly fulfillment: PurchaseFulfillmentService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -148,7 +151,7 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
 
     const debitLines: AccountingPostingLineInput[] = [];
     for (const [i, line] of invoice.lines.entries()) {
-      const net = taxResults[i].taxableBase;
+      let net = taxResults[i].taxableBase;
       let accountId: string;
       const dimensions: AccountingPostingLineInput['dimensions'] = [];
       if (EXPENSE_LIKE_TYPES.includes(line.lineType)) {
@@ -156,6 +159,30 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
         if (line.departmentId) dimensions.push({ dimensionCode: 'DEPARTMENT', referenceId: line.departmentId });
       } else if (line.goodsReceiptLineId) {
         accountId = grni.id; // clears the receipt's own GRNI liability, not a second inventory debit
+        // Purchase price difference (Costing spec section 18): clear GRNI
+        // at exactly what the receipt credited for this quantity and book
+        // the invoice/receipt price difference to inventory — never leave
+        // it stranded on GRNI. The costing engine splits it between stock
+        // still on hand and stock already sold.
+        const receiptLine = await tx.goodsReceiptLine.findFirst({ where: { id: line.goodsReceiptLineId, tenantId }, include: { goodsReceipt: { select: { warehouseId: true } } } });
+        if (receiptLine) {
+          const clearing = grniClearingAmount(receiptLine, line.quantity.toString());
+          const difference = new Decimal(net).minus(clearing);
+          if (!difference.isZero()) {
+            debitLines.push({
+              accountId: inventoryAccount.id,
+              side: difference.gt(0) ? 'DEBIT' : 'CREDIT',
+              amountBase: difference.abs(),
+              sourceDocumentLineId: line.id,
+              description: `Purchase price difference vs receipt — line ${i + 1}`,
+              dimensions: [
+                ...(line.productId ? [{ dimensionCode: 'PRODUCT', referenceId: line.productId }] : []),
+                { dimensionCode: 'WAREHOUSE', referenceId: receiptLine.warehouseId ?? receiptLine.goodsReceipt.warehouseId },
+              ],
+            });
+            net = clearing;
+          }
+        }
         if (line.productId) dimensions.push({ dimensionCode: 'PRODUCT', referenceId: line.productId });
         dimensions.push(
           { dimensionCode: 'PARTNER', referenceId: invoice.counterpartyId },
@@ -216,6 +243,10 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
 
     await tx.purchaseInvoice.update({ where: { id: invoice.id }, data: { taxPointDate, amountDue: grossTotal.toString() } });
 
+    // Receipt cost becomes FINAL at the invoice price (spec 16-18).
+    const receiptLineIds = invoice.lines.map((l) => l.goodsReceiptLineId).filter((x): x is string => !!x);
+    await this.costing.onIncomingValueChanged(tenantId, receiptLineIds, { type: PURCHASE_INVOICE_TYPE, id: invoice.id, reason: 'LATE_INVOICE_DIFFERENCE', direction: 'POSTING' }, tx, document.postedBy ?? document.createdBy ?? 'system');
+
     return { description: `Purchase invoice ${invoice.number ?? invoice.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
@@ -224,6 +255,8 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     if (activeReturn) throw new PurchaseInvoiceHasReturnsError(document.id);
 
     await tx.supplierPayable.deleteMany({ where: { tenantId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: document.id } });
+    const receiptLineIds = (await tx.purchaseInvoiceLine.findMany({ where: { tenantId, purchaseInvoiceId: document.id, goodsReceiptLineId: { not: null } }, select: { goodsReceiptLineId: true } })).map((l) => l.goodsReceiptLineId!);
+    await this.costing.onIncomingValueChanged(tenantId, receiptLineIds, { type: PURCHASE_INVOICE_TYPE, id: document.id, reason: 'LATE_INVOICE_DIFFERENCE', direction: 'UNPOSTING' }, tx, document.postedBy ?? document.createdBy ?? 'system');
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: PURCHASE_INVOICE_TYPE, targetDocumentId: document.id, relationType: { in: [RelationTypes.RECEIPT_TO_INVOICE, RelationTypes.SUPPLIER_ORDER_TO_INVOICE] } } });
   }
 }

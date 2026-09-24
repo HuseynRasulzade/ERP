@@ -14,6 +14,8 @@ import { InventoryLedgerService } from './inventory-ledger.service';
 import { ReservationService } from '../sales-preorder/reservation.service';
 import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryMovementService } from '../warehouse-inventory/inventory-movement.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -40,6 +42,8 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly reservations: ReservationService,
     private readonly fulfillment: OrderFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly stockLocks: InventoryMovementService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -75,9 +79,22 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
         }
       }
 
-      // Availability check (spec section 14) — quantity-only, this
-      // build's honest substitute for a real Phase 10 stock check.
-      const available = await this.inventory.availableQuantity(tenantId, line.warehouseId ?? shipment.warehouseId, line.productId, tx);
+      // Availability check (spec section 14; Phase 10 spec 28, 70-71):
+      // serialized per stock key with the same advisory lock every other
+      // stock writer takes, and the order line's OWN active reservation is
+      // added back — a document never competes with its own reservation
+      // ("Əgər konkret document reservation sahibidirsə, öz reservation-u
+      // nəzərə alınmalıdır").
+      const lineWarehouseId = line.warehouseId ?? shipment.warehouseId;
+      await this.stockLocks.lockStockKey(tx, tenantId, lineWarehouseId, line.productId);
+      let available = await this.inventory.availableQuantity(tenantId, lineWarehouseId, line.productId, tx);
+      if (line.sourceOrderLineId) {
+        const own = await tx.stockReservation.aggregate({
+          where: { tenantId, sourceLineId: line.sourceOrderLineId, warehouseId: lineWarehouseId, status: { in: ['ACTIVE', 'PARTIALLY_RELEASED'] } },
+          _sum: { quantity: true },
+        });
+        available = available.plus((own._sum.quantity ?? 0).toString());
+      }
       if (!warehouse.allowNegativeStock && available.lt(line.quantity.toString())) {
         throw new ShipmentInsufficientStockError(line.productId, available.toFixed(6), line.quantity.toString());
       }
@@ -163,7 +180,16 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
       await this.fulfillment.recomputeOrderStatuses(tenantId, shipment.customerOrderId, tx);
     }
 
-    return null; // no GL consequence — see class docstring
+    // COGS (Costing spec sections 24-25): when the organization has an
+    // inventory costing policy, the costing engine values the ISSUE
+    // movements (FIFO / weighted average) and this shipment books
+    // Dr COGS / Cr Inventory through the mapping engine. Without a policy
+    // the shipment stays GL-free exactly as before.
+    const cost = await this.costing.onDocumentPosted(tenantId, SHIPMENT_TYPE, shipment.id, tx, document.postedBy ?? document.createdBy ?? 'system');
+    if (cost && cost.glLines.length > 0) {
+      return { description: `Shipment ${shipment.number ?? shipment.id} — cost of goods sold`, operationType: 'SYSTEM_DOCUMENT', lines: cost.glLines };
+    }
+    return null;
   }
 
   /**
@@ -179,6 +205,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     const shipment = await tx.shipment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!shipment) return;
 
+    await this.costing.onDocumentUnposted(tenantId, SHIPMENT_TYPE, shipment.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.inventory.deleteMovementsFor(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     for (const line of shipment.lines) {
       await this.batchSerial.undoIssuedSerials(tenantId, SHIPMENT_TYPE, [line.id], line.warehouseId ?? shipment.warehouseId, tx);

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -36,6 +37,7 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     private readonly mappings: AccountingMappingService,
     private readonly taxCalculation: TaxCalculationService,
     private readonly taxRegister: TaxRegisterService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -111,6 +113,12 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     for (const a of allocations) {
       await tx.purchaseCostAllocation.create({ data: { tenantId, additionalPurchaseCostId: cost.id, goodsReceiptLineId: a.goodsReceiptLineId, productId: a.productId, allocatedAmount: a.amount.toString() } });
     }
+    // Capitalization + retroactive distribution (Costing spec sections
+    // 19-20, 72, 123): the allocation becomes a cost component of each
+    // receipt layer; the part belonging to units already issued is booked
+    // as COGS/expense adjustments by the engine, only the on-hand part
+    // stays in inventory.
+    await this.costing.onIncomingValueChanged(tenantId, allocations.map((a) => a.goodsReceiptLineId), { type: ADDITIONAL_PURCHASE_COST_TYPE, id: cost.id, reason: 'LANDED_COST_CORRECTION', direction: 'POSTING' }, tx, document.postedBy ?? document.createdBy ?? 'system');
 
     let currencyId = cost.currencyId;
     if (!currencyId) {
@@ -170,6 +178,8 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    const allocated = await tx.purchaseCostAllocation.findMany({ where: { tenantId, additionalPurchaseCostId: document.id }, select: { goodsReceiptLineId: true } });
     await tx.purchaseCostAllocation.deleteMany({ where: { tenantId, additionalPurchaseCostId: document.id } });
+    await this.costing.onIncomingValueChanged(tenantId, allocated.map((a) => a.goodsReceiptLineId), { type: ADDITIONAL_PURCHASE_COST_TYPE, id: document.id, reason: 'LANDED_COST_CORRECTION', direction: 'UNPOSTING' }, tx, document.postedBy ?? document.createdBy ?? 'system');
   }
 }

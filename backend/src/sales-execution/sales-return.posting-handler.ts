@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import {
@@ -53,6 +54,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     private readonly mappings: AccountingMappingService,
     private readonly inventory: InventoryLedgerService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -220,6 +222,12 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
       }
     }
 
+    // Return cost (Costing spec sections 26-27, 124): the engine restores
+    // the ORIGINAL shipment cost (never today's average) and this return
+    // books Dr Inventory / Cr COGS for it.
+    const cost = await this.costing.onDocumentPosted(tenantId, SALES_RETURN_TYPE, ret.id, tx, document.postedBy ?? document.createdBy ?? 'system');
+    if (cost) lines.push(...cost.glLines);
+
     await tx.salesReturn.update({
       where: { id: ret.id },
       data: { taxTotal: taxResults.reduce((s, r) => s.plus(r.taxAmount), new Decimal(0)).toString(), grandTotal: grossTotal.toString() },
@@ -229,6 +237,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.onDocumentUnposted(tenantId, SALES_RETURN_TYPE, document.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
     const lineIds = (await tx.salesReturnLine.findMany({ where: { tenantId, salesReturnId: document.id }, select: { id: true } })).map((l) => l.id);
     await this.batchSerial.undoReturnedSerials(tenantId, SALES_RETURN_TYPE, lineIds, tx);

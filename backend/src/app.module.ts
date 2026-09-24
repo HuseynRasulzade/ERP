@@ -36,6 +36,7 @@ import { PurchaseExecutionModule } from './purchase-execution/purchase-execution
 import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
 import { InventoryCountModule } from './inventory-count/inventory-count.module';
+import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 
 @Module({
@@ -107,6 +108,11 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // Phase 12 — Inventory Count / İnventarizasiya (stocktaking +
     // reconciliation engine on top of the Phase 10 movement register).
     InventoryCountModule,
+    // Inventory Costing Engine (docx spec Phase 11 — cost register, FIFO
+    // layers / weighted average, COGS, backdated recalculation, period
+    // finalization). Also imported by the modules whose posting handlers
+    // call it.
+    InventoryCostingModule,
 
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).

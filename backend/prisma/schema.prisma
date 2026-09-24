@@ -4109,6 +4109,9 @@ model InventoryMovement {
   batch             Batch?             @relation(fields: [batchId], references: [id])
   serial            SerialNumber?      @relation(fields: [serialId], references: [id])
   ownerCounterparty Counterparty?      @relation(fields: [ownerCounterpartyId], references: [id])
+  // Phase 11 audit: deterministic posting sequence (costing spec section
+  // 10: effective_date -> posting_sequence -> movement_id ordering).
+  sequenceNo        BigInt             @default(autoincrement()) @map("sequence_no")
 
   @@index([tenantId, organizationId, warehouseId, productId, effectiveDate])
   @@index([tenantId, batchId])
@@ -5394,4 +5397,399 @@ model InventoryCountEvent {
   @@index([tenantId, publishedAt])
   @@index([tenantId, sessionId])
   @@map("inventory_count_events")
+}
+
+// ===== Phase 11 — Inventory Costing Engine (Phases 6-11 audit) =====
+//
+// Cost register kept strictly separate from the Phase 10 quantity register
+// (spec sections 1-2): nothing here is a mutable "average cost" field on a
+// master record — every value is derived from immutable inventory
+// movements + source documents and can be rebuilt by the recalculation
+// engine. Soft references (plain id columns, no FK) to Phase 7-10 rows,
+// same convention as DocumentLineLink/DocumentLineSerial.
+
+/// Effective-dated costing configuration (spec section 4).
+model InventoryCostingPolicy {
+  id                                    String    @id @default(uuid())
+  tenantId                              String    @map("tenant_id")
+  organizationId                        String    @map("organization_id")
+  effectiveFrom                         DateTime  @map("effective_from") @db.Date
+  effectiveTo                           DateTime? @map("effective_to") @db.Date
+  costingMethod                         String    @default("FIFO") @map("costing_method") // FIFO | WEIGHTED_AVERAGE
+  averageMethod                         String    @default("MOVING_AVERAGE") @map("average_method") // MOVING_AVERAGE | PERIODIC_WEIGHTED_AVERAGE
+  valuationCurrencyId                   String?   @map("valuation_currency_id")
+  includePurchaseAdditionalCosts        Boolean   @default(true) @map("include_purchase_additional_costs")
+  includeCustomsCost                    Boolean   @default(true) @map("include_customs_cost")
+  includeFreight                        Boolean   @default(true) @map("include_freight")
+  allowProvisionalCost                  Boolean   @default(true) @map("allow_provisional_cost")
+  allowNegativeQuantityCosting          Boolean   @default(true) @map("allow_negative_quantity_costing")
+  recalculateBackdatedDocuments         Boolean   @default(true) @map("recalculate_backdated_documents")
+  costByWarehouse                       Boolean   @default(false) @map("cost_by_warehouse")
+  costByCharacteristic                  Boolean   @default(false) @map("cost_by_characteristic")
+  costByBatch                           Boolean   @default(false) @map("cost_by_batch")
+  financialOwnershipTypes               String[]  @default(["OWN"]) @map("financial_ownership_types")
+  negativeStockCostPolicy               String    @default("LAST_KNOWN_COST") @map("negative_stock_cost_policy") // LAST_KNOWN_COST | CURRENT_AVERAGE | ZERO_PENDING | BLOCK_COSTING
+  salesReturnWithoutSourceCost          String    @default("CURRENT_AVERAGE") @map("sales_return_without_source_cost") // CURRENT_AVERAGE | LAST_KNOWN_COST | REQUIRE_MANUAL_REVIEW
+  purchaseReturnAdditionalCostTreatment String    @default("PROPORTIONAL_REVERSAL") @map("purchase_return_additional_cost_treatment")
+  unpostDependencyPolicy                String    @default("BLOCK") @map("unpost_dependency_policy") // BLOCK | RECALCULATE
+  cogsTiming                            String    @default("IMMEDIATE_PROVISIONAL") @map("cogs_timing")
+  reconciliationTolerance               Decimal   @default(0.01) @map("reconciliation_tolerance") @db.Decimal(18, 2)
+  roundingPolicy                        String    @default("LINE_LEVEL_LARGEST_REMAINDER") @map("rounding_policy")
+  status                                String    @default("ACTIVE") // ACTIVE | CANCELLED
+  version                               Int       @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@index([tenantId, organizationId, effectiveFrom])
+  @@map("inventory_costing_policies")
+}
+
+/// Cost register (spec section 6) — exactly one row per financial
+/// InventoryMovement (unique source movement = idempotency, spec 93).
+model InventoryCostMovement {
+  id                        String    @id @default(uuid())
+  tenantId                  String    @map("tenant_id")
+  organizationId            String    @map("organization_id")
+  costingKey                String    @map("costing_key")
+  warehouseId               String?   @map("warehouse_id")
+  physicalWarehouseId       String    @map("physical_warehouse_id")
+  productId                 String    @map("product_id")
+  batchId                   String?   @map("batch_id")
+  ownershipType             String    @default("OWN") @map("ownership_type")
+  sourceInventoryMovementId String    @unique @map("source_inventory_movement_id")
+  movementSequence          BigInt    @map("movement_sequence")
+  sourceDocumentType        String    @map("source_document_type")
+  sourceDocumentId          String    @map("source_document_id")
+  sourceDocumentLineId      String?   @map("source_document_line_id")
+  effectiveDate             DateTime  @map("effective_date") @db.Date
+  postingDate               DateTime? @map("posting_date") @db.Date
+  movementType              String    @map("movement_type")
+  movementClass             String    @map("movement_class") // INCOMING_SOURCED | INCOMING_DERIVED | OUTGOING_STANDARD | OUTGOING_SPECIFIC
+  glTreatment               String    @map("gl_treatment") // SOURCE | ENGINE | NONE
+  counterMappingKey         String?   @map("counter_mapping_key")
+  counterAccountId          String?   @map("counter_account_id")
+  quantity                  Decimal   @db.Decimal(18, 6) // signed like InventoryMovement
+  unitCost                  Decimal   @default(0) @map("unit_cost") @db.Decimal(18, 6)
+  totalCost                 Decimal   @default(0) @map("total_cost") @db.Decimal(18, 2) // signed: + in, - out
+  provisionalCost           Decimal?  @map("provisional_cost") @db.Decimal(18, 2)
+  finalCost                 Decimal?  @map("final_cost") @db.Decimal(18, 2)
+  deficitQuantity           Decimal   @default(0) @map("deficit_quantity") @db.Decimal(18, 6)
+  provisionalUnitCost       Decimal?  @map("provisional_unit_cost") @db.Decimal(18, 6)
+  glValue                   Decimal   @default(0) @map("gl_value") @db.Decimal(18, 2)
+  documentGlValue           Decimal   @default(0) @map("document_gl_value") @db.Decimal(18, 2)
+  valuationCurrencyId       String?   @map("valuation_currency_id")
+  method                    String
+  postingVersion            Int       @default(1) @map("posting_version")
+  costStatus                String    @default("UNCALCULATED") @map("cost_status") // UNCALCULATED | PROVISIONAL | FINAL | RECALCULATION_REQUIRED | ERROR
+  calculationRunId          String?   @map("calculation_run_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  layer                InventoryCostLayer?
+  outgoingConsumptions InventoryCostConsumption[] @relation("CostConsumptionOutgoing")
+  settledConsumptions  InventoryCostConsumption[] @relation("CostConsumptionIncoming")
+  components           InventoryCostComponent[]
+
+  @@index([tenantId, organizationId, costingKey, effectiveDate, movementSequence])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([tenantId, organizationId, costStatus])
+  @@index([tenantId, productId])
+  @@index([calculationRunId])
+  @@map("inventory_cost_movements")
+}
+
+/// FIFO cost layer (spec section 8) — one per incoming cost movement.
+model InventoryCostLayer {
+  id                        String   @id @default(uuid())
+  tenantId                  String   @map("tenant_id")
+  organizationId            String   @map("organization_id")
+  costingKey                String   @map("costing_key")
+  productId                 String   @map("product_id")
+  warehouseId               String?  @map("warehouse_id")
+  batchId                   String?  @map("batch_id")
+  sourceCostMovementId      String   @unique @map("source_cost_movement_id")
+  sourceInventoryMovementId String   @map("source_inventory_movement_id")
+  sourceDocumentType        String   @map("source_document_type")
+  sourceDocumentId          String   @map("source_document_id")
+  sourceDocumentLineId      String?  @map("source_document_line_id")
+  receiptDate               DateTime @map("receipt_date") @db.Date
+  movementSequence          BigInt   @map("movement_sequence")
+  originalQuantity          Decimal  @map("original_quantity") @db.Decimal(18, 6)
+  remainingQuantity         Decimal  @map("remaining_quantity") @db.Decimal(18, 6)
+  originalUnitCost          Decimal  @map("original_unit_cost") @db.Decimal(18, 6)
+  currentUnitCost           Decimal  @map("current_unit_cost") @db.Decimal(18, 6)
+  originalTotalCost         Decimal  @map("original_total_cost") @db.Decimal(18, 2)
+  currentTotalCost          Decimal  @map("current_total_cost") @db.Decimal(18, 2)
+  currentRemainingValue     Decimal  @map("current_remaining_value") @db.Decimal(18, 2)
+  currencyId                String?  @map("currency_id")
+  status                    String   @default("OPEN") // OPEN | PARTIALLY_CONSUMED | CLOSED | ADJUSTED | REVERSED
+  calculationRunId          String?  @map("calculation_run_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sourceCostMovement InventoryCostMovement      @relation(fields: [sourceCostMovementId], references: [id], onDelete: Cascade)
+  consumptions       InventoryCostConsumption[]
+
+  @@index([tenantId, organizationId, costingKey, receiptDate, movementSequence])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@map("inventory_cost_layers")
+}
+
+/// Outgoing-movement -> cost source mapping (spec section 11). Also used
+/// for negative-stock deficit settlement (spec 52-53): `isDeficitSettlement`.
+model InventoryCostConsumption {
+  id                           String   @id @default(uuid())
+  tenantId                     String   @map("tenant_id")
+  organizationId               String   @map("organization_id")
+  costingKey                   String   @map("costing_key")
+  outgoingCostMovementId       String   @map("outgoing_cost_movement_id")
+  outgoingInventoryMovementId  String   @map("outgoing_inventory_movement_id")
+  outgoingDocumentType         String   @map("outgoing_document_type")
+  outgoingDocumentId           String   @map("outgoing_document_id")
+  outgoingDocumentLineId       String?  @map("outgoing_document_line_id")
+  costLayerId                  String?  @map("cost_layer_id")
+  sourceIncomingCostMovementId String?  @map("source_incoming_cost_movement_id")
+  consumedQuantity             Decimal  @map("consumed_quantity") @db.Decimal(18, 6)
+  unitCost                     Decimal  @map("unit_cost") @db.Decimal(18, 6)
+  consumedCost                 Decimal  @map("consumed_cost") @db.Decimal(18, 2)
+  isDeficitSettlement          Boolean  @default(false) @map("is_deficit_settlement")
+  calculationRunId             String?  @map("calculation_run_id")
+  createdAt                    DateTime @default(now()) @map("created_at")
+
+  outgoingCostMovement InventoryCostMovement  @relation("CostConsumptionOutgoing", fields: [outgoingCostMovementId], references: [id], onDelete: Cascade)
+  sourceIncoming       InventoryCostMovement? @relation("CostConsumptionIncoming", fields: [sourceIncomingCostMovementId], references: [id], onDelete: Cascade)
+  costLayer            InventoryCostLayer?    @relation(fields: [costLayerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, outgoingCostMovementId])
+  @@index([costLayerId])
+  @@index([sourceIncomingCostMovementId])
+  @@index([tenantId, outgoingDocumentType, outgoingDocumentId])
+  @@map("inventory_cost_consumptions")
+}
+
+/// Cost component traceability (spec sections 21-23, 74).
+model InventoryCostComponent {
+  id                   String   @id @default(uuid())
+  tenantId             String   @map("tenant_id")
+  costMovementId       String   @map("cost_movement_id")
+  componentType        String   @map("component_type") // BASE_PRICE | INVOICE_PRICE_DIFFERENCE | TRANSPORT | CUSTOMS | INSURANCE | BROKER | ... | MANUAL_ADJUSTMENT | OPENING_BALANCE
+  sourceDocumentType   String   @map("source_document_type")
+  sourceDocumentId     String   @map("source_document_id")
+  sourceDocumentLineId String?  @map("source_document_line_id")
+  amount               Decimal  @db.Decimal(18, 2)
+  allocatedAmount      Decimal  @map("allocated_amount") @db.Decimal(18, 2)
+  currencyId           String?  @map("currency_id")
+  baseCurrencyAmount   Decimal  @map("base_currency_amount") @db.Decimal(18, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  costMovement InventoryCostMovement @relation(fields: [costMovementId], references: [id], onDelete: Cascade)
+
+  @@index([costMovementId])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@map("inventory_cost_components")
+}
+
+/// Cost adjustment document (spec section 44) — manual (DRAFT -> POSTED
+/// via the costing API) or system-generated by a calculation run.
+model InventoryCostAdjustment {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  documentType       String    @default("INVENTORY_COST_ADJUSTMENT") @map("document_type")
+  number             String?
+  documentDate       DateTime  @map("document_date") @db.Date
+  postingDate        DateTime? @map("posting_date") @db.Date
+  reason             String // LATE_INVOICE_DIFFERENCE | SUPPLIER_PRICE_CORRECTION | LANDED_COST_CORRECTION | MANUAL | MIGRATION_CORRECTION | SYSTEM_RECALCULATION | UNPOST_REVERSAL
+  sourceDocumentType String?   @map("source_document_type")
+  sourceDocumentId   String?   @map("source_document_id")
+  calculationRunId   String?   @map("calculation_run_id")
+  counterAccountId   String?   @map("counter_account_id")
+  status             String    @default("DRAFT") // DRAFT | POSTED | CANCELLED
+  isSystemGenerated  Boolean   @default(false) @map("is_system_generated")
+  comment            String?
+  journalEntryId     String?   @map("journal_entry_id")
+  inventoryImpact    Decimal   @default(0) @map("inventory_impact") @db.Decimal(18, 2)
+  cogsImpact         Decimal   @default(0) @map("cogs_impact") @db.Decimal(18, 2)
+  expenseImpact      Decimal   @default(0) @map("expense_impact") @db.Decimal(18, 2)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  createdBy String?   @map("created_by")
+  postedAt  DateTime? @map("posted_at")
+  postedBy  String?   @map("posted_by")
+  version   Int       @default(1)
+
+  lines InventoryCostAdjustmentLine[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, organizationId, documentDate])
+  @@index([calculationRunId])
+  @@map("inventory_cost_adjustments")
+}
+
+model InventoryCostAdjustmentLine {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  adjustmentId      String   @map("adjustment_id")
+  position          Int      @default(0)
+  productId         String   @map("product_id")
+  warehouseId       String?  @map("warehouse_id")
+  costingKey        String?  @map("costing_key")
+  costMovementId    String?  @map("cost_movement_id")
+  sourceCostLayerId String?  @map("source_cost_layer_id")
+  quantityReference Decimal? @map("quantity_reference") @db.Decimal(18, 6)
+  oldCost           Decimal  @default(0) @map("old_cost") @db.Decimal(18, 2)
+  adjustmentAmount  Decimal  @map("adjustment_amount") @db.Decimal(18, 2)
+  newCost           Decimal  @default(0) @map("new_cost") @db.Decimal(18, 2)
+  impactType        String   @map("impact_type") // INVENTORY | COGS | EXPENSE | VARIANCE
+  counterMappingKey String?  @map("counter_mapping_key")
+  comment           String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  adjustment InventoryCostAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+
+  @@index([adjustmentId])
+  @@index([costMovementId])
+  @@map("inventory_cost_adjustment_lines")
+}
+
+/// Every costing computation is its own versioned run (spec 49, 92).
+model InventoryCostCalculationRun {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  periodStart        DateTime? @map("period_start") @db.Date
+  fromDate           DateTime? @map("from_date") @db.Date
+  calculationType    String    @map("calculation_type") // INCREMENTAL | BACKDATED_RECALCULATION | PERIOD_CLOSE | FULL_REBUILD | DIAGNOSTIC
+  method             String?
+  status             String    @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  initiatedBy        String?   @map("initiated_by")
+  sourceTrigger      String?   @map("source_trigger")
+  sourceDocumentType String?   @map("source_document_type")
+  sourceDocumentId   String?   @map("source_document_id")
+  movementCount      Int       @default(0) @map("movement_count")
+  adjustmentCount    Int       @default(0) @map("adjustment_count")
+  errorCount         Int       @default(0) @map("error_count")
+  calculationVersion Int       @default(1) @map("calculation_version")
+  summary            Json?
+  startedAt          DateTime  @default(now()) @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+
+  @@index([tenantId, organizationId, startedAt])
+  @@map("inventory_cost_calculation_runs")
+}
+
+/// Monthly costing period status (spec sections 57-59).
+model InventoryCostingPeriod {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  organizationId          String    @map("organization_id")
+  periodStart             DateTime  @map("period_start") @db.Date
+  periodEnd               DateTime  @map("period_end") @db.Date
+  status                  String    @default("OPEN") // OPEN | PROVISIONAL | CALCULATING | FINALIZED | REOPENED | ERROR
+  provisionalCalculatedAt DateTime? @map("provisional_calculated_at")
+  finalCalculatedAt       DateTime? @map("final_calculated_at")
+  finalizedBy             String?   @map("finalized_by")
+  calculationRunId        String?   @map("calculation_run_id")
+  reopenedAt              DateTime? @map("reopened_at")
+  reopenedBy              String?   @map("reopened_by")
+  reopenReason            String?   @map("reopen_reason")
+  summary                 Json?
+  version                 Int       @default(1)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@unique([organizationId, periodStart])
+  @@index([tenantId, organizationId, status])
+  @@map("inventory_costing_periods")
+}
+
+/// Costing error register (spec sections 55-56) — never silently ignored.
+model InventoryCostingError {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  organizationId      String    @map("organization_id")
+  calculationRunId    String?   @map("calculation_run_id")
+  productId           String?   @map("product_id")
+  warehouseId         String?   @map("warehouse_id")
+  costingKey          String?   @map("costing_key")
+  inventoryMovementId String?   @map("inventory_movement_id")
+  costMovementId      String?   @map("cost_movement_id")
+  sourceDocumentType  String?   @map("source_document_type")
+  sourceDocumentId    String?   @map("source_document_id")
+  errorCode           String    @map("error_code")
+  description         String
+  severity            String    @default("ERROR") // INFO | WARNING | ERROR | BLOCKING
+  blocking            Boolean   @default(false)
+  resolved            Boolean   @default(false)
+  resolvedBy          String?   @map("resolved_by")
+  resolvedAt          DateTime? @map("resolved_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, organizationId, resolved])
+  @@index([costMovementId])
+  @@map("inventory_costing_errors")
+}
+
+/// Period-end cost snapshot (spec sections 106-108) — rebuildable.
+model InventoryCostBalanceSnapshot {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  organizationId   String   @map("organization_id")
+  costingKey       String   @map("costing_key")
+  productId        String   @map("product_id")
+  warehouseId      String?  @map("warehouse_id")
+  batchId          String?  @map("batch_id")
+  periodEnd        DateTime @map("period_end") @db.Date
+  quantity         Decimal  @db.Decimal(18, 6)
+  value            Decimal  @db.Decimal(18, 2)
+  averageCost      Decimal  @map("average_cost") @db.Decimal(18, 6)
+  openLayers       Json?    @map("open_layers")
+  calculationRunId String?  @map("calculation_run_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, costingKey, periodEnd])
+  @@index([tenantId, organizationId, periodEnd])
+  @@map("inventory_cost_balance_snapshots")
+}
+
+/// Backdated / cost-changing event queue (spec section 47).
+model InventoryCostRecalculationRequest {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  organizationId       String    @map("organization_id")
+  costingKey           String    @map("costing_key")
+  earliestAffectedDate DateTime  @map("earliest_affected_date") @db.Date
+  reason               String
+  sourceDocumentType   String?   @map("source_document_type")
+  sourceDocumentId     String?   @map("source_document_id")
+  status               String    @default("PENDING") // PENDING | COMPLETED | FAILED
+  calculationRunId     String?   @map("calculation_run_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  processedAt          DateTime? @map("processed_at")
+
+  @@index([tenantId, organizationId, status])
+  @@map("inventory_cost_recalculation_requests")
+}
+
+/// Accounting batch summary per calculation run (spec section 62).
+model CostingAccountingBatch {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  organizationId   String    @map("organization_id")
+  calculationRunId String    @map("calculation_run_id")
+  periodStart      DateTime? @map("period_start") @db.Date
+  journalEntryIds  String[]  @map("journal_entry_ids")
+  totalDebit       Decimal   @default(0) @map("total_debit") @db.Decimal(18, 2)
+  totalCredit      Decimal   @default(0) @map("total_credit") @db.Decimal(18, 2)
+  entryCount       Int       @default(0) @map("entry_count")
+  status           String    @default("POSTED")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, calculationRunId])
+  @@map("costing_accounting_batches")
 }

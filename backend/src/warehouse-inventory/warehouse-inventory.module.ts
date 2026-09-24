@@ -1,3 +1,4 @@
+import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 import { Module, OnModuleInit } from '@nestjs/common';
 import { DocumentFrameworkModule } from '../document-framework/document-framework.module';
 import { DocumentFrameworkRegistry } from '../document-framework/document-framework-registry.service';
@@ -46,7 +47,7 @@ import { InventoryStatusTransferController } from './inventory-status-transfer.c
  * repository+handler registration pattern as every other document module.
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule, InventoryCostingModule],
   controllers: [WarehouseInventoryQueriesController, WarehouseTransferController, InternalConsumptionController, InventoryAdjustmentController, InventoryStatusTransferController],
   providers: [
     InventoryMovementService,

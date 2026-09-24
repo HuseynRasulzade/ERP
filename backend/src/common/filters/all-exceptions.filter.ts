@@ -33,6 +33,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       response.status(exception.httpStatus).json({
         code: exception.code,
         message: exception.message,
+        details: exception.details,
         fieldErrors: exception.fieldErrors,
         requestId,
         correlationId,
