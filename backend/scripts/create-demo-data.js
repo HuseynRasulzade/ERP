@@ -20,9 +20,9 @@
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3000';
 
-const DEMO_EMAIL = 'demo@erp.local';
-const DEMO_PASSWORD = 'Demo1234!';
-const DEMO_TENANT_CODE = 'demo';
+const DEMO_EMAIL = process.env.DEMO_EMAIL ?? 'demo@erp.local';
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'Demo1234!';
+const DEMO_TENANT_CODE = process.env.DEMO_TENANT_CODE ?? 'demo-erp-count';
 const DEMO_ORG_CODE = 'DEMO-ORG';
 
 let accessToken = null;
@@ -67,6 +67,12 @@ async function ensureTenantAndOrg() {
     console.log(`Using existing tenant ${DEMO_TENANT_CODE} (${tenantId})`);
   } else {
     const created = await call('POST', '/tenants', { code: DEMO_TENANT_CODE, name: 'Demo Corp', baseCurrencyCode: 'USD' }, { skipTenant: true });
+    if (created.status === 409) {
+      throw new Error(
+        `Tenant code "${DEMO_TENANT_CODE}" is already taken by a DIFFERENT account (tenant codes are global). ` +
+          `Re-run with a different code, e.g.: DEMO_TENANT_CODE=demo-erp-count-2 node scripts/create-demo-data.js`,
+      );
+    }
     if (created.status !== 201) throw new Error(`Could not create tenant: ${JSON.stringify(created.body)}`);
     tenantId = created.body.id;
     console.log(`Created tenant ${DEMO_TENANT_CODE} (${tenantId})`);
