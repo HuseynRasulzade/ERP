@@ -31,6 +31,7 @@ const az: Translations = {
     internalConsumptions: 'Daxili İstehlak',
     inventoryAdjustments: 'Ehtiyat Tənzimləmələri',
     inventoryStatusTransfers: 'Status Köçürmələri',
+    inventoryCount: 'İnventarizasiya',
     productCatalog: 'Məhsul Kataloqu',
     counterparties: 'Kontragentlər',
     organizations: 'Təşkilatlar',

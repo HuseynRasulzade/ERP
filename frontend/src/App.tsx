@@ -56,6 +56,11 @@ import { CounterpartyDetailPage } from './pages/counterparties/CounterpartyDetai
 import { ContractDetailPage } from './pages/counterparties/ContractDetailPage';
 import { ApprovalsInboxPage } from './pages/ApprovalsInboxPage';
 
+// Phase 12 — Inventory Count / Reconciliation Engine
+import { InventoryCountPlanListPage, InventoryCountPlanDetailPage } from './pages/inventory-count/InventoryCountPlanPage';
+import { InventoryCountSessionDetailPage } from './pages/inventory-count/InventoryCountSessionPage';
+import { InventoryCountSheetDetailPage } from './pages/inventory-count/InventoryCountSheetPage';
+
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="full-page-loading">Loading…</div>;
@@ -126,6 +131,11 @@ function AppRoutes() {
         <Route path="/inventory-adjustments/:id" element={<InventoryAdjustmentDetailPage />} />
         <Route path="/inventory-status-transfers" element={<InventoryStatusTransferListPage />} />
         <Route path="/inventory-status-transfers/:id" element={<InventoryStatusTransferDetailPage />} />
+
+        <Route path="/inventory-count/plans" element={<InventoryCountPlanListPage />} />
+        <Route path="/inventory-count/plans/:id" element={<InventoryCountPlanDetailPage />} />
+        <Route path="/inventory-count/sessions/:id" element={<InventoryCountSessionDetailPage />} />
+        <Route path="/inventory-count/sessions/:sessionId/sheets/:sheetId" element={<InventoryCountSheetDetailPage />} />
 
         <Route path="/product-catalog" element={<ProductCatalogPage />} />
 

@@ -202,6 +202,12 @@ export function Layout() {
               {t.nav.inventoryStatusTransfers}
             </NavLink>
           )}
+          {hasPermission('inventory_count.view') && (
+            <NavLink to="/inventory-count/plans">
+              <span className="nav-icon">🔎</span>
+              {t.nav.inventoryCount}
+            </NavLink>
+          )}
 
           <div className="nav-group-label">{t.nav.groupAdmin}</div>
           {hasPermission('organization.view') && (

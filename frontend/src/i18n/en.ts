@@ -29,6 +29,7 @@ const en = {
     internalConsumptions: 'Internal Consumption',
     inventoryAdjustments: 'Inventory Adjustments',
     inventoryStatusTransfers: 'Status Transfers',
+    inventoryCount: 'Inventory Count',
     productCatalog: 'Product Catalog',
     counterparties: 'Counterparties',
     organizations: 'Organizations',
