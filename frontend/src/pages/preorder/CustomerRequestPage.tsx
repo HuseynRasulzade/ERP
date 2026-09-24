@@ -233,6 +233,8 @@ export function CustomerRequestDetailPage() {
   const [products, setProducts] = useState<SalesProductRef[]>([]);
   const [units, setUnits] = useState<SalesUnitRef[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editLines, setEditLines] = useState<CRLine[]>([]);
   const orgId = currentOrganizationId;
 
   const load = useCallback(async () => {
@@ -280,6 +282,32 @@ export function CustomerRequestDetailPage() {
     }
   };
 
+  const startEdit = () => {
+    setEditLines(
+      (doc.lines ?? []).length > 0
+        ? (doc.lines ?? []).map((l) => ({ productId: l.productId ?? '', unitId: l.unitId ?? '', quantity: String(l.quantity) }))
+        : [{ productId: '', unitId: '', quantity: '1' }],
+    );
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      const updated = await api.patch<BizDoc>(`/organizations/${orgId}/customer-requests/${doc.id}`, {
+        expectedVersion: doc.version,
+        lines: editLines.map((l) => ({ productId: l.productId, unitId: l.unitId, quantity: l.quantity })),
+      });
+      setDoc(updated);
+      setEditing(false);
+      showSuccess(t.common.save);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="document-detail">
       <div className="page-header">
@@ -293,6 +321,11 @@ export function CustomerRequestDetailPage() {
           <Link to="/customer-requests" className="link-muted">
             {t.common.backToList}
           </Link>
+          {hasPermission('sales.customer_request.edit') && (doc.status as string) === 'OPEN' && !editing && (
+            <button disabled={busy} onClick={startEdit}>
+              {t.common.edit}
+            </button>
+          )}
           {hasPermission('sales.customer_request.cancel') && (doc.status as string) === 'OPEN' && (
             <button className="danger" disabled={busy} onClick={cancel}>
               {t.common.cancel}
@@ -308,24 +341,92 @@ export function CustomerRequestDetailPage() {
 
       <section className="card">
         <h2>{t.common.lines}</h2>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>{t.common.product}</th>
-              <th>{t.common.unit}</th>
-              <th>{t.common.quantity}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(doc.lines ?? []).map((l, i) => (
-              <tr key={l.id ?? i}>
-                <td>{products.find((p) => p.id === l.productId)?.name ?? l.productId}</td>
-                <td>{units.find((u) => u.id === l.unitId)?.code ?? l.unitId}</td>
-                <td className="numeric">{l.quantity}</td>
-              </tr>
+        {editing ? (
+          <>
+            {editLines.map((line, i) => (
+              <div className="inline-form" key={i}>
+                <label>
+                  {t.common.product}
+                  <select
+                    required
+                    value={line.productId}
+                    onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, productId: e.target.value } : l)))}
+                  >
+                    <option value="" disabled>
+                      {t.common.select}
+                    </option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code} — {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t.common.unit}
+                  <select
+                    required
+                    value={line.unitId}
+                    onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, unitId: e.target.value } : l)))}
+                  >
+                    <option value="" disabled>
+                      {t.common.select}
+                    </option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t.common.quantity}
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    required
+                    value={line.quantity}
+                    onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, quantity: e.target.value } : l)))}
+                  />
+                </label>
+                <button type="button" className="small" disabled={editLines.length <= 1} onClick={() => setEditLines(editLines.filter((_, j) => j !== i))}>
+                  {t.common.remove}
+                </button>
+              </div>
             ))}
-          </tbody>
-        </table>
+            <div className="inline-form">
+              <button type="button" className="small" onClick={() => setEditLines([...editLines, { productId: '', unitId: '', quantity: '1' }])}>
+                {t.common.addLine}
+              </button>
+              <button className="primary" disabled={busy} onClick={saveEdit}>
+                {busy ? t.common.saving : t.common.save}
+              </button>
+              <button disabled={busy} onClick={() => setEditing(false)}>
+                {t.common.cancel}
+              </button>
+            </div>
+          </>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>{t.common.product}</th>
+                <th>{t.common.unit}</th>
+                <th>{t.common.quantity}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(doc.lines ?? []).map((l, i) => (
+                <tr key={l.id ?? i}>
+                  <td>{products.find((p) => p.id === l.productId)?.name ?? l.productId}</td>
+                  <td>{units.find((u) => u.id === l.unitId)?.code ?? l.unitId}</td>
+                  <td className="numeric">{l.quantity}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
     </div>
   );

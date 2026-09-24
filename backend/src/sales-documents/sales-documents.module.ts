@@ -21,6 +21,8 @@ import { SalesOrderToSalesInvoiceMapper } from './sales-order-to-invoice.mapper'
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
 import { SalesOrderApprovalPlanProvider } from './sales-order-approval-plan.provider';
+import { CustomerSettlementService } from './customer-settlement.service';
+import { CustomerReceivablesController } from './customer-receivables.controller';
 
 /**
  * Phase 4 — Sales documents (orders + invoices). First real business
@@ -43,7 +45,7 @@ import { SalesOrderApprovalPlanProvider } from './sales-order-approval-plan.prov
     SalesExecutionModule,
     ApprovalsModule,
   ],
-  controllers: [SalesOrderController, SalesInvoiceController],
+  controllers: [SalesOrderController, SalesInvoiceController, CustomerReceivablesController],
   providers: [
     SalesOrderService,
     SalesInvoiceService,
@@ -53,6 +55,7 @@ import { SalesOrderApprovalPlanProvider } from './sales-order-approval-plan.prov
     SalesInvoicePostingHandler,
     SalesOrderToSalesInvoiceMapper,
     SalesOrderApprovalPlanProvider,
+    CustomerSettlementService,
   ],
   exports: [SalesOrderService, SalesInvoiceService],
 })

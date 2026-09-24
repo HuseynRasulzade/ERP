@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BizDoc, Counterparty, CounterpartyContract } from '../../api/types';
+import type { BizDoc, Counterparty, CounterpartyBankAccount, CounterpartyContract, Currency } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -291,13 +291,25 @@ function AddressesTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: strin
   );
 }
 
+const emptyBankAccountForm = {
+  bankName: '', bankTaxId: '', bankCode: '', bankAddress: '', accountNumber: '', iban: '', swiftBic: '',
+  correspondentAccount: '', currencyId: '', branchName: '', notes: '', isPrimary: false,
+};
+
 function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: string; onChanged: () => void }) {
   const { hasPermission } = useAuth();
   const { showError, showSuccess } = useToast();
   const { t } = useLocale();
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ bankName: '', bankTaxId: '', bankCode: '', accountNumber: '', iban: '', swiftBic: '', correspondentAccount: '', branchName: '', isPrimary: false });
+  const [form, setForm] = useState(emptyBankAccountForm);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [editingId, setEditingId] = useState('');
+  const [editForm, setEditForm] = useState(emptyBankAccountForm);
+
+  useEffect(() => {
+    api.get<Currency[]>('/currencies').then(setCurrencies).catch(() => {});
+  }, []);
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -305,12 +317,56 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
     try {
       await api.post(`/organizations/${orgId}/counterparties/${cp.id}/bank-accounts`, {
         bankName: form.bankName, bankTaxId: form.bankTaxId || undefined, bankCode: form.bankCode || undefined,
-        accountNumber: form.accountNumber, iban: form.iban || undefined, swiftBic: form.swiftBic || undefined,
-        correspondentAccount: form.correspondentAccount || undefined, branchName: form.branchName || undefined, isPrimary: form.isPrimary,
+        bankAddress: form.bankAddress || undefined, accountNumber: form.accountNumber, iban: form.iban || undefined,
+        swiftBic: form.swiftBic || undefined, correspondentAccount: form.correspondentAccount || undefined,
+        currencyId: form.currencyId || undefined, branchName: form.branchName || undefined,
+        notes: form.notes || undefined, isPrimary: form.isPrimary,
       });
       showSuccess(t.toast.createdItem(form.bankName));
-      setForm({ bankName: '', bankTaxId: '', bankCode: '', accountNumber: '', iban: '', swiftBic: '', correspondentAccount: '', branchName: '', isPrimary: false });
+      setForm(emptyBankAccountForm);
       setShowForm(false);
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = (a: CounterpartyBankAccount) => {
+    setEditingId(a.id);
+    setEditForm({
+      bankName: a.bankName, bankTaxId: a.bankTaxId ?? '', bankCode: a.bankCode ?? '', bankAddress: a.bankAddress ?? '',
+      accountNumber: a.accountNumber, iban: a.iban ?? '', swiftBic: a.swiftBic ?? '', correspondentAccount: a.correspondentAccount ?? '',
+      currencyId: a.currencyId ?? '', branchName: a.branchName ?? '', notes: a.notes ?? '', isPrimary: a.isPrimary,
+    });
+  };
+
+  const saveEdit = async (a: CounterpartyBankAccount) => {
+    setBusy(true);
+    try {
+      await api.patch(`/organizations/${orgId}/counterparties/${cp.id}/bank-accounts/${a.id}`, {
+        expectedVersion: a.version,
+        bankName: editForm.bankName, bankTaxId: editForm.bankTaxId || undefined, bankCode: editForm.bankCode || undefined,
+        bankAddress: editForm.bankAddress || undefined, accountNumber: editForm.accountNumber, iban: editForm.iban || undefined,
+        swiftBic: editForm.swiftBic || undefined, correspondentAccount: editForm.correspondentAccount || undefined,
+        currencyId: editForm.currencyId || undefined, branchName: editForm.branchName || undefined, notes: editForm.notes || undefined,
+      });
+      showSuccess(t.common.save);
+      setEditingId('');
+      onChanged();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const makePrimary = async (a: CounterpartyBankAccount) => {
+    setBusy(true);
+    try {
+      await api.patch(`/organizations/${orgId}/counterparties/${cp.id}/bank-accounts/${a.id}`, { expectedVersion: a.version, isPrimary: true });
+      showSuccess('Default account updated');
       onChanged();
     } catch (err) {
       showError(err);
@@ -345,6 +401,8 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
     }
   };
 
+  const currencyCode = (id: string | null) => (id ? (currencies.find((c) => c.id === id)?.code ?? id.slice(0, 6)) : '—');
+
   return (
     <section className="card">
       <div className="page-header">
@@ -357,6 +415,7 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
             <label>{t.counterparty.bankName}<input required value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} /></label>
             <label>{t.counterparty.bankTaxId}<input value={form.bankTaxId} onChange={(e) => setForm({ ...form, bankTaxId: e.target.value })} /></label>
             <label>{t.counterparty.bankCode}<input value={form.bankCode} onChange={(e) => setForm({ ...form, bankCode: e.target.value })} /></label>
+            <label>Bank address<input value={form.bankAddress} onChange={(e) => setForm({ ...form, bankAddress: e.target.value })} /></label>
           </div>
           <div className="inline-form">
             <label>{t.counterparty.accountNumber}<input required value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} /></label>
@@ -366,6 +425,16 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
           <div className="inline-form">
             <label>{t.counterparty.correspondentAccount}<input value={form.correspondentAccount} onChange={(e) => setForm({ ...form, correspondentAccount: e.target.value })} /></label>
             <label>{t.counterparty.branchName}<input value={form.branchName} onChange={(e) => setForm({ ...form, branchName: e.target.value })} /></label>
+            <label>
+              Currency
+              <select value={form.currencyId} onChange={(e) => setForm({ ...form, currencyId: e.target.value })}>
+                <option value="">—</option>
+                {currencies.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="inline-form">
+            <label>Notes<input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
             <label className="checkbox-row">
               <input type="checkbox" checked={form.isPrimary} onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })} />
               {t.counterparty.isPrimary}
@@ -381,33 +450,72 @@ function BankAccountsTab({ cp, orgId, onChanged }: { cp: Counterparty; orgId: st
           <thead>
             <tr>
               <th>{t.counterparty.bankName}</th><th>{t.counterparty.accountNumber}</th><th>{t.counterparty.iban}</th>
-              <th>{t.counterparty.swiftBic}</th><th>{t.counterparty.isPrimary}</th><th>Status</th><th></th>
+              <th>{t.counterparty.swiftBic}</th><th>Currency</th><th>{t.counterparty.isPrimary}</th><th>Status</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {cp.bankAccounts!.map((a) => (
-              <tr key={a.id}>
-                <td>{a.bankName}</td>
-                <td>{a.accountNumber}</td>
-                <td>{a.iban ?? '—'}</td>
-                <td>{a.swiftBic ?? '—'}</td>
-                <td>{a.isPrimary ? '★' : ''}</td>
-                <td>
-                  <span className={`badge badge-generic-${a.status === 'APPROVED' ? 'ok' : a.status === 'REJECTED' ? 'bad' : 'neutral'}`}>{a.status}</span>
-                </td>
-                <td>
-                  {hasPermission('counterparty.approve') && a.status !== 'APPROVED' && (
-                    <button className="small" disabled={busy} onClick={() => decide(a.id, a.version, 'approve')}>Approve</button>
-                  )}
-                  {hasPermission('counterparty.approve') && a.status !== 'REJECTED' && (
-                    <button className="small danger" disabled={busy} onClick={() => decide(a.id, a.version, 'reject')}>Reject</button>
-                  )}
-                  {hasPermission('counterparty.edit') && (
-                    <button className="small" disabled={busy} onClick={() => deactivate(a.id, a.version)}>{t.counterparty.deactivate}</button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {cp.bankAccounts!.map((a) =>
+              editingId === a.id ? (
+                <tr key={a.id}>
+                  <td colSpan={8}>
+                    <div className="inline-form">
+                      <label>{t.counterparty.bankName}<input required value={editForm.bankName} onChange={(e) => setEditForm({ ...editForm, bankName: e.target.value })} /></label>
+                      <label>{t.counterparty.bankTaxId}<input value={editForm.bankTaxId} onChange={(e) => setEditForm({ ...editForm, bankTaxId: e.target.value })} /></label>
+                      <label>{t.counterparty.bankCode}<input value={editForm.bankCode} onChange={(e) => setEditForm({ ...editForm, bankCode: e.target.value })} /></label>
+                      <label>Bank address<input value={editForm.bankAddress} onChange={(e) => setEditForm({ ...editForm, bankAddress: e.target.value })} /></label>
+                    </div>
+                    <div className="inline-form">
+                      <label>{t.counterparty.accountNumber}<input required value={editForm.accountNumber} onChange={(e) => setEditForm({ ...editForm, accountNumber: e.target.value })} /></label>
+                      <label>{t.counterparty.iban}<input value={editForm.iban} onChange={(e) => setEditForm({ ...editForm, iban: e.target.value })} /></label>
+                      <label>{t.counterparty.swiftBic}<input value={editForm.swiftBic} onChange={(e) => setEditForm({ ...editForm, swiftBic: e.target.value })} /></label>
+                      <label>{t.counterparty.correspondentAccount}<input value={editForm.correspondentAccount} onChange={(e) => setEditForm({ ...editForm, correspondentAccount: e.target.value })} /></label>
+                    </div>
+                    <div className="inline-form">
+                      <label>{t.counterparty.branchName}<input value={editForm.branchName} onChange={(e) => setEditForm({ ...editForm, branchName: e.target.value })} /></label>
+                      <label>
+                        Currency
+                        <select value={editForm.currencyId} onChange={(e) => setEditForm({ ...editForm, currencyId: e.target.value })}>
+                          <option value="">—</option>
+                          {currencies.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
+                        </select>
+                      </label>
+                      <label>Notes<input value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} /></label>
+                      <button className="small primary" disabled={busy} onClick={() => saveEdit(a)}>{busy ? t.common.saving : t.common.save}</button>
+                      <button className="small" disabled={busy} onClick={() => setEditingId('')}>{t.common.cancel}</button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={a.id}>
+                  <td>{a.bankName}</td>
+                  <td>{a.accountNumber}</td>
+                  <td>{a.iban ?? '—'}</td>
+                  <td>{a.swiftBic ?? '—'}</td>
+                  <td>{currencyCode(a.currencyId)}</td>
+                  <td>{a.isPrimary ? '★' : ''}</td>
+                  <td>
+                    <span className={`badge badge-generic-${a.status === 'APPROVED' ? 'ok' : a.status === 'REJECTED' ? 'bad' : 'neutral'}`}>{a.status}</span>
+                  </td>
+                  <td>
+                    {hasPermission('counterparty.approve') && a.status !== 'APPROVED' && (
+                      <button className="small" disabled={busy} onClick={() => decide(a.id, a.version, 'approve')}>Approve</button>
+                    )}
+                    {hasPermission('counterparty.approve') && a.status !== 'REJECTED' && (
+                      <button className="small danger" disabled={busy} onClick={() => decide(a.id, a.version, 'reject')}>Reject</button>
+                    )}
+                    {hasPermission('counterparty.edit') && (
+                      <button className="small" disabled={busy} onClick={() => startEdit(a)}>{t.common.edit}</button>
+                    )}
+                    {hasPermission('counterparty.edit') && !a.isPrimary && (
+                      <button className="small" disabled={busy} onClick={() => makePrimary(a)}>Make default</button>
+                    )}
+                    {hasPermission('counterparty.edit') && (
+                      <button className="small" disabled={busy} onClick={() => deactivate(a.id, a.version)}>{t.counterparty.deactivate}</button>
+                    )}
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       )}
@@ -509,6 +617,7 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
   const [subject, setSubject] = useState('');
   const [eligible, setEligible] = useState<BizDoc[]>([]);
   const [purchaseOrderId, setPurchaseOrderId] = useState('');
+  const [sourceType, setSourceType] = useState<'PO' | 'SO'>('PO');
 
   const load = useCallback(async () => {
     try {
@@ -526,14 +635,16 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
 
   useEffect(() => {
     if (!showForm) return;
-    api.get<BizDoc[]>(`/organizations/${orgId}/counterparties/${cp.id}/contracts/eligible-purchase-orders`)
+    setPurchaseOrderId('');
+    const path = sourceType === 'PO' ? 'eligible-purchase-orders' : 'eligible-sales-orders';
+    api.get<BizDoc[]>(`/organizations/${orgId}/counterparties/${cp.id}/contracts/${path}`)
       .then(setEligible)
       .catch((err) => showError(err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showForm, orgId, cp.id]);
+  }, [showForm, sourceType, orgId, cp.id]);
 
-  // Every contract must trace back to a confirmed purchase order (spec
-  // section 11: "Müqavilə formasında məcburi 'Alış sifarişini seç'
+  // Every contract must trace back to a confirmed purchase order OR sales
+  // order (spec section 11: "Müqavilə formasında məcburi sifarişi seç"
   // sahəsi olsun") — this form is the ONLY way to create a contract; the
   // generic bare-CRUD create endpoint still exists server-side but the
   // UI never calls it any more.
@@ -541,7 +652,9 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
     e.preventDefault();
     setBusy(true);
     try {
-      const created = await api.post<CounterpartyContract>(`/organizations/${orgId}/contracts/from-purchase-order`, { purchaseOrderId, number, subject: subject || undefined });
+      const endpoint = sourceType === 'PO' ? 'from-purchase-order' : 'from-sales-order';
+      const body = sourceType === 'PO' ? { purchaseOrderId, number, subject: subject || undefined } : { salesOrderId: purchaseOrderId, number, subject: subject || undefined };
+      const created = await api.post<CounterpartyContract>(`/organizations/${orgId}/contracts/${endpoint}`, body);
       showSuccess(t.toast.createdItem(number));
       setNumber(''); setSubject(''); setPurchaseOrderId('');
       setShowForm(false);
@@ -561,23 +674,33 @@ function ContractsTab({ cp, orgId, navigate }: { cp: Counterparty; orgId: string
         {hasPermission('contract.create') && <button className="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? t.common.cancel : t.counterparty.addContract}</button>}
       </div>
       {showForm && (
-        eligible.length === 0 ? (
-          <p className="panel-note">{t.contract.noEligiblePurchaseOrders}</p>
-        ) : (
-          <form onSubmit={create} className="inline-form">
-            <label>{t.contract.selectPurchaseOrderRequired}
-              <select required value={purchaseOrderId} onChange={(e) => setPurchaseOrderId(e.target.value)}>
-                <option value="">{t.common.select}</option>
-                {eligible.map((o) => (
-                  <option key={o.id} value={o.id}>{o.number} — {o.grandTotal ?? ''}</option>
-                ))}
+        <>
+          <div className="inline-form">
+            <label>{t.contract.contractSourceType}
+              <select value={sourceType} onChange={(e) => setSourceType(e.target.value as 'PO' | 'SO')}>
+                <option value="PO">{t.contract.contractSourcePO}</option>
+                <option value="SO">{t.contract.contractSourceSO}</option>
               </select>
             </label>
-            <label>{t.counterparty.contractNumber}<input required value={number} onChange={(e) => setNumber(e.target.value)} /></label>
-            <label>{t.counterparty.subject}<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
-            <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
-          </form>
-        )
+          </div>
+          {eligible.length === 0 ? (
+            <p className="panel-note">{sourceType === 'PO' ? t.contract.noEligiblePurchaseOrders : t.contract.noEligibleSalesOrders}</p>
+          ) : (
+            <form onSubmit={create} className="inline-form">
+              <label>{sourceType === 'PO' ? t.contract.selectPurchaseOrderRequired : t.contract.selectSalesOrderRequired}
+                <select required value={purchaseOrderId} onChange={(e) => setPurchaseOrderId(e.target.value)}>
+                  <option value="">{t.common.select}</option>
+                  {eligible.map((o) => (
+                    <option key={o.id} value={o.id}>{o.number} — {o.grandTotal ?? ''}</option>
+                  ))}
+                </select>
+              </label>
+              <label>{t.counterparty.contractNumber}<input required value={number} onChange={(e) => setNumber(e.target.value)} /></label>
+              <label>{t.counterparty.subject}<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
+              <button type="submit" className="primary" disabled={busy}>{busy ? t.common.saving : t.common.save}</button>
+            </form>
+          )}
+        </>
       )}
       {contracts.length === 0 ? (
         <p className="panel-note">{t.counterparty.noContractsYet}</p>

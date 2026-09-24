@@ -29,15 +29,22 @@ import { SalesReturnListPage, SalesReturnDetailPage } from './pages/execution/Sa
 import { PurchaseRequirementListPage, PurchaseRequirementDetailPage } from './pages/procurement/PurchaseRequirementPage';
 import { PurchaseOrderListPage, PurchaseOrderDetailPage } from './pages/procurement/PurchaseOrderPage';
 import { SupplierProductCodePage } from './pages/procurement/SupplierProductCodePage';
+import { PriceListPage } from './pages/catalog/PriceListPage';
+import { ResponsiblePersonPage } from './pages/core/ResponsiblePersonPage';
 
 // Phase 9 — Purchase Execution
 import { GoodsReceiptListPage, GoodsReceiptDetailPage } from './pages/purchasing/GoodsReceiptPage';
 import { PurchaseInvoiceListPage, PurchaseInvoiceDetailPage } from './pages/purchasing/PurchaseInvoicePage';
 import { PaymentRequestListPage, PaymentRequestDetailPage } from './pages/treasury/PaymentRequestPage';
 import { PaymentOrderListPage, PaymentOrderDetailPage } from './pages/treasury/PaymentOrderPage';
+import { CashTransactionListPage, CashTransactionDetailPage } from './pages/treasury/CashTransactionPage';
+import { BankReconciliationPage } from './pages/treasury/BankReconciliationPage';
+import { BankCatalogPage } from './pages/treasury/BankCatalogPage';
+import { CashFlowPage } from './pages/treasury/CashFlowPage';
 import { PurchaseReturnListPage, PurchaseReturnDetailPage } from './pages/purchasing/PurchaseReturnPage';
 import { AdditionalPurchaseCostListPage, AdditionalPurchaseCostDetailPage } from './pages/purchasing/AdditionalPurchaseCostPage';
 import { PurchaseReportsPage } from './pages/purchasing/PurchaseReportsPage';
+import { ProcurementAnalyticsPage } from './pages/procurement/ProcurementAnalyticsPage';
 
 // Phase 10 — Warehouse / Stock Engine
 import {
@@ -50,11 +57,19 @@ import {
   InventoryStatusTransferListPage,
   InventoryStatusTransferDetailPage,
 } from './pages/warehouse/WarehouseInventoryPages';
+import { InventoryReportsPage } from './pages/warehouse/InventoryReportsPage';
+import { InventoryCostingPage } from './pages/warehouse/InventoryCostingPage';
 import { ProductCatalogPage } from './pages/catalog/ProductCatalogPage';
 import { CounterpartyListPage } from './pages/counterparties/CounterpartyListPage';
 import { CounterpartyDetailPage } from './pages/counterparties/CounterpartyDetailPage';
 import { ContractDetailPage } from './pages/counterparties/ContractDetailPage';
 import { ApprovalsInboxPage } from './pages/ApprovalsInboxPage';
+import { ChartOfAccountsPage } from './pages/accounting/ChartOfAccountsPage';
+import { ManualOperationListPage, ManualOperationDetailPage } from './pages/accounting/ManualOperationsPage';
+import { AccountingMappingPage } from './pages/accounting/AccountingMappingPage';
+import { AccountingReportsPage } from './pages/accounting/AccountingReportsPage';
+import { TaxEnginePage } from './pages/tax/TaxEnginePage';
+import { ProfilePage } from './pages/ProfilePage';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -113,10 +128,16 @@ function AppRoutes() {
         <Route path="/additional-costs" element={<AdditionalPurchaseCostListPage />} />
         <Route path="/additional-costs/:id" element={<AdditionalPurchaseCostDetailPage />} />
         <Route path="/purchase-reports" element={<PurchaseReportsPage />} />
+        <Route path="/procurement-analytics" element={<ProcurementAnalyticsPage />} />
         <Route path="/payment-requests" element={<PaymentRequestListPage />} />
         <Route path="/payment-requests/:id" element={<PaymentRequestDetailPage />} />
         <Route path="/payment-orders" element={<PaymentOrderListPage />} />
         <Route path="/payment-orders/:id" element={<PaymentOrderDetailPage />} />
+        <Route path="/cash-transactions" element={<CashTransactionListPage />} />
+        <Route path="/cash-transactions/:id" element={<CashTransactionDetailPage />} />
+        <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
+        <Route path="/banks" element={<BankCatalogPage />} />
+        <Route path="/cash-flow" element={<CashFlowPage />} />
 
         <Route path="/warehouse-transfers" element={<WarehouseTransferListPage />} />
         <Route path="/warehouse-transfers/:id" element={<WarehouseTransferDetailPage />} />
@@ -126,13 +147,27 @@ function AppRoutes() {
         <Route path="/inventory-adjustments/:id" element={<InventoryAdjustmentDetailPage />} />
         <Route path="/inventory-status-transfers" element={<InventoryStatusTransferListPage />} />
         <Route path="/inventory-status-transfers/:id" element={<InventoryStatusTransferDetailPage />} />
+        <Route path="/inventory-reports" element={<InventoryReportsPage />} />
+        <Route path="/inventory-costing" element={<InventoryCostingPage />} />
 
         <Route path="/product-catalog" element={<ProductCatalogPage />} />
+        <Route path="/price-lists" element={<PriceListPage />} />
+        <Route path="/responsible-persons" element={<ResponsiblePersonPage />} />
 
         <Route path="/counterparties" element={<CounterpartyListPage />} />
         <Route path="/counterparties/:id" element={<CounterpartyDetailPage />} />
         <Route path="/counterparties/:id/contracts/:contractId" element={<ContractDetailPage />} />
         <Route path="/approvals-inbox" element={<ApprovalsInboxPage />} />
+
+        <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
+        <Route path="/manual-operations" element={<ManualOperationListPage />} />
+        <Route path="/manual-operations/:id" element={<ManualOperationDetailPage />} />
+        <Route path="/accounting-mappings" element={<AccountingMappingPage />} />
+        <Route path="/trial-balance" element={<AccountingReportsPage />} />
+        <Route path="/general-ledger" element={<AccountingReportsPage />} />
+        <Route path="/income-statement" element={<AccountingReportsPage />} />
+        <Route path="/balance-sheet" element={<AccountingReportsPage />} />
+        <Route path="/tax-engine" element={<TaxEnginePage />} />
 
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/organizations/:id/*" element={<OrganizationDetailPage />} />
@@ -140,6 +175,7 @@ function AppRoutes() {
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/members" element={<MembersPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/sales-orders" replace />} />
     </Routes>

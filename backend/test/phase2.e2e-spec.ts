@@ -165,16 +165,16 @@ describe('Phase 2 — Product Catalog (e2e)', () => {
   });
 
   describe('Product Category', () => {
-    it('should create a root category', async () => {
+    it('should create a root category with a system-generated code', async () => {
       const res = await request(app.getHttpServer())
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'ELECTRONICS', name: 'Electronics' })
+        .send({ name: 'Electronics' })
         .expect(201);
 
       categoryId = res.body.id;
-      expect(res.body.code).toBe('ELECTRONICS');
+      expect(res.body.code).toMatch(/^K-\d{4}$/);
       expect(res.body.parentCategoryId).toBeNull();
     });
 
@@ -183,21 +183,33 @@ describe('Phase 2 — Product Catalog (e2e)', () => {
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'LAPTOPS', name: 'Laptops', parentCategoryId: categoryId })
+        .send({ name: 'Laptops', parentCategoryId: categoryId })
         .expect(201);
 
-      expect(res.body.code).toBe('LAPTOPS');
+      expect(res.body.code).toMatch(/^K-\d{4}$/);
       expect(res.body.parentCategoryId).toBe(categoryId);
       childCategoryId = res.body.id;
     });
 
-    it('should reject duplicate category code within organization', async () => {
+    it('should generate a distinct code for each new category', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/organizations/${org1Id}/product-categories`)
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-Id', tenant1Id)
+        .send({ name: 'Electronics Again' })
+        .expect(201);
+
+      expect(res.body.code).toMatch(/^K-\d{4}$/);
+      expect(res.body.code).not.toBe(categoryId);
+    });
+
+    it('should reject a client-supplied code (not whitelisted)', async () => {
       await request(app.getHttpServer())
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'ELECTRONICS', name: 'Electronics Again' })
-        .expect(409);
+        .send({ code: 'CUSTOM-CODE', name: 'Should be rejected' })
+        .expect(400);
     });
 
     it('should reject creating a category with itself as parent', async () => {
@@ -205,7 +217,7 @@ describe('Phase 2 — Product Catalog (e2e)', () => {
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'CYCLE_TEST', name: 'Cycle Test' })
+        .send({ name: 'Cycle Test' })
         .expect(201);
 
       const cycleId = res.body.id;
@@ -224,7 +236,7 @@ describe('Phase 2 — Product Catalog (e2e)', () => {
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'CAT_A', name: 'Category A' })
+        .send({ name: 'Category A' })
         .expect(201);
       const catAId = resA.body.id;
 
@@ -232,7 +244,7 @@ describe('Phase 2 — Product Catalog (e2e)', () => {
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'CAT_B', name: 'Category B', parentCategoryId: catAId })
+        .send({ name: 'Category B', parentCategoryId: catAId })
         .expect(201);
       const catBId = resB.body.id;
 
@@ -240,7 +252,7 @@ describe('Phase 2 — Product Catalog (e2e)', () => {
         .post(`/organizations/${org1Id}/product-categories`)
         .set('Authorization', `Bearer ${token1}`)
         .set('X-Tenant-Id', tenant1Id)
-        .send({ code: 'CAT_C', name: 'Category C', parentCategoryId: catBId })
+        .send({ name: 'Category C', parentCategoryId: catBId })
         .expect(201);
       const catCId = resC.body.id;
 

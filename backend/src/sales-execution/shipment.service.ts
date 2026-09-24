@@ -3,9 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
-import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
+import { ConflictAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { SHIPMENT_TYPE } from './shipment.repository';
-import { CreateShipmentDto } from './dto/sales-execution.dto';
+import { CreateShipmentDto, UpdateShipmentDto } from './dto/sales-execution.dto';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'SHP';
@@ -105,6 +105,67 @@ export class ShipmentService {
       );
 
       return tx.shipment.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
+    });
+  }
+
+  /** Header + wholesale line-replace edit, only while not yet posted —
+   * matches CustomerRequestService/CommercialOfferService's pattern. */
+  async update(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, dto: UpdateShipmentDto) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const current = await this.get(tenantId, membershipId, organizationId, id);
+    if (current.version !== dto.expectedVersion) throw new ConflictAppError('The shipment has been changed by another user');
+    if (current.postingStatus === 'POSTED') throw new ValidationAppError('Unpost the shipment before editing it');
+    if (current.status === 'CANCELLED') throw new ValidationAppError('Cannot edit a cancelled shipment');
+
+    return this.prisma.runInTransaction(async (tx) => {
+      const result = await tx.shipment.updateMany({
+        where: { id, tenantId, version: dto.expectedVersion },
+        data: {
+          documentDate: dto.documentDate ? parseDate(dto.documentDate) : undefined,
+          warehouseId: dto.warehouseId,
+          deliveryAddressSnapshot: dto.deliveryAddressSnapshot,
+          description: dto.description,
+          updatedBy: userId,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count === 0) throw new ConflictAppError('The shipment has been changed by another user');
+
+      if (dto.lines) {
+        await tx.shipmentLine.deleteMany({ where: { shipmentId: id } });
+        for (const [index, line] of dto.lines.entries()) {
+          const quantity = Number(line.quantity);
+          if (quantity <= 0) throw new ValidationAppError('Shipment line quantity must be positive');
+          const product = await tx.product.findFirst({ where: { id: line.productId, tenantId } });
+          if (!product) throw new ValidationAppError('Shipment line references an unknown product');
+          this.batchSerial.validateCapture(product, line.batchId, line.serialNumbers, quantity);
+
+          const created = await tx.shipmentLine.create({
+            data: {
+              tenantId,
+              shipmentId: id,
+              position: index,
+              sourceOrderLineId: line.sourceOrderLineId,
+              productId: line.productId,
+              unitId: line.unitId,
+              quantity: line.quantity,
+              warehouseId: line.warehouseId ?? dto.warehouseId ?? current.warehouseId,
+              batchId: line.batchId,
+              notes: line.notes,
+            },
+          });
+          if (line.serialNumbers?.length) {
+            await this.batchSerial.captureSerials(tenantId, SHIPMENT_TYPE, created.id, line.serialNumbers, tx);
+          }
+        }
+      }
+
+      await this.audit.record(
+        { tenantId, eventType: 'SHIPMENT_UPDATED', entityType: SHIPMENT_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { lineCount: dto.lines?.length } },
+        tx,
+      );
+
+      return tx.shipment.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
   }
 

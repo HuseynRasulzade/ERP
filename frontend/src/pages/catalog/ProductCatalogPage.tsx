@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../../api/client';
-import type { Product, ProductCategory, UnitOfMeasure } from '../../api/types';
+import type { Product, ProductCategory, ProductParentCategory, UnitOfMeasure } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useToast } from '../../context/ToastContext';
@@ -11,7 +11,7 @@ import { exportToCsv } from '../../utils/csvExport';
 const PRODUCT_TYPES = ['GOODS', 'SERVICE', 'WORK', 'SET'];
 const TRACKING_MODES = ['NONE', 'OPTIONAL', 'REQUIRED'];
 
-type Tab = 'products' | 'categories' | 'units';
+type Tab = 'products' | 'categories' | 'parentCategories' | 'units';
 
 /** Product Catalog (docx spec Phase 2, "nomenklatura") — units of
  * measure (tenant-wide), product categories and products (both
@@ -37,6 +37,9 @@ export function ProductCatalogPage() {
         <button className={tab === 'categories' ? 'tab active' : 'tab'} onClick={() => setTab('categories')}>
           {t.catalog.categories}
         </button>
+        <button className={tab === 'parentCategories' ? 'tab active' : 'tab'} onClick={() => setTab('parentCategories')}>
+          {t.catalog.parentCategories}
+        </button>
         <button className={tab === 'units' ? 'tab active' : 'tab'} onClick={() => setTab('units')}>
           {t.catalog.units}
         </button>
@@ -44,6 +47,7 @@ export function ProductCatalogPage() {
 
       {tab === 'products' && <ProductsTab />}
       {tab === 'categories' && <CategoriesTab />}
+      {tab === 'parentCategories' && <ParentCategoriesTab />}
       {tab === 'units' && <UnitsTab />}
     </div>
   );
@@ -349,18 +353,24 @@ function CategoriesTab() {
   const orgId = currentOrganizationId;
 
   const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [parentGroups, setParentGroups] = useState<ProductParentCategory[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [code, setCode] = useState('');
   const [name, setName] = useState('');
-  const [parentCategoryId, setParentCategoryId] = useState('');
+  const [parentGroupId, setParentGroupId] = useState('');
+  const [parentGroupSearch, setParentGroupSearch] = useState('');
 
   const load = () => {
     if (!orgId) {
       setCategories([]);
+      setParentGroups([]);
       return;
     }
     api.get<ProductCategory[]>(`/organizations/${orgId}/product-categories`).then(setCategories).catch(showError);
+    api
+      .get<ProductParentCategory[]>(`/organizations/${orgId}/product-parent-categories`)
+      .then(setParentGroups)
+      .catch(showError);
   };
 
   useEffect(() => {
@@ -373,11 +383,14 @@ function CategoriesTab() {
     if (!orgId) return;
     setBusy(true);
     try {
-      await api.post<ProductCategory>(`/organizations/${orgId}/product-categories`, { code, name, parentCategoryId: parentCategoryId || undefined });
-      showSuccess(t.toast.createdItem(code));
-      setCode('');
+      const res = await api.post<ProductCategory>(`/organizations/${orgId}/product-categories`, {
+        name,
+        parentGroupId: parentGroupId || undefined,
+      });
+      showSuccess(t.toast.createdItem(res.code));
       setName('');
-      setParentCategoryId('');
+      setParentGroupId('');
+      setParentGroupSearch('');
       setShowForm(false);
       load();
     } catch (err) {
@@ -401,7 +414,13 @@ function CategoriesTab() {
     }
   };
 
-  const parentName = (id: string | null) => (id ? (categories.find((c) => c.id === id)?.name ?? id.slice(0, 8)) : '—');
+  const parentGroupName = (id: string | null) => (id ? (parentGroups.find((p) => p.id === id)?.name ?? id.slice(0, 8)) : '—');
+
+  const filteredParentGroups = useMemo(() => {
+    const q = parentGroupSearch.trim().toLowerCase();
+    if (!q) return parentGroups;
+    return parentGroups.filter((p) => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q));
+  }, [parentGroups, parentGroupSearch]);
 
   return (
     <div>
@@ -423,20 +442,20 @@ function CategoriesTab() {
             <form onSubmit={create} className="card">
               <div className="inline-form">
                 <label>
-                  {t.catalog.code}
-                  <input required value={code} onChange={(e) => setCode(e.target.value)} />
-                </label>
-                <label>
                   {t.common.name}
                   <input required value={name} onChange={(e) => setName(e.target.value)} />
                 </label>
                 <label>
+                  {t.catalog.searchParentCategory}
+                  <input value={parentGroupSearch} onChange={(e) => setParentGroupSearch(e.target.value)} />
+                </label>
+                <label>
                   {t.catalog.parentCategory}
-                  <select value={parentCategoryId} onChange={(e) => setParentCategoryId(e.target.value)}>
-                    <option value="">{t.common.select}</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.code} — {c.name}
+                  <select value={parentGroupId} onChange={(e) => setParentGroupId(e.target.value)}>
+                    <option value="">{t.catalog.noParentCategory}</option>
+                    {filteredParentGroups.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code} — {p.name}
                       </option>
                     ))}
                   </select>
@@ -466,11 +485,133 @@ function CategoriesTab() {
                   <tr key={c.id}>
                     <td>{c.code}</td>
                     <td>{c.name}</td>
-                    <td>{parentName(c.parentCategoryId)}</td>
+                    <td>{parentGroupName(c.parentGroupId)}</td>
                     <td>{c.active ? t.catalog.active : t.catalog.inactive}</td>
                     <td>
                       {c.active && hasPermission('product_category.deactivate') && (
                         <button className="small" disabled={busy} onClick={() => deactivate(c)}>
+                          {t.catalog.deactivate}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ParentCategoriesTab() {
+  const { hasPermission } = useAuth();
+  const { currentOrganizationId } = useOrganization();
+  const { showError, showSuccess } = useToast();
+  const { t } = useLocale();
+  const orgId = currentOrganizationId;
+
+  const [items, setItems] = useState<ProductParentCategory[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState('');
+
+  const load = () => {
+    if (!orgId) {
+      setItems([]);
+      return;
+    }
+    api.get<ProductParentCategory[]>(`/organizations/${orgId}/product-parent-categories`).then(setItems).catch(showError);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!orgId) return;
+    setBusy(true);
+    try {
+      const res = await api.post<ProductParentCategory>(`/organizations/${orgId}/product-parent-categories`, { name });
+      showSuccess(t.toast.createdItem(res.code));
+      setName('');
+      setShowForm(false);
+      load();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deactivate = async (p: ProductParentCategory) => {
+    if (!orgId) return;
+    setBusy(true);
+    try {
+      await api.post(`/organizations/${orgId}/product-parent-categories/${p.id}/deactivate`, { expectedVersion: p.version });
+      showSuccess(t.catalog.deactivated(p.name));
+      load();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <OrgSelector />
+      {!orgId ? (
+        <p className="panel-note">{t.common.selectOrganization}</p>
+      ) : (
+        <>
+          <div className="page-header">
+            <h2>{t.catalog.parentCategories}</h2>
+            {hasPermission('product_parent_category.create') && (
+              <button className="primary" onClick={() => setShowForm((s) => !s)}>
+                {showForm ? t.common.cancel : `+ ${t.common.create} ${t.catalog.parentCategories}`}
+              </button>
+            )}
+          </div>
+
+          {showForm && (
+            <form onSubmit={create} className="card">
+              <div className="inline-form">
+                <label>
+                  {t.common.name}
+                  <input required value={name} onChange={(e) => setName(e.target.value)} />
+                </label>
+                <button type="submit" className="primary" disabled={busy}>
+                  {busy ? t.common.saving : t.common.save}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {items.length === 0 ? (
+            <p className="panel-note">{t.catalog.noParentCategoriesYet}</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t.catalog.code}</th>
+                  <th>{t.common.name}</th>
+                  <th>{t.common.status}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.code}</td>
+                    <td>{p.name}</td>
+                    <td>{p.active ? t.catalog.active : t.catalog.inactive}</td>
+                    <td>
+                      {p.active && hasPermission('product_parent_category.deactivate') && (
+                        <button className="small" disabled={busy} onClick={() => deactivate(p)}>
                           {t.catalog.deactivate}
                         </button>
                       )}

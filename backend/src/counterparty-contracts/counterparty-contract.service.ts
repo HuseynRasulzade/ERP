@@ -615,6 +615,107 @@ export class CounterpartyContractService {
     return eligible;
   }
 
+  // -- Create from a confirmed Sales Order (mirrors the Purchase Order path above) --
+
+  async remainingForSalesOrderLine(tenantId: string, salesOrderLineId: string): Promise<Decimal> {
+    const soLine = await this.prisma.salesOrderLine.findFirst({ where: { id: salesOrderLineId, tenantId } });
+    if (!soLine) throw new NotFoundAppError('SalesOrderLine', salesOrderLineId);
+    const contracted = await this.prisma.counterpartyContractLine.aggregate({
+      where: { tenantId, sourceSalesOrderLineId: salesOrderLineId, contract: { status: { not: 'CANCELLED' } } },
+      _sum: { quantity: true },
+    });
+    const remaining = new Decimal(soLine.quantity.toString())
+      .minus(soLine.cancelledQuantity.toString())
+      .minus(new Decimal((contracted._sum.quantity ?? 0).toString()));
+    return remaining;
+  }
+
+  /** Creates a contract from a CONFIRMED (posted) Sales Order — same
+   * traceability/remaining-quantity rules as `createFromPurchaseOrder`,
+   * with `sourceSalesOrderLineId` recorded on each line instead. */
+  async createFromSalesOrder(tenantId: string, membershipId: string, organizationId: string, userId: string, input: { salesOrderId: string; number: string; subject?: string; lines?: { salesOrderLineId: string; quantity?: number }[] }) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const so = await this.prisma.salesOrder.findFirst({ where: { id: input.salesOrderId, organizationId }, include: { lines: { orderBy: { position: 'asc' } } } });
+    if (!so) throw new NotFoundAppError('SalesOrder', input.salesOrderId);
+    if (so.postingStatus !== 'POSTED') throw new ValidationAppError('Only a confirmed (posted) sales order can be used to create a contract');
+    if (so.lines.some((l) => l.price == null)) {
+      throw new ValidationAppError('This sales order has lines with no price — enter every missing price before creating a contract from it');
+    }
+
+    const existing = await this.prisma.counterpartyContract.findUnique({ where: { counterpartyId_number: { counterpartyId: so.counterpartyId, number: input.number } } });
+    if (existing) throw new ConflictAppError(`A contract with number ${input.number} already exists for this counterparty`);
+
+    const requested = input.lines && input.lines.length > 0
+      ? input.lines
+      : so.lines.map((l) => ({ salesOrderLineId: l.id, quantity: undefined }));
+
+    const resolvedLines: { soLine: (typeof so.lines)[number]; quantity: Decimal }[] = [];
+    for (const req of requested) {
+      const soLine = so.lines.find((l) => l.id === req.salesOrderLineId);
+      if (!soLine) throw new ValidationAppError(`Sales order line not found: ${req.salesOrderLineId}`);
+      const remaining = await this.remainingForSalesOrderLine(tenantId, soLine.id);
+      const quantity = req.quantity != null ? new Decimal(req.quantity.toString()) : remaining;
+      if (!quantity.isFinite() || quantity.lte(0)) throw new ValidationAppError('Contracted quantity must be positive');
+      if (quantity.gt(remaining)) {
+        throw new ValidationAppError(`Requested quantity ${quantity.toString()} exceeds the sales order line's remaining quantity ${remaining.toString()}`);
+      }
+      resolvedLines.push({ soLine, quantity });
+    }
+    if (resolvedLines.length === 0) throw new ValidationAppError('No sales order lines to contract');
+
+    const contract = await this.prisma.counterpartyContract.create({
+      data: {
+        tenantId, organizationId, counterpartyId: so.counterpartyId, createdBy: userId, updatedBy: userId,
+        number: input.number, subject: input.subject ?? `Contract for ${so.number ?? so.id}`,
+        currencyId: so.currencyId, priceIncludesTax: so.priceIncludesTax,
+        sourceSalesOrderId: so.id,
+      },
+    });
+
+    for (const [index, { soLine, quantity }] of resolvedLines.entries()) {
+      const line = await this.prisma.counterpartyContractLine.create({
+        data: {
+          tenantId, contractId: contract.id, position: index,
+          productId: soLine.productId, description: soLine.description, quantity,
+          unitId: soLine.unitId, unitPrice: soLine.price ?? 0, discountPercent: 0,
+          sourceSalesOrderLineId: soLine.id,
+          sourcePoTaxRatePercent: soLine.taxRate, sourcePoTaxAmount: soLine.taxAmount,
+        },
+      });
+      await this.recalculateLine(tenantId, organizationId, so.counterpartyId, line.id, contract, userId);
+    }
+    await this.recalculateContractTotals(tenantId, contract.id);
+
+    await this.audit.record({
+      tenantId, eventType: 'COUNTERPARTY_CONTRACT_CREATED_FROM_SALES_ORDER', entityType: 'CounterpartyContract',
+      entityId: contract.id, action: 'CREATE', userId,
+      newValues: { number: contract.number, salesOrderId: so.id, lineCount: resolvedLines.length },
+    });
+    return this.get(tenantId, membershipId, organizationId, contract.id);
+  }
+
+  /** Lists POSTED sales orders for this counterparty that still have at
+   * least one line with a positive remaining (uncontracted) quantity and
+   * no blank-price line — mirrors `eligiblePurchaseOrdersForCounterparty`. */
+  async eligibleSalesOrdersForCounterparty(tenantId: string, membershipId: string, organizationId: string, counterpartyId: string) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const orders = await this.prisma.salesOrder.findMany({
+      where: { tenantId, organizationId, counterpartyId, postingStatus: 'POSTED' },
+      include: { lines: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const eligible: typeof orders = [];
+    for (const order of orders) {
+      if (order.lines.some((l) => l.price == null)) continue;
+      let anyRemaining = false;
+      for (const line of order.lines) {
+        if ((await this.remainingForSalesOrderLine(tenantId, line.id)).gt(0)) { anyRemaining = true; break; }
+      }
+      if (anyRemaining) eligible.push(order);
+    }
+    return eligible;
+  }
+
   /** Changes a DRAFT contract's source purchase order (spec: "Alış
    * sifarişinin seçimi dəyişdirildikdə əvvəl gətirilmiş nomenklatura
    * məlumatları silinərək yeni seçilmiş alış sifarişinin məlumatları ilə

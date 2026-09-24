@@ -85,13 +85,26 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     const businessDate = document.postingDate ?? document.documentDate;
     const amount = new Decimal(order.amount.toString());
 
-    // Reduce the linked invoice's SupplierPayable — never fabricate the
-    // link; the PaymentRequest always names its source invoice.
+    // Reduce each named invoice's SupplierPayable. A splittable allocation
+    // (PaymentAllocationService.set) takes priority when present — it lets
+    // this one payment's amount be distributed across several invoices
+    // (plus an unmatched-advance remainder, purchaseInvoiceId = null); with
+    // no allocation rows, fall back to the original always-one-invoice
+    // behavior (the PaymentRequest's own source invoice) for every payment
+    // order that never used splitting.
     const request = await tx.paymentRequest.findFirst({ where: { id: order.paymentRequestId, tenantId } });
-    if (request) {
-      const payable = await tx.supplierPayable.findFirst({ where: { tenantId, sourceDocumentType: 'PURCHASE_INVOICE', sourceDocumentId: request.purchaseInvoiceId } });
+    const allocations = await tx.paymentAllocation.findMany({ where: { tenantId, paymentOrderId: order.id } });
+    const invoiceAmounts: { purchaseInvoiceId: string; amount: Decimal }[] =
+      allocations.length > 0
+        ? allocations.filter((a) => a.purchaseInvoiceId).map((a) => ({ purchaseInvoiceId: a.purchaseInvoiceId as string, amount: new Decimal(a.amount.toString()) }))
+        : request
+          ? [{ purchaseInvoiceId: request.purchaseInvoiceId, amount }]
+          : [];
+
+    for (const { purchaseInvoiceId, amount: lineAmount } of invoiceAmounts) {
+      const payable = await tx.supplierPayable.findFirst({ where: { tenantId, sourceDocumentType: 'PURCHASE_INVOICE', sourceDocumentId: purchaseInvoiceId } });
       if (payable) {
-        const newPaid = new Decimal(payable.paidAmount.toString()).plus(amount);
+        const newPaid = new Decimal(payable.paidAmount.toString()).plus(lineAmount);
         const fullyPaid = newPaid.gte(new Decimal(payable.invoiceAmount.toString()));
         await tx.supplierPayable.update({
           where: { id: payable.id },
@@ -120,22 +133,47 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     }
     if (!currencyId) throw new ValidationAppError('Cannot post a payment order: no currency on the order, organization, or tenant');
 
-    const lines: AccountingPostingLineInput[] = [
-      {
+    // One debit line per invoice this payment settles (each keeping the
+    // same SETTLEMENT_DOCUMENT the invoice's own AP credit line used —
+    // purchase-invoice.posting-handler.ts), plus a bare line for any
+    // unmatched-advance remainder (no SETTLEMENT_DOCUMENT), so a split
+    // payment's GL entry mirrors its allocation 1:1 instead of collapsing
+    // everything onto one invoice.
+    const matchedTotal = invoiceAmounts.reduce((sum, a) => sum.plus(a.amount), new Decimal(0));
+    const advanceAmount = amount.minus(matchedTotal);
+    const debitLines: AccountingPostingLineInput[] = invoiceAmounts.map(({ purchaseInvoiceId, amount: lineAmount }) => ({
+      accountId: payableAccount.id,
+      side: 'DEBIT',
+      amountBase: lineAmount,
+      description: `Payment order ${order.number ?? order.id} — supplier payable cleared`,
+      dimensions: [
+        { dimensionCode: 'PARTNER', referenceId: order.counterpartyId },
+        { dimensionCode: 'COUNTERPARTY', referenceId: order.counterpartyId },
+        { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: purchaseInvoiceId },
+        ...(currencyId ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }] : []),
+      ],
+    }));
+    if (advanceAmount.gt(0)) {
+      debitLines.push({
         accountId: payableAccount.id,
         side: 'DEBIT',
-        amountBase: amount,
-        description: `Payment order ${order.number ?? order.id} — supplier payable cleared`,
+        amountBase: advanceAmount,
+        description: `Payment order ${order.number ?? order.id} — unmatched advance`,
         dimensions: [
           { dimensionCode: 'PARTNER', referenceId: order.counterpartyId },
           { dimensionCode: 'COUNTERPARTY', referenceId: order.counterpartyId },
-          // Same settlement document the original invoice's own AP credit
-          // line used (purchase-invoice.posting-handler.ts) — the payment
-          // clears that same settlement, not a new one of its own.
-          ...(request ? [{ dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: request.purchaseInvoiceId }] : []),
+          // Nothing else exists yet to reconcile an unmatched advance
+          // against, so the settlement document IS the payment order
+          // itself — satisfies the AP account's SETTLEMENT_DOCUMENT
+          // requirement without inventing a separate advances account.
+          { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: order.id },
           ...(currencyId ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }] : []),
         ],
-      },
+      });
+    }
+
+    const lines: AccountingPostingLineInput[] = [
+      ...debitLines,
       {
         accountId: bankAccountGl.id,
         side: 'CREDIT',

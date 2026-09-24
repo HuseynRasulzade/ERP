@@ -49,7 +49,7 @@ export function Layout() {
         <LanguageSwitch />
 
         <div className="user-menu">
-          <span className="user-name">{user?.displayName}</span>
+          <NavLink to="/profile" className="user-name">{user?.displayName}</NavLink>
           <button onClick={logout}>{t.auth.signOut}</button>
         </div>
       </header>
@@ -68,6 +68,12 @@ export function Layout() {
             <NavLink to="/product-catalog">
               <span className="nav-icon">▤</span>
               {t.nav.productCatalog}
+            </NavLink>
+          )}
+          {hasPermission('price_list.view') && (
+            <NavLink to="/price-lists">
+              <span className="nav-icon">$</span>
+              {t.nav.priceLists}
             </NavLink>
           )}
           {hasPermission('counterparty.view') && (
@@ -164,6 +170,12 @@ export function Layout() {
               {t.nav.purchaseReports}
             </NavLink>
           )}
+          {hasPermission('purchase.supply_planning.view') && (
+            <NavLink to="/procurement-analytics">
+              <span className="nav-icon">📈</span>
+              {t.nav.procurementAnalytics}
+            </NavLink>
+          )}
           {hasPermission('treasury.payment_request.view') && (
             <NavLink to="/payment-requests">
               <span className="nav-icon">💳</span>
@@ -174,6 +186,80 @@ export function Layout() {
             <NavLink to="/payment-orders">
               <span className="nav-icon">🏦</span>
               {t.nav.paymentOrders}
+            </NavLink>
+          )}
+          {hasPermission('treasury.cash_transaction.view') && (
+            <NavLink to="/cash-transactions">
+              <span className="nav-icon">💵</span>
+              {t.nav.cashTransactions}
+            </NavLink>
+          )}
+          {hasPermission('treasury.reconciliation.view') && (
+            <NavLink to="/bank-reconciliation">
+              <span className="nav-icon">🔄</span>
+              {t.nav.reconciliation}
+            </NavLink>
+          )}
+          {hasPermission('bank.view') && (
+            <NavLink to="/banks">
+              <span className="nav-icon">🏦</span>
+              {t.nav.banks}
+            </NavLink>
+          )}
+          {hasPermission('treasury.cash_flow.view') && (
+            <NavLink to="/cash-flow">
+              <span className="nav-icon">📈</span>
+              {t.nav.cashFlow}
+            </NavLink>
+          )}
+
+          <div className="nav-group-label">{t.nav.groupAccounting}</div>
+          {hasPermission('accounting.chart.view') && (
+            <NavLink to="/chart-of-accounts">
+              <span className="nav-icon">📒</span>
+              {t.nav.chartOfAccounts}
+            </NavLink>
+          )}
+          {hasPermission('accounting.manual_operation.view') && (
+            <NavLink to="/manual-operations">
+              <span className="nav-icon">✍</span>
+              {t.nav.manualOperations}
+            </NavLink>
+          )}
+          {hasPermission('accounting.mapping.view') && (
+            <NavLink to="/accounting-mappings">
+              <span className="nav-icon">🔗</span>
+              {t.nav.accountingMappings}
+            </NavLink>
+          )}
+          {hasPermission('accounting.trial_balance.view') && (
+            <NavLink to="/trial-balance">
+              <span className="nav-icon">⚖</span>
+              {t.nav.trialBalance}
+            </NavLink>
+          )}
+          {hasPermission('accounting.general_ledger.view') && (
+            <NavLink to="/general-ledger">
+              <span className="nav-icon">📖</span>
+              {t.nav.generalLedger}
+            </NavLink>
+          )}
+          {hasPermission('accounting.financial_statements.view') && (
+            <NavLink to="/income-statement">
+              <span className="nav-icon">📈</span>
+              {t.nav.incomeStatement}
+            </NavLink>
+          )}
+          {hasPermission('accounting.financial_statements.view') && (
+            <NavLink to="/balance-sheet">
+              <span className="nav-icon">⚖️</span>
+              {t.nav.balanceSheet}
+            </NavLink>
+          )}
+          {hasPermission('tax.config.view') && (
+            <NavLink to="/tax-engine">
+              <span className="nav-icon">🧾</span>
+              {t.nav.taxEngine}
             </NavLink>
           )}
 
@@ -202,6 +288,18 @@ export function Layout() {
               {t.nav.inventoryStatusTransfers}
             </NavLink>
           )}
+          {hasPermission('inventory.view') && (
+            <NavLink to="/inventory-reports">
+              <span className="nav-icon">📊</span>
+              {t.nav.inventoryReports}
+            </NavLink>
+          )}
+          {hasPermission('inventory_cost.view') && (
+            <NavLink to="/inventory-costing">
+              <span className="nav-icon">💰</span>
+              {t.nav.inventoryCosting}
+            </NavLink>
+          )}
 
           <div className="nav-group-label">{t.nav.groupAdmin}</div>
           {hasPermission('organization.view') && (
@@ -220,6 +318,12 @@ export function Layout() {
             <NavLink to="/roles">
               <span className="nav-icon">🛡</span>
               {t.nav.roles}
+            </NavLink>
+          )}
+          {hasPermission('responsible_person.view') && (
+            <NavLink to="/responsible-persons">
+              <span className="nav-icon">◉</span>
+              {t.nav.responsiblePersons}
             </NavLink>
           )}
           {hasPermission('audit.view') && (

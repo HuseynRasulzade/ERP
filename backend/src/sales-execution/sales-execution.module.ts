@@ -8,6 +8,7 @@ import { AccountingCoreModule } from '../accounting-core/accounting-core.module'
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { SalesPreorderModule } from '../sales-preorder/sales-preorder.module';
 import { WarehouseInventoryModule } from '../warehouse-inventory/warehouse-inventory.module';
+import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { CostingService } from './costing.service';
@@ -49,6 +50,7 @@ import { SalesReturnController } from './sales-return.controller';
     TaxEngineModule,
     SalesPreorderModule,
     WarehouseInventoryModule,
+    InventoryCostingModule,
   ],
   controllers: [ShipmentController, SalesReturnController],
   providers: [

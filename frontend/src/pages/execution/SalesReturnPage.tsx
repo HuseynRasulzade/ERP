@@ -11,8 +11,10 @@ function useSalesReturnKind(): ReturnKind {
     docType: 'SALES_RETURN',
     viewPerm: 'sales.return.view',
     createPerm: 'sales.return.create',
+    editPerm: 'sales.return.edit',
     counterpartyLabel: t.common.customer,
     hasOriginalPrice: false,
+    quantityAsString: true,
     sourceFields: [{ key: 'originalSalesInvoiceId', label: 'Original sales invoice id' }],
     reasonOptions: ['DAMAGED', 'WRONG_ITEM', 'QUALITY_ISSUE', 'CUSTOMER_CHANGED_MIND', 'OTHER'],
   };

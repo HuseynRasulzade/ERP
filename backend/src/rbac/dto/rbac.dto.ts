@@ -1,4 +1,4 @@
-import { ArrayUnique, IsArray, IsString } from 'class-validator';
+import { ArrayUnique, IsArray, IsOptional, IsString } from 'class-validator';
 
 export class CreateRoleDto {
   @IsString()
@@ -6,6 +6,10 @@ export class CreateRoleDto {
 
   @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
 
   @IsArray()
   @ArrayUnique()

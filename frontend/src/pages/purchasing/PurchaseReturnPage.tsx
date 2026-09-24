@@ -11,6 +11,7 @@ function usePurchaseReturnKind(): ReturnKind {
     docType: 'PURCHASE_RETURN',
     viewPerm: 'purchase_execution.view',
     createPerm: 'purchase_execution.return',
+    editPerm: 'purchase_execution.edit',
     counterpartyLabel: t.common.supplier,
     hasOriginalPrice: true,
     sourceFields: [

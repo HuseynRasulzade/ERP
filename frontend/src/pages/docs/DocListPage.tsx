@@ -173,7 +173,7 @@ export function DocListPage({ kind }: { kind: DocKind }) {
           counterpartyId,
           documentDate,
           description: description || undefined,
-          lines: serializeDocLines(lines, { showPrice, showTax, showWarehouse: kind.showLineWarehouse }),
+          lines: serializeDocLines(lines, { showPrice, showTax, showWarehouse: kind.showLineWarehouse, quantityAsString: kind.quantityAsString }),
         };
         if (kind.hasPriceIncludesTax) payload.priceIncludesTax = priceIncludesTax;
         if (kind.headerWarehouse) payload.warehouseId = headerWarehouseId;

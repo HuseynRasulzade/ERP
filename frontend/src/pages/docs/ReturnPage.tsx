@@ -20,6 +20,13 @@ export interface ReturnKind {
   hasOriginalPrice: boolean; // Purchase Return requires it explicitly; Sales Return derives it server-side
   sourceFields: { key: string; label: string }[]; // header-level "based on" ids (free-text — normally populated via Create Based On instead)
   reasonOptions: string[];
+  /** Sales Return's DTO validates quantity with @IsNumberString (Decimal
+   * precision); Purchase Return's takes a plain @IsNumber(). Defaults to
+   * false (number), matching Purchase Return's existing behavior. */
+  quantityAsString?: boolean;
+  /** Permission gating the Edit button — both Sales/Purchase Return now
+   * support a header + wholesale line-replace edit while not yet posted. */
+  editPerm: string;
 }
 
 interface ReturnLineDraft {
@@ -111,7 +118,7 @@ export function ReturnListPage({ kind }: { kind: ReturnKind }) {
         lines: lines.map((l) => ({
           productId: l.productId,
           unitId: l.unitId,
-          quantity: Number(l.quantity),
+          quantity: kind.quantityAsString ? l.quantity : Number(l.quantity),
           ...(kind.hasOriginalPrice ? { originalUnitPrice: Number(l.originalUnitPrice) } : {}),
           ...(l.sourceReceiptLineId ? { sourceReceiptLineId: l.sourceReceiptLineId } : {}),
           ...(l.sourceInvoiceLineId ? { sourceInvoiceLineId: l.sourceInvoiceLineId } : {}),
@@ -336,6 +343,8 @@ export function ReturnDetailPage({ kind }: { kind: ReturnKind }) {
   const [counterparties, setCounterparties] = useState<SalesCounterpartyRef[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editLines, setEditLines] = useState<ReturnLineDraft[]>([]);
   const orgId = currentOrganizationId;
 
   const load = useCallback(async () => {
@@ -382,6 +391,48 @@ export function ReturnDetailPage({ kind }: { kind: ReturnKind }) {
     }
   };
 
+  const startEdit = () => {
+    setEditLines(
+      (doc.lines ?? []).length > 0
+        ? (doc.lines ?? []).map((l) => ({
+            productId: (l.productId as string) ?? '',
+            unitId: (l.unitId as string) ?? '',
+            quantity: String(l.quantity ?? '1'),
+            originalUnitPrice: l.originalUnitPrice != null ? String(l.originalUnitPrice) : '',
+            sourceReceiptLineId: (l.sourceReceiptLineId as string) ?? '',
+            sourceInvoiceLineId: (l.sourceInvoiceLineId as string) ?? '',
+            reason: (l.reason as string) ?? '',
+          }))
+        : [emptyReturnLine()],
+    );
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      const updated = await api.patch<BizDoc>(`/organizations/${orgId}/${kind.basePath}/${doc.id}`, {
+        expectedVersion: doc.version,
+        lines: editLines.map((l) => ({
+          productId: l.productId,
+          unitId: l.unitId,
+          quantity: kind.quantityAsString ? l.quantity : Number(l.quantity),
+          ...(kind.hasOriginalPrice ? { originalUnitPrice: Number(l.originalUnitPrice) } : {}),
+          ...(l.sourceReceiptLineId ? { sourceReceiptLineId: l.sourceReceiptLineId } : {}),
+          ...(l.sourceInvoiceLineId ? { sourceInvoiceLineId: l.sourceInvoiceLineId } : {}),
+          ...(l.reason ? { reason: l.reason } : {}),
+        })),
+      });
+      setDoc(updated);
+      setEditing(false);
+      showSuccess(t.common.save);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="document-detail">
       <div className="page-header">
@@ -396,7 +447,12 @@ export function ReturnDetailPage({ kind }: { kind: ReturnKind }) {
           <Link to={`/${kind.routePrefix}`} className="link-muted">
             {t.common.backToList}
           </Link>
-          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (
+          {hasPermission(kind.editPerm) && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && !editing && (
+            <button disabled={busy} onClick={startEdit}>
+              {t.common.edit}
+            </button>
+          )}
+          {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && !editing && (
             <button className="primary" disabled={busy} onClick={() => runCommand('post')}>
               {t.common.post}
             </button>
@@ -429,7 +485,73 @@ export function ReturnDetailPage({ kind }: { kind: ReturnKind }) {
 
       <section className="card">
         <h2>{t.common.lines}</h2>
-        {(doc.lines ?? []).length === 0 ? (
+        {editing ? (
+          <>
+            <p className="panel-note">Tip: normally create this via "Create return…" on the original document — it fills source lines and quantities for you.</p>
+            {editLines.map((line, i) => (
+              <div className="inline-form" key={i}>
+                <label>
+                  {t.common.product}
+                  <select required value={line.productId} onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, productId: e.target.value } : l)))}>
+                    <option value="" disabled>
+                      {t.common.select}
+                    </option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code} — {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t.common.unit}
+                  <select required value={line.unitId} onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, unitId: e.target.value } : l)))}>
+                    <option value="" disabled>
+                      {t.common.select}
+                    </option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t.common.quantity}
+                  <input type="number" step="any" min="0" required value={line.quantity} onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, quantity: e.target.value } : l)))} />
+                </label>
+                {kind.hasOriginalPrice && (
+                  <label>
+                    Original price
+                    <input type="number" step="any" min="0" required value={line.originalUnitPrice} onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, originalUnitPrice: e.target.value } : l)))} />
+                  </label>
+                )}
+                <label>
+                  Source receipt line id
+                  <input value={line.sourceReceiptLineId} onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, sourceReceiptLineId: e.target.value } : l)))} placeholder="optional" />
+                </label>
+                <label>
+                  Source invoice line id
+                  <input value={line.sourceInvoiceLineId} onChange={(e) => setEditLines(editLines.map((l, j) => (j === i ? { ...l, sourceInvoiceLineId: e.target.value } : l)))} placeholder="optional" />
+                </label>
+                <button type="button" className="small" disabled={editLines.length <= 1} onClick={() => setEditLines(editLines.filter((_, j) => j !== i))}>
+                  {t.common.remove}
+                </button>
+              </div>
+            ))}
+            <div className="inline-form">
+              <button type="button" className="small" onClick={() => setEditLines([...editLines, emptyReturnLine()])}>
+                {t.common.addLine}
+              </button>
+              <button className="primary" disabled={busy} onClick={saveEdit}>
+                {busy ? t.common.saving : t.common.save}
+              </button>
+              <button disabled={busy} onClick={() => setEditing(false)}>
+                {t.common.cancel}
+              </button>
+            </div>
+          </>
+        ) : (doc.lines ?? []).length === 0 ? (
           <p className="panel-note">{t.common.noLinesYet}</p>
         ) : (
           <table className="data-table">

@@ -47,6 +47,29 @@ export class AccountingReportsController {
     });
   }
 
+  @RequirePermissions(PermissionCodes.ACCOUNTING_FINANCIAL_STATEMENTS_VIEW)
+  @Get('income-statement')
+  incomeStatement(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Query('fromDate') fromDate: string,
+    @Query('toDate') toDate: string,
+  ) {
+    return this.query.incomeStatement(tenantId, membershipId, organizationId, { fromDate: parseDate(fromDate), toDate: parseDate(toDate) });
+  }
+
+  @RequirePermissions(PermissionCodes.ACCOUNTING_FINANCIAL_STATEMENTS_VIEW)
+  @Get('balance-sheet')
+  balanceSheet(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Query('asOfDate') asOfDate: string,
+  ) {
+    return this.query.balanceSheet(tenantId, membershipId, organizationId, { asOfDate: parseDate(asOfDate) });
+  }
+
   @RequirePermissions(PermissionCodes.ACCOUNTING_JOURNAL_VIEW)
   @Get('journal-entries')
   journalEntriesForDocument(

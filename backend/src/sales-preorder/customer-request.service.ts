@@ -5,7 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { ConflictAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { CUSTOMER_REQUEST_TYPE } from './customer-request.repository';
-import { CreateCustomerRequestDto } from './dto/sales-preorder.dto';
+import { CreateCustomerRequestDto, UpdateCustomerRequestDto } from './dto/sales-preorder.dto';
 
 const SEQUENCE_PREFIX = 'CR';
 const CUSTOMER_TYPES = ['CUSTOMER', 'BOTH'];
@@ -105,6 +105,77 @@ export class CustomerRequestService {
       );
 
       return tx.customerRequest.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
+    });
+  }
+
+  /**
+   * Header + wholesale line-replace edit (matches the "Replace lines"
+   * pattern used by DocDetailPage for Shipment/Sales Invoice/Returns): only
+   * while OPEN, since a QUOTED/CONVERTED request already has downstream
+   * offers/orders relying on what it said.
+   */
+  async update(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    dto: UpdateCustomerRequestDto,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const current = await this.get(tenantId, membershipId, organizationId, id);
+    if (current.version !== dto.expectedVersion) throw new ConflictAppError('The customer request has been changed by another user');
+    if (current.status !== 'OPEN') throw new ValidationAppError(`Cannot edit a customer request in status ${current.status}`);
+
+    return this.prisma.runInTransaction(async (tx) => {
+      const result = await tx.customerRequest.updateMany({
+        where: { id, tenantId, version: dto.expectedVersion },
+        data: {
+          documentDate: dto.documentDate ? parseDate(dto.documentDate) : undefined,
+          requestedDeliveryDate: dto.requestedDeliveryDate ? parseDate(dto.requestedDeliveryDate) : undefined,
+          salesManagerId: dto.salesManagerId,
+          sourceChannel: dto.sourceChannel,
+          description: dto.description,
+          externalReference: dto.externalReference,
+          updatedBy: userId,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count === 0) throw new ConflictAppError('The customer request has been changed by another user');
+
+      if (dto.lines) {
+        await tx.customerRequestLine.deleteMany({ where: { customerRequestId: id } });
+        for (const [index, line] of dto.lines.entries()) {
+          await tx.customerRequestLine.create({
+            data: {
+              tenantId,
+              customerRequestId: id,
+              position: index,
+              productId: line.productId,
+              unitId: line.unitId,
+              quantity: line.quantity,
+              requestedPrice: line.requestedPrice,
+              requestedDeliveryDate: line.requestedDeliveryDate ? parseDate(line.requestedDeliveryDate) : undefined,
+              notes: line.notes,
+            },
+          });
+        }
+      }
+
+      await this.audit.record(
+        {
+          tenantId,
+          eventType: 'CUSTOMER_REQUEST_UPDATED',
+          entityType: CUSTOMER_REQUEST_TYPE,
+          entityId: id,
+          action: 'UPDATE',
+          userId,
+          newValues: { lineCount: dto.lines?.length },
+        },
+        tx,
+      );
+
+      return tx.customerRequest.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
   }
 

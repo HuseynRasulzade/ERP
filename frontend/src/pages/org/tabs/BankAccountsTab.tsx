@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../../../api/client';
-import type { BankAccount, Currency } from '../../../api/types';
+import type { Bank, BankAccount, Currency } from '../../../api/types';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 
@@ -16,7 +16,9 @@ export function BankAccountsTab({ organizationId }: { organizationId: string }) 
   const { showError, showSuccess } = useToast();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [banks, setBanks] = useState<Bank[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [bankId, setBankId] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountName, setAccountName] = useState('');
   const [iban, setIban] = useState('');
@@ -26,12 +28,14 @@ export function BankAccountsTab({ organizationId }: { organizationId: string }) 
 
   const load = async () => {
     try {
-      const [accs, curr] = await Promise.all([
+      const [accs, curr, bnks] = await Promise.all([
         api.get<BankAccount[]>(`/organizations/${organizationId}/bank-accounts`),
         api.get<Currency[]>('/currencies'),
+        api.get<Bank[]>('/banks').catch(() => []),
       ]);
       setAccounts(accs);
       setCurrencies(curr);
+      setBanks(bnks);
       if (!currencyId && curr.length > 0) setCurrencyId(curr[0].id);
     } catch (err) {
       showError(err);
@@ -50,6 +54,7 @@ export function BankAccountsTab({ organizationId }: { organizationId: string }) 
     setBusy(true);
     try {
       await api.post(`/organizations/${organizationId}/bank-accounts`, {
+        bankId: bankId || undefined,
         bankName,
         accountName,
         iban,
@@ -57,6 +62,7 @@ export function BankAccountsTab({ organizationId }: { organizationId: string }) 
         isDefault,
       });
       showSuccess('Bank account created');
+      setBankId('');
       setBankName('');
       setAccountName('');
       setIban('');
@@ -95,6 +101,25 @@ export function BankAccountsTab({ organizationId }: { organizationId: string }) 
       </div>
       {showForm && (
         <form className="inline-form" onSubmit={create}>
+          <label>
+            Bank (catalog)
+            <select
+              value={bankId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setBankId(id);
+                const bank = banks.find((b) => b.id === id);
+                if (bank) setBankName(bank.name);
+              }}
+            >
+              <option value="">Manual entry…</option>
+              {banks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Bank name
             <input required value={bankName} onChange={(e) => setBankName(e.target.value)} />
@@ -141,7 +166,7 @@ export function BankAccountsTab({ organizationId }: { organizationId: string }) 
         <tbody>
           {accounts.map((a) => (
             <tr key={a.id}>
-              <td>{a.bankName}</td>
+              <td>{a.bankName}{a.bankId && banks.find((b) => b.id === a.bankId) ? ` (${banks.find((b) => b.id === a.bankId)!.code})` : ''}</td>
               <td>{a.accountName}</td>
               <td className="numeric" style={{ fontFamily: 'ui-monospace, monospace' }}>
                 {maskIban(a.iban)}

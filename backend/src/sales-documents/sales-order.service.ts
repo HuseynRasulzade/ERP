@@ -30,6 +30,10 @@ interface ResolvedLine {
   priceListId: string | null;
   productPriceId: string | null;
   description?: string;
+  warehouseId?: string;
+  isService?: boolean;
+  reservationPolicy?: string;
+  fulfillmentPolicy?: string;
 }
 
 /**
@@ -116,6 +120,13 @@ export class SalesOrderService {
           grandTotal: totals.grandTotal,
           priceIncludesTax,
           description: dto.description,
+          warehouseId: dto.warehouseId,
+          salesChannel: dto.salesChannel,
+          ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
+          externalReference: dto.externalReference,
+          requestedDeliveryDate: dto.requestedDeliveryDate ? this.parseDate(dto.requestedDeliveryDate) : undefined,
+          promisedDeliveryDate: dto.promisedDeliveryDate ? this.parseDate(dto.promisedDeliveryDate) : undefined,
+          ...(dto.shipmentPaymentPolicy !== undefined ? { shipmentPaymentPolicy: dto.shipmentPaymentPolicy } : {}),
           createdBy: userId,
           updatedBy: userId,
         },
@@ -138,6 +149,10 @@ export class SalesOrderService {
             priceListId: line.priceListId,
             productPriceId: line.productPriceId,
             description: line.description,
+            warehouseId: line.warehouseId,
+            isService: line.isService ?? false,
+            ...(line.reservationPolicy !== undefined ? { reservationPolicy: line.reservationPolicy } : {}),
+            ...(line.fulfillmentPolicy !== undefined ? { fulfillmentPolicy: line.fulfillmentPolicy } : {}),
             createdBy: userId,
             updatedBy: userId,
           },
@@ -179,6 +194,13 @@ export class SalesOrderService {
       currencyId?: string;
       priceIncludesTax?: boolean;
       description?: string;
+      warehouseId?: string;
+      salesChannel?: string;
+      priority?: string;
+      externalReference?: string;
+      requestedDeliveryDate?: string;
+      promisedDeliveryDate?: string;
+      shipmentPaymentPolicy?: string;
       lines?: SalesLineItemDto[];
     },
   ) {
@@ -243,6 +265,13 @@ export class SalesOrderService {
           ...(patch.currencyId !== undefined ? { currencyId: patch.currencyId } : {}),
           ...(patch.priceIncludesTax !== undefined ? { priceIncludesTax } : {}),
           ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.warehouseId !== undefined ? { warehouseId: patch.warehouseId } : {}),
+          ...(patch.salesChannel !== undefined ? { salesChannel: patch.salesChannel } : {}),
+          ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+          ...(patch.externalReference !== undefined ? { externalReference: patch.externalReference } : {}),
+          ...(patch.requestedDeliveryDate !== undefined ? { requestedDeliveryDate: this.parseDate(patch.requestedDeliveryDate) } : {}),
+          ...(patch.promisedDeliveryDate !== undefined ? { promisedDeliveryDate: this.parseDate(patch.promisedDeliveryDate) } : {}),
+          ...(patch.shipmentPaymentPolicy !== undefined ? { shipmentPaymentPolicy: patch.shipmentPaymentPolicy } : {}),
           subtotal: totals.subtotal,
           taxTotal: totals.taxTotal,
           grandTotal: totals.grandTotal,
@@ -271,6 +300,10 @@ export class SalesOrderService {
               priceListId: line.priceListId,
               productPriceId: line.productPriceId,
               description: line.description,
+              warehouseId: line.warehouseId,
+              isService: line.isService ?? false,
+              ...(line.reservationPolicy !== undefined ? { reservationPolicy: line.reservationPolicy } : {}),
+              ...(line.fulfillmentPolicy !== undefined ? { fulfillmentPolicy: line.fulfillmentPolicy } : {}),
               createdBy: userId,
               updatedBy: userId,
             },
@@ -431,6 +464,10 @@ export class SalesOrderService {
         priceListId,
         productPriceId,
         description: line.description,
+        warehouseId: line.warehouseId,
+        isService: line.isService,
+        reservationPolicy: line.reservationPolicy,
+        fulfillmentPolicy: line.fulfillmentPolicy,
       });
     }
     return resolved;

@@ -28,3 +28,17 @@ export class RefreshTokenDto {
   @IsString()
   refreshToken!: string;
 }
+
+export class UpdateProfileDto {
+  @IsOptional()
+  @IsString()
+  displayName?: string;
+
+  @IsOptional()
+  @IsString()
+  locale?: string;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+}

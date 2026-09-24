@@ -21,6 +21,7 @@ export class CreateOrganizationDto {
   @IsOptional() @IsString() baseCurrencyId?: string;
   @IsOptional() @IsString() timezone?: string;
   @IsOptional() @IsString() locale?: string;
+  @IsOptional() @IsString() defaultLanguage?: string;
 }
 
 export class UpdateOrganizationDto {
@@ -39,6 +40,7 @@ export class UpdateOrganizationDto {
   @IsOptional() @IsString() baseCurrencyId?: string;
   @IsOptional() @IsString() timezone?: string;
   @IsOptional() @IsString() locale?: string;
+  @IsOptional() @IsString() defaultLanguage?: string;
 
   @IsInt()
   @Min(1)

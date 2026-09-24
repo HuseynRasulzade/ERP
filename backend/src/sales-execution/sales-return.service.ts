@@ -4,9 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
-import { NotFoundAppError, ReturnQuantityExceedsSoldError, ValidationAppError } from '../common/errors/app-error';
+import { ConflictAppError, NotFoundAppError, ReturnQuantityExceedsSoldError, ValidationAppError } from '../common/errors/app-error';
 import { SALES_RETURN_TYPE } from './sales-return.repository';
-import { CreateSalesReturnDto } from './dto/sales-execution.dto';
+import { CreateSalesReturnDto, SalesReturnLineDto, UpdateSalesReturnDto } from './dto/sales-execution.dto';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'SRET';
@@ -52,32 +52,7 @@ export class SalesReturnService {
     }
 
     const businessDate = parseDate(dto.documentDate);
-    let subtotal = new Decimal(0);
-    const preparedLines = [];
-
-    for (const line of dto.lines) {
-      const quantity = new Decimal(line.quantity);
-      if (quantity.lte(0)) throw new ValidationAppError('Return line quantity must be positive');
-
-      let originalUnitPrice = new Decimal(0);
-      if (line.sourceInvoiceLineId) {
-        const sourceLine = await this.prisma.salesInvoiceLine.findFirst({ where: { id: line.sourceInvoiceLineId, tenantId } });
-        if (!sourceLine) throw new NotFoundAppError('SalesInvoiceLine', line.sourceInvoiceLineId);
-        originalUnitPrice = new Decimal(sourceLine.price.toString());
-
-        const alreadyReturned = await this.prisma.salesReturnLine.aggregate({
-          where: { tenantId, sourceInvoiceLineId: line.sourceInvoiceLineId, salesReturn: { postingStatus: 'POSTED' } },
-          _sum: { quantity: true },
-        });
-        const maxReturnable = new Decimal(sourceLine.quantity.toString()).minus((alreadyReturned._sum.quantity ?? 0).toString());
-        if (quantity.gt(maxReturnable)) {
-          throw new ReturnQuantityExceedsSoldError(maxReturnable.toFixed(6), quantity.toString());
-        }
-      }
-
-      subtotal = subtotal.plus(originalUnitPrice.mul(quantity));
-      preparedLines.push({ ...line, quantity, originalUnitPrice });
-    }
+    const { preparedLines, subtotal } = await this.resolveLines(tenantId, dto.lines);
 
     await this.ensureSequence(tenantId);
 
@@ -130,6 +105,95 @@ export class SalesReturnService {
 
       return tx.salesReturn.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
+  }
+
+  /** Header + wholesale line-replace edit, only while not yet posted. */
+  async update(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, dto: UpdateSalesReturnDto) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const current = await this.get(tenantId, membershipId, organizationId, id);
+    if (current.version !== dto.expectedVersion) throw new ConflictAppError('The sales return has been changed by another user');
+    if (current.postingStatus === 'POSTED') throw new ValidationAppError('Unpost the sales return before editing it');
+    if (current.status === 'CANCELLED') throw new ValidationAppError('Cannot edit a cancelled sales return');
+
+    let resolved: { preparedLines: Awaited<ReturnType<typeof this.resolveLines>>['preparedLines']; subtotal: Decimal } | null = null;
+    if (dto.lines) resolved = await this.resolveLines(tenantId, dto.lines);
+
+    return this.prisma.runInTransaction(async (tx) => {
+      const result = await tx.salesReturn.updateMany({
+        where: { id, tenantId, version: dto.expectedVersion },
+        data: {
+          documentDate: dto.documentDate ? parseDate(dto.documentDate) : undefined,
+          warehouseId: dto.warehouseId,
+          returnType: dto.returnType,
+          reasonCode: dto.reasonCode,
+          description: dto.description,
+          ...(resolved ? { subtotal: resolved.subtotal.toString() } : {}),
+          updatedBy: userId,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count === 0) throw new ConflictAppError('The sales return has been changed by another user');
+
+      if (resolved) {
+        await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
+        for (const [index, line] of resolved.preparedLines.entries()) {
+          const created = await tx.salesReturnLine.create({
+            data: {
+              tenantId,
+              salesReturnId: id,
+              position: index,
+              sourceInvoiceLineId: line.sourceInvoiceLineId,
+              productId: line.productId,
+              unitId: line.unitId,
+              quantity: line.quantity.toString(),
+              originalUnitPrice: line.originalUnitPrice.toString(),
+              batchId: line.batchId,
+              reason: line.reason,
+            },
+          });
+          if (line.serialNumbers?.length) {
+            await this.batchSerial.captureSerials(tenantId, SALES_RETURN_TYPE, created.id, line.serialNumbers, tx);
+          }
+        }
+      }
+
+      await this.audit.record(
+        { tenantId, eventType: 'SALES_RETURN_UPDATED', entityType: SALES_RETURN_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { lineCount: dto.lines?.length } },
+        tx,
+      );
+
+      return tx.salesReturn.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
+    });
+  }
+
+  private async resolveLines(tenantId: string, lines: SalesReturnLineDto[]) {
+    let subtotal = new Decimal(0);
+    const preparedLines: Array<Omit<SalesReturnLineDto, 'quantity'> & { quantity: Decimal; originalUnitPrice: Decimal }> = [];
+
+    for (const line of lines) {
+      const quantity = new Decimal(line.quantity);
+      if (quantity.lte(0)) throw new ValidationAppError('Return line quantity must be positive');
+
+      let originalUnitPrice = new Decimal(0);
+      if (line.sourceInvoiceLineId) {
+        const sourceLine = await this.prisma.salesInvoiceLine.findFirst({ where: { id: line.sourceInvoiceLineId, tenantId } });
+        if (!sourceLine) throw new NotFoundAppError('SalesInvoiceLine', line.sourceInvoiceLineId);
+        originalUnitPrice = new Decimal(sourceLine.price.toString());
+
+        const alreadyReturned = await this.prisma.salesReturnLine.aggregate({
+          where: { tenantId, sourceInvoiceLineId: line.sourceInvoiceLineId, salesReturn: { postingStatus: 'POSTED' } },
+          _sum: { quantity: true },
+        });
+        const maxReturnable = new Decimal(sourceLine.quantity.toString()).minus((alreadyReturned._sum.quantity ?? 0).toString());
+        if (quantity.gt(maxReturnable)) {
+          throw new ReturnQuantityExceedsSoldError(maxReturnable.toFixed(6), quantity.toString());
+        }
+      }
+
+      subtotal = subtotal.plus(originalUnitPrice.mul(quantity));
+      preparedLines.push({ ...line, quantity, originalUnitPrice });
+    }
+    return { preparedLines, subtotal };
   }
 
   private async ensureSequence(tenantId: string) {

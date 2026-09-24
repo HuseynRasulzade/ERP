@@ -4,9 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
-import { NotFoundAppError, PurchaseReturnSourceRequiredError, ValidationAppError } from '../common/errors/app-error';
+import { ConflictAppError, NotFoundAppError, PurchaseReturnSourceRequiredError, ValidationAppError } from '../common/errors/app-error';
 import { PURCHASE_RETURN_TYPE } from './purchase-return.repository';
-import { CreatePurchaseReturnDto } from './dto/purchase-execution.dto';
+import { CreatePurchaseReturnDto, PurchaseReturnLineItemDto, UpdatePurchaseReturnDto } from './dto/purchase-execution.dto';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 
 const SEQUENCE_PREFIX = 'PRTN';
@@ -48,12 +48,7 @@ export class PurchaseReturnService {
       if (!pi) throw new ValidationAppError('Original purchase invoice does not belong to this organization');
     }
 
-    for (const line of dto.lines) {
-      if (!line.sourceReceiptLineId && !line.sourceInvoiceLineId && line.originalUnitPrice === undefined) {
-        throw new PurchaseReturnSourceRequiredError();
-      }
-      if (Number(line.quantity) <= 0) throw new ValidationAppError('Return line quantity must be positive');
-    }
+    this.validateLines(dto.lines);
 
     await this.ensureSequence(tenantId);
 
@@ -106,6 +101,72 @@ export class PurchaseReturnService {
 
       return tx.purchaseReturn.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
+  }
+
+  /** Header + wholesale line-replace edit, only while not yet posted. */
+  async update(tenantId: string, membershipId: string, organizationId: string, id: string, userId: string, dto: UpdatePurchaseReturnDto) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const current = await this.get(tenantId, membershipId, organizationId, id);
+    if (current.version !== dto.expectedVersion) throw new ConflictAppError('The purchase return has been changed by another user');
+    if (current.postingStatus === 'POSTED') throw new ValidationAppError('Unpost the purchase return before editing it');
+    if (current.status === 'CANCELLED') throw new ValidationAppError('Cannot edit a cancelled purchase return');
+
+    if (dto.lines) this.validateLines(dto.lines);
+
+    return this.prisma.runInTransaction(async (tx) => {
+      const result = await tx.purchaseReturn.updateMany({
+        where: { id, tenantId, version: dto.expectedVersion },
+        data: {
+          documentDate: dto.documentDate ? this.parseDate(dto.documentDate) : undefined,
+          warehouseId: dto.warehouseId,
+          returnReason: dto.returnReason,
+          description: dto.description,
+          updatedBy: userId,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count === 0) throw new ConflictAppError('The purchase return has been changed by another user');
+
+      if (dto.lines) {
+        await tx.purchaseReturnLine.deleteMany({ where: { purchaseReturnId: id } });
+        for (const [index, line] of dto.lines.entries()) {
+          const created = await tx.purchaseReturnLine.create({
+            data: {
+              tenantId,
+              purchaseReturnId: id,
+              position: index,
+              sourceReceiptLineId: line.sourceReceiptLineId,
+              sourceInvoiceLineId: line.sourceInvoiceLineId,
+              productId: line.productId,
+              unitId: line.unitId,
+              quantity: new Decimal(line.quantity.toString()),
+              originalUnitPrice: new Decimal(line.originalUnitPrice.toString()),
+              batchId: line.batchId,
+              reason: line.reason,
+            },
+          });
+          if (line.serialNumbers?.length) {
+            await this.batchSerial.captureSerials(tenantId, PURCHASE_RETURN_TYPE, created.id, line.serialNumbers, tx);
+          }
+        }
+      }
+
+      await this.audit.record(
+        { tenantId, eventType: 'PURCHASE_RETURN_UPDATED', entityType: PURCHASE_RETURN_TYPE, entityId: id, action: 'UPDATE', userId, newValues: { lineCount: dto.lines?.length } },
+        tx,
+      );
+
+      return tx.purchaseReturn.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
+    });
+  }
+
+  private validateLines(lines: PurchaseReturnLineItemDto[]) {
+    for (const line of lines) {
+      if (!line.sourceReceiptLineId && !line.sourceInvoiceLineId && line.originalUnitPrice === undefined) {
+        throw new PurchaseReturnSourceRequiredError();
+      }
+      if (Number(line.quantity) <= 0) throw new ValidationAppError('Return line quantity must be positive');
+    }
   }
 
   private parseDate(value: string): Date {

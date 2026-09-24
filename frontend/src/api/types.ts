@@ -3,6 +3,7 @@ export interface Me {
   email: string;
   displayName: string;
   locale: string;
+  timezone: string | null;
   isSystemAdmin: boolean;
 }
 
@@ -146,6 +147,7 @@ export interface Organization {
   baseCurrencyId: string | null;
   timezone: string;
   locale: string;
+  defaultLanguage: string;
   active: boolean;
   defaultBranchId: string | null;
   defaultWarehouseId: string | null;
@@ -216,12 +218,22 @@ export interface UnitOfMeasure {
   version: number;
 }
 
+export interface ProductParentCategory {
+  id: string;
+  organizationId: string;
+  code: string;
+  name: string;
+  active: boolean;
+  version: number;
+}
+
 export interface ProductCategory {
   id: string;
   organizationId: string;
   code: string;
   name: string;
   parentCategoryId: string | null;
+  parentGroupId: string | null;
   description: string | null;
   active: boolean;
   version: number;
@@ -262,9 +274,21 @@ export interface Cashbox {
   version: number;
 }
 
+export interface Bank {
+  id: string;
+  code: string;
+  name: string;
+  swiftBic: string | null;
+  correspondentAccount: string | null;
+  address: string | null;
+  active: boolean;
+  version: number;
+}
+
 export interface BankAccount {
   id: string;
   organizationId: string;
+  bankId: string | null;
   bankName: string;
   bankCode: string | null;
   branchName: string | null;
@@ -305,6 +329,84 @@ export interface TaxProfile {
   validTo: string | null;
   active: boolean;
   version: number;
+}
+
+export interface TaxType {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+}
+
+export interface TaxCategory {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+}
+
+export interface TaxRate {
+  id: string;
+  taxTypeId: string;
+  taxType?: { code: string; name: string };
+  jurisdiction: string;
+  code: string;
+  rate: string;
+  rateType: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: string;
+}
+
+export interface TaxRule {
+  id: string;
+  taxTypeId: string;
+  taxType?: { code: string; name: string };
+  code: string;
+  name: string;
+  ruleCategory: string;
+  treatment: string;
+  status: string;
+  priority: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+export interface TaxRegistration {
+  id: string;
+  organizationId: string;
+  taxType: string;
+  registrationNumber: string | null;
+  jurisdiction: string;
+  validFrom: string;
+  validTo: string | null;
+  status: string;
+  version: number;
+}
+
+export interface TaxMovement {
+  id: string;
+  taxType: string;
+  taxCode: string;
+  direction: 'OUTPUT' | 'INPUT';
+  taxPointDate: string;
+  reportingPeriod: string;
+  taxableBase: string;
+  taxAmount: string;
+  recoverableAmount: string;
+  nonrecoverableAmount: string;
+  sourceDocumentType: string | null;
+  sourceDocumentId: string | null;
+}
+
+export interface TaxRegisterSummary {
+  taxableBase: string;
+  taxAmount: string;
+  recoverableAmount: string;
+  nonrecoverableAmount: string;
+  movementCount: number;
 }
 
 export interface OrganizationAccessGrant {
@@ -364,6 +466,15 @@ export interface SalesOrder {
   approvalStatus?: string;
   creditStatus?: string;
   reservationStatus?: string;
+  fulfillmentStatus?: string;
+  warehouseId?: string | null;
+  salesChannel?: string | null;
+  priority?: string;
+  externalReference?: string | null;
+  requestedDeliveryDate?: string | null;
+  promisedDeliveryDate?: string | null;
+  shipmentPaymentPolicy?: string;
+  taxPointDate?: string | null;
 }
 
 export type SalesInvoice = SalesOrder;
@@ -610,6 +721,11 @@ export interface SalesLineDraft {
   price: string;
   taxRate: string;
   description: string;
+  /** Sales Invoice only, carried through invisibly from the source
+   * Shipment line when the invoice was created based on one — lets
+   * COGS post (see CostingService) without a dedicated UI field, since
+   * a Sales Order line has no such concept. */
+  sourceShipmentLineId?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,9 @@ export function GeneralTab({ org, onChanged }: { org: Organization; onChanged: (
     phone: org.phone ?? '',
     email: org.email ?? '',
     website: org.website ?? '',
+    timezone: org.timezone,
+    locale: org.locale,
+    defaultLanguage: org.defaultLanguage,
   });
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -85,6 +88,12 @@ export function GeneralTab({ org, onChanged }: { org: Organization; onChanged: (
           <dd>{org.email ?? '—'}</dd>
           <dt>Website</dt>
           <dd>{org.website ?? '—'}</dd>
+          <dt>Timezone</dt>
+          <dd>{org.timezone}</dd>
+          <dt>Locale</dt>
+          <dd>{org.locale}</dd>
+          <dt>Default language</dt>
+          <dd>{org.defaultLanguage}</dd>
           <dt>Status</dt>
           <dd>{org.active ? 'Active' : 'Inactive'}</dd>
         </dl>
@@ -147,6 +156,18 @@ export function GeneralTab({ org, onChanged }: { org: Organization; onChanged: (
         <label>
           Website
           <input value={form.website} onChange={set('website')} />
+        </label>
+        <label>
+          Timezone
+          <input value={form.timezone} onChange={set('timezone')} />
+        </label>
+        <label>
+          Locale
+          <input value={form.locale} onChange={set('locale')} />
+        </label>
+        <label>
+          Default language
+          <input value={form.defaultLanguage} onChange={set('defaultLanguage')} />
         </label>
       </div>
       <div className="actions">

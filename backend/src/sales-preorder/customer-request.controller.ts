@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { CustomerRequestService } from './customer-request.service';
-import { CreateCustomerRequestDto, VersionedCommandDto } from './dto/sales-preorder.dto';
+import { CreateCustomerRequestDto, UpdateCustomerRequestDto, VersionedCommandDto } from './dto/sales-preorder.dto';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -38,6 +38,19 @@ export class CustomerRequestController {
     @Body() dto: CreateCustomerRequestDto,
   ) {
     return this.service.create(tenantId, membershipId, organizationId, user.userId, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.SALES_CUSTOMER_REQUEST_EDIT)
+  @Patch(':id')
+  update(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: UpdateCustomerRequestDto,
+  ) {
+    return this.service.update(tenantId, membershipId, organizationId, id, user.userId, dto);
   }
 
   @RequirePermissions(PermissionCodes.SALES_CUSTOMER_REQUEST_CANCEL)

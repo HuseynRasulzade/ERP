@@ -128,6 +128,22 @@ export class CreateContractFromPurchaseOrderDto {
   lines?: CreateContractFromPurchaseOrderLineDto[];
 }
 
+export class CreateContractFromSalesOrderLineDto {
+  @IsString() salesOrderLineId!: string;
+  @IsOptional() @IsNumber() quantity?: number;
+}
+
+export class CreateContractFromSalesOrderDto {
+  @IsString() salesOrderId!: string;
+  @IsString() number!: string;
+  @IsOptional() @IsString() subject?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateContractFromSalesOrderLineDto)
+  lines?: CreateContractFromSalesOrderLineDto[];
+}
+
 export class SetContractStatusDto {
   @IsIn(STATUSES) status!: string;
   @IsInt() @Min(1) expectedVersion!: number;

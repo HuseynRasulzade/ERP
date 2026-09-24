@@ -8,6 +8,7 @@ import type {
   SalesOrder,
   SalesProductRef,
   SalesUnitRef,
+  Warehouse,
 } from '../../api/types';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
@@ -51,6 +52,7 @@ export function SalesDocumentListPage({ kind }: { kind: SalesKind }) {
   const [counterparties, setCounterparties] = useState<SalesCounterpartyRef[]>([]);
   const [products, setProducts] = useState<SalesProductRef[]>([]);
   const [units, setUnits] = useState<SalesUnitRef[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -59,6 +61,7 @@ export function SalesDocumentListPage({ kind }: { kind: SalesKind }) {
   const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [priceIncludesTax, setPriceIncludesTax] = useState(false);
   const [description, setDescription] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
   const [lines, setLines] = useState<SalesLineDraft[]>([emptyLine()]);
 
   const orgId = currentOrganizationId;
@@ -70,16 +73,18 @@ export function SalesDocumentListPage({ kind }: { kind: SalesKind }) {
     }
     setLoading(true);
     try {
-      const [docs, cps, prods, uoms] = await Promise.all([
+      const [docs, cps, prods, uoms, whs] = await Promise.all([
         api.get<SalesOrder[]>(`/organizations/${orgId}/${cfg.basePath}`),
         api.get<SalesCounterpartyRef[]>(`/organizations/${orgId}/counterparties`).catch(() => []),
         api.get<SalesProductRef[]>(`/organizations/${orgId}/products`).catch(() => []),
         api.get<SalesUnitRef[]>('/units-of-measure').catch(() => []),
+        api.get<Warehouse[]>(`/organizations/${orgId}/warehouses`).catch(() => []),
       ]);
       setDocuments(docs);
       setCounterparties(cps.filter((c) => c.counterpartyType === 'CUSTOMER' || c.counterpartyType === 'BOTH'));
       setProducts(prods);
       setUnits(uoms);
+      setWarehouses(whs);
     } catch (err) {
       showError(err);
     } finally {
@@ -106,11 +111,13 @@ export function SalesDocumentListPage({ kind }: { kind: SalesKind }) {
         documentDate,
         priceIncludesTax,
         description: description || undefined,
+        ...(kind === 'order' ? { warehouseId: warehouseId || undefined } : {}),
         lines: serializeLines(lines),
       });
       showSuccess(`Created ${created.number ?? created.id.slice(0, 8)}`);
       setCounterpartyId('');
       setDescription('');
+      setWarehouseId('');
       setLines([emptyLine()]);
       setShowForm(false);
       await load();
@@ -186,6 +193,17 @@ export function SalesDocumentListPage({ kind }: { kind: SalesKind }) {
                   Description
                   <input value={description} onChange={(e) => setDescription(e.target.value)} />
                 </label>
+                {kind === 'order' && (
+                  <label>
+                    Warehouse
+                    <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+                      <option value="">—</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>{w.code} — {w.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
               <SalesLinesEditor lines={lines} setLines={setLines} products={products} units={units} />
               <div className="inline-form">

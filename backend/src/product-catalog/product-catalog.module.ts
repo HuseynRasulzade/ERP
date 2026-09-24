@@ -8,6 +8,11 @@ import { UnitOfMeasureController } from './unit-of-measure.controller';
 import { ProductCategoryService } from './product-category.service';
 import { ProductCategoryController } from './product-category.controller';
 
+import { ProductParentCategoryService } from './product-parent-category.service';
+import { ProductParentCategoryController } from './product-parent-category.controller';
+
+import { ProductCatalogCodeService } from './product-catalog-code.service';
+
 import { ProductService } from './product.service';
 import { ProductController } from './product.controller';
 
@@ -24,16 +29,20 @@ import { ProductController } from './product.controller';
   controllers: [
     UnitOfMeasureController,
     ProductCategoryController,
+    ProductParentCategoryController,
     ProductController,
   ],
   providers: [
     UnitOfMeasureService,
     ProductCategoryService,
+    ProductParentCategoryService,
+    ProductCatalogCodeService,
     ProductService,
   ],
   exports: [
     UnitOfMeasureService,
     ProductCategoryService,
+    ProductParentCategoryService,
     ProductService,
   ],
 })

@@ -14,7 +14,7 @@ import {
   ValidationAppError,
 } from '../common/errors/app-error';
 import { COMMERCIAL_OFFER_TYPE } from './commercial-offer.repository';
-import { CommercialOfferLineDto, CreateCommercialOfferDto } from './dto/sales-preorder.dto';
+import { CommercialOfferLineDto, CreateCommercialOfferDto, UpdateCommercialOfferDto } from './dto/sales-preorder.dto';
 import { RequestContextService } from '../common/context/request-context.service';
 import { PermissionCodes } from '../rbac/permission-codes';
 
@@ -160,6 +160,102 @@ export class CommercialOfferService {
       );
 
       return tx.commercialOffer.findFirst({ where: { id: header.id }, include: { lines: { orderBy: { position: 'asc' } } } });
+    });
+  }
+
+  /**
+   * Header + wholesale line-replace edit, only while DRAFT (matches
+   * CustomerRequestService.update's OPEN-only guard) — once SENT, the
+   * customer has already seen these terms, so changes must go through a
+   * new offer instead of a silent edit.
+   */
+  async update(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    dto: UpdateCommercialOfferDto,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    const current = await this.get(tenantId, membershipId, organizationId, id);
+    if (current.version !== dto.expectedVersion) throw new ConflictAppError('The offer has been changed by another user');
+    if (current.status !== 'DRAFT') throw new ValidationAppError(`Cannot edit an offer in status ${current.status}`);
+
+    const businessDate = dto.documentDate ? parseDate(dto.documentDate) : current.documentDate;
+    const priceIncludesTax = dto.priceIncludesTax ?? current.priceIncludesTax;
+
+    let lines: ResolvedOfferLine[] | undefined;
+    let totals: { subtotal: Decimal; taxTotal: Decimal; grandTotal: Decimal } | undefined;
+    if (dto.lines) {
+      lines = await this.resolveLines(
+        tenantId,
+        membershipId,
+        organizationId,
+        dto.lines,
+        businessDate,
+        current.counterpartyId,
+        priceIncludesTax,
+      );
+      totals = sumTotals(lines);
+    }
+
+    return this.prisma.runInTransaction(async (tx) => {
+      const result = await tx.commercialOffer.updateMany({
+        where: { id, tenantId, version: dto.expectedVersion },
+        data: {
+          documentDate: businessDate,
+          validUntil: dto.validUntil ? parseDate(dto.validUntil) : undefined,
+          priceIncludesTax,
+          description: dto.description,
+          ...(totals ? { subtotal: totals.subtotal, taxTotal: totals.taxTotal, grandTotal: totals.grandTotal } : {}),
+          updatedBy: userId,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count === 0) throw new ConflictAppError('The offer has been changed by another user');
+
+      if (lines) {
+        await tx.commercialOfferLine.deleteMany({ where: { commercialOfferId: id } });
+        for (const [index, line] of lines.entries()) {
+          await tx.commercialOfferLine.create({
+            data: {
+              tenantId,
+              commercialOfferId: id,
+              position: index,
+              productId: line.productId,
+              unitId: line.unitId,
+              quantity: line.quantity,
+              price: line.price,
+              discountPercent: line.discountPercent ?? undefined,
+              discountAmount: line.discountAmount,
+              lineTotal: line.lineTotal,
+              taxRate: line.taxRate,
+              taxAmount: line.taxAmount,
+              lineTotalWithTax: line.lineTotalWithTax,
+              priceListId: line.priceListId,
+              productPriceId: line.productPriceId,
+              expectedDeliveryDate: line.expectedDeliveryDate,
+              description: line.description,
+            },
+          });
+        }
+      }
+
+      await this.audit.record(
+        {
+          tenantId,
+          eventType: 'COMMERCIAL_OFFER_UPDATED',
+          entityType: COMMERCIAL_OFFER_TYPE,
+          entityId: id,
+          action: 'UPDATE',
+          userId,
+          newValues: { grandTotal: totals?.grandTotal.toString() },
+        },
+        tx,
+      );
+
+      return tx.commercialOffer.findFirst({ where: { id }, include: { lines: { orderBy: { position: 'asc' } } } });
     });
   }
 

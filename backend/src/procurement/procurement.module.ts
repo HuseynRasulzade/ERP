@@ -74,7 +74,7 @@ import { PurchaseOrderApprovalPlanProvider } from './purchase-order-approval-pla
     PurchaseRequirementApprovalPlanProvider,
     PurchaseOrderApprovalPlanProvider,
   ],
-  exports: [PurchasePriceResolverService, ProcurementPlanningService, ExpectedStockService],
+  exports: [PurchasePriceResolverService, ProcurementPlanningService, ExpectedStockService, PurchaseOrderService],
 })
 export class ProcurementModule implements OnModuleInit {
   constructor(

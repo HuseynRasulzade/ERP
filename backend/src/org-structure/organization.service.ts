@@ -26,6 +26,7 @@ export interface CreateOrganizationInput {
   baseCurrencyId?: string;
   timezone?: string;
   locale?: string;
+  defaultLanguage?: string;
 }
 
 /**

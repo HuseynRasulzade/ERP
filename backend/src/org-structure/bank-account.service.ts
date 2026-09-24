@@ -5,6 +5,7 @@ import { OrganizationAccessService } from './organization-access.service';
 import { ConcurrencyConflictError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 
 export interface BankAccountInput {
+  bankId?: string;
   bankName: string;
   bankCode?: string;
   branchName?: string;
@@ -55,9 +56,16 @@ export class BankAccountService {
     }
   }
 
+  private async assertBankInTenant(tenantId: string, bankId?: string) {
+    if (!bankId) return;
+    const bank = await this.prisma.bank.findFirst({ where: { id: bankId, tenantId } });
+    if (!bank) throw new ValidationAppError('Unknown bank');
+  }
+
   async create(tenantId: string, membershipId: string, organizationId: string, userId: string, input: BankAccountInput) {
     const org = await this.access.assertAccess(tenantId, membershipId, organizationId);
     this.assertIban(input.iban, org.countryCode);
+    await this.assertBankInTenant(tenantId, input.bankId);
 
     const currency = await this.prisma.currency.findUnique({ where: { id: input.currencyId } });
     if (!currency) throw new ValidationAppError('Unknown currency');
@@ -109,6 +117,7 @@ export class BankAccountService {
   ) {
     const org = await this.access.assertAccess(tenantId, membershipId, organizationId);
     if (patch.iban) this.assertIban(patch.iban, org.countryCode);
+    if (patch.bankId !== undefined) await this.assertBankInTenant(tenantId, patch.bankId);
 
     return this.prisma.runInTransaction(async (tx) => {
       if (patch.isDefault) {

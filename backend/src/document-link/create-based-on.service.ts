@@ -35,6 +35,7 @@ export class CreateBasedOnService {
     sourceDocumentId: string,
     targetDocumentType: string,
     userId: string,
+    membershipId?: string,
   ) {
     const mapper = this.registry.getMapper(sourceDocumentType, targetDocumentType);
     if (!mapper) {
@@ -50,7 +51,7 @@ export class CreateBasedOnService {
       const source = await sourceRepository.findById(tenantId, sourceDocumentId, tx);
       if (!source) throw new NotFoundAppError(sourceDocumentType, sourceDocumentId);
 
-      const targetInput = (await mapper.mapHeader(source, tx)) as Record<string, unknown>;
+      const targetInput = (await mapper.mapHeader(source, tx, membershipId)) as Record<string, unknown>;
       const target = await targetRepository.create(tenantId, targetInput, userId, tx);
 
       await this.documentLinks.createLink(

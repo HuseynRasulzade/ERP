@@ -108,6 +108,21 @@ export function PaymentOrderListPage() {
   );
 }
 
+interface PurchaseInvoiceRef {
+  id: string;
+  number: string | null;
+  counterpartyId: string;
+  postingStatus: string;
+  amountDue: string;
+}
+
+interface PaymentAllocationRow {
+  id: string;
+  paymentOrderId: string;
+  purchaseInvoiceId: string | null;
+  amount: string;
+}
+
 export function PaymentOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { hasPermission } = useAuth();
@@ -120,6 +135,12 @@ export function PaymentOrderDetailPage() {
   const [busy, setBusy] = useState(false);
   const [bankStatementAmount, setBankStatementAmount] = useState('');
   const [bankReference, setBankReference] = useState('');
+  const [invoices, setInvoices] = useState<PurchaseInvoiceRef[]>([]);
+  const [allocLines, setAllocLines] = useState<{ purchaseInvoiceId: string; amount: string }[]>([]);
+  const [allocBusy, setAllocBusy] = useState(false);
+  const [advances, setAdvances] = useState<(PaymentAllocationRow & { paymentOrder: { number: string | null; documentDate: string } })[]>([]);
+  const [applyTargets, setApplyTargets] = useState<Record<string, { purchaseInvoiceId: string; amount: string }>>({});
+  const [applyBusy, setApplyBusy] = useState(false);
   const orgId = currentOrganizationId;
 
   const load = useCallback(async () => {
@@ -129,6 +150,24 @@ export function PaymentOrderDetailPage() {
       setDoc(d);
       setBankReference(d.bankReference ?? '');
       if (hasPermission('audit.view')) setAuditEvents(await api.get<AuditEvent[]>(`/audit-events?entityType=PAYMENT_ORDER&entityId=${id}`).catch(() => []));
+      const [invs, allocs] = await Promise.all([
+        api.get<PurchaseInvoiceRef[]>(`/organizations/${orgId}/purchase-invoices`).catch(() => []),
+        api.get<PaymentAllocationRow[]>(`/organizations/${orgId}/payment-orders/${id}/allocations`).catch(() => []),
+      ]);
+      setInvoices(invs.filter((i) => i.counterpartyId === d.counterpartyId && i.postingStatus === 'POSTED'));
+      setAllocLines(
+        allocs.length > 0
+          ? allocs.map((a) => ({ purchaseInvoiceId: a.purchaseInvoiceId ?? '', amount: a.amount }))
+          : [{ purchaseInvoiceId: '', amount: d.amount }],
+      );
+      if (d.postingStatus === 'POSTED') {
+        const adv = await api
+          .get<(PaymentAllocationRow & { paymentOrder: { number: string | null; documentDate: string } })[]>(
+            `/organizations/${orgId}/payment-orders/unmatched-advances?counterpartyId=${d.counterpartyId}`,
+          )
+          .catch(() => []);
+        setAdvances(adv);
+      }
     } catch (err) {
       showError(err);
     }
@@ -151,6 +190,61 @@ export function PaymentOrderDetailPage() {
       showError(err);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const printOrder = async () => {
+    if (!doc || !orgId) return;
+    try {
+      const blob = await api.downloadBlob(`/organizations/${orgId}/payment-orders/${doc.id}/print`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const addAllocLine = () => setAllocLines((lines) => [...lines, { purchaseInvoiceId: '', amount: '' }]);
+  const removeAllocLine = (idx: number) => setAllocLines((lines) => lines.filter((_, i) => i !== idx));
+  const updateAllocLine = (idx: number, patch: Partial<{ purchaseInvoiceId: string; amount: string }>) =>
+    setAllocLines((lines) => lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+
+  const saveAllocations = async () => {
+    if (!doc) return;
+    setAllocBusy(true);
+    try {
+      const allocations = allocLines
+        .filter((l) => l.amount !== '')
+        .map((l) => ({ purchaseInvoiceId: l.purchaseInvoiceId || undefined, amount: Number(l.amount) }));
+      await api.put(`/organizations/${orgId}/payment-orders/${doc.id}/allocations`, { allocations });
+      showSuccess('Allocation saved');
+      await load();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setAllocBusy(false);
+    }
+  };
+
+  const allocTotal = allocLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+
+  const applyAdvance = async (allocationId: string) => {
+    const target = applyTargets[allocationId];
+    if (!target?.purchaseInvoiceId || !target.amount) return;
+    setApplyBusy(true);
+    try {
+      await api.post(`/organizations/${orgId}/payment-orders/allocations/${allocationId}/apply`, {
+        purchaseInvoiceId: target.purchaseInvoiceId,
+        amount: Number(target.amount),
+      });
+      showSuccess('Advance applied');
+      setApplyTargets((t) => ({ ...t, [allocationId]: { purchaseInvoiceId: '', amount: '' } }));
+      await load();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setApplyBusy(false);
     }
   };
 
@@ -183,6 +277,7 @@ export function PaymentOrderDetailPage() {
         </div>
         <div className="actions">
           <Link to="/payment-orders" className="link-muted">{t.common.backToList}</Link>
+          <button disabled={busy} onClick={printOrder}>Print</button>
           {hasPermission('documents.post') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (doc.approvalStatus === 'APPROVED' || doc.approvalStatus === 'NOT_REQUIRED') && (
             <button className="primary" disabled={busy} onClick={() => runCommand('post')}>{t.common.post}</button>
           )}
@@ -219,6 +314,95 @@ export function PaymentOrderDetailPage() {
       />
 
       <AccountingEntriesPanel orgId={orgId} documentType="PAYMENT_ORDER" documentId={doc.id} />
+
+      {hasPermission('treasury.payment_order.edit') && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && (
+        <section className="card">
+          <h2>Payment allocation</h2>
+          <p className="panel-note">
+            Split this payment across several open purchase invoices for the counterparty, or leave the invoice blank to record an unmatched advance. Lines must sum to the order&apos;s amount ({doc.amount}).
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Purchase invoice</th>
+                <th>Amount</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {allocLines.map((line, idx) => (
+                <tr key={idx}>
+                  <td>
+                    <select value={line.purchaseInvoiceId} onChange={(e) => updateAllocLine(idx, { purchaseInvoiceId: e.target.value })}>
+                      <option value="">Unmatched advance</option>
+                      {invoices.map((inv) => (
+                        <option key={inv.id} value={inv.id}>
+                          {inv.number ?? inv.id.slice(0, 8)} (due {inv.amountDue})
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input type="number" step="any" value={line.amount} onChange={(e) => updateAllocLine(idx, { amount: e.target.value })} />
+                  </td>
+                  <td>
+                    <button type="button" className="small" onClick={() => removeAllocLine(idx)}>Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="inline-form">
+            <button type="button" onClick={addAllocLine}>+ Add line</button>
+            <span className="muted">Total: {allocTotal.toFixed(2)} / {doc.amount}</span>
+            <button className="primary" disabled={allocBusy} onClick={saveAllocations}>{allocBusy ? t.common.saving : t.common.save}</button>
+          </div>
+        </section>
+      )}
+
+      {hasPermission('treasury.payment_order.edit') && doc.postingStatus === 'POSTED' && advances.length > 0 && (
+        <section className="card">
+          <h2>Unmatched advances for this counterparty</h2>
+          <p className="panel-note">Apply part or all of a previous advance to an open invoice.</p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>From payment order</th>
+                <th>Remaining advance</th>
+                <th>Apply to invoice</th>
+                <th>Amount</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {advances.map((a) => {
+                const target = applyTargets[a.id] ?? { purchaseInvoiceId: '', amount: '' };
+                const eligibleInvoices = invoices.filter((i) => i.id !== doc.id);
+                return (
+                  <tr key={a.id}>
+                    <td>{a.paymentOrder.number ?? a.paymentOrderId.slice(0, 8)}</td>
+                    <td className="numeric">{a.amount}</td>
+                    <td>
+                      <select value={target.purchaseInvoiceId} onChange={(e) => setApplyTargets((t) => ({ ...t, [a.id]: { ...target, purchaseInvoiceId: e.target.value } }))}>
+                        <option value="">Select invoice…</option>
+                        {eligibleInvoices.map((inv) => (
+                          <option key={inv.id} value={inv.id}>{inv.number ?? inv.id.slice(0, 8)} (due {inv.amountDue})</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input type="number" step="any" value={target.amount} onChange={(e) => setApplyTargets((t) => ({ ...t, [a.id]: { ...target, amount: e.target.value } }))} />
+                    </td>
+                    <td>
+                      <button type="button" disabled={applyBusy || !target.purchaseInvoiceId || !target.amount} onClick={() => applyAdvance(a.id)}>Apply</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {hasPermission('treasury.payment_order.reconcile') && doc.postingStatus === 'POSTED' && (
         <section className="card">

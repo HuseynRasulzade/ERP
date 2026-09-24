@@ -67,7 +67,7 @@ export function CommercialOfferListPage() {
         counterpartyId,
         documentDate,
         validUntil: validUntil || undefined,
-        lines: serializeDocLines(lines),
+        lines: serializeDocLines(lines, { quantityAsString: true, priceAsString: true }),
       });
       showSuccess(t.toast.createdItem(created.number ?? created.id.slice(0, 8)));
       setLines([emptyDocLine()]);
@@ -138,7 +138,7 @@ export function CommercialOfferListPage() {
                   <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
                 </label>
               </div>
-              <DocLinesEditor lines={lines} setLines={setLines} products={products} units={units} priceHint="auto from SALE price list" />
+              <DocLinesEditor lines={lines} setLines={setLines} products={products} units={units} showTax={false} priceHint="auto from SALE price list" />
               <div className="inline-form">
                 <button type="submit" className="primary" disabled={submitting}>
                   {submitting ? t.common.saving : t.common.save}
@@ -197,6 +197,8 @@ export function CommercialOfferDetailPage() {
   const [products, setProducts] = useState<SalesProductRef[]>([]);
   const [units, setUnits] = useState<SalesUnitRef[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editLines, setEditLines] = useState<LineDraft[]>([]);
   const orgId = currentOrganizationId;
 
   const load = useCallback(async () => {
@@ -244,6 +246,41 @@ export function CommercialOfferDetailPage() {
     }
   };
 
+  const startEdit = () => {
+    setEditLines(
+      (doc.lines ?? []).length > 0
+        ? (doc.lines ?? []).map((l) => ({
+            productId: l.productId ?? '',
+            unitId: l.unitId ?? '',
+            quantity: String(l.quantity),
+            price: l.price !== undefined && l.price !== null ? String(l.price) : '',
+            taxRate: l.taxRate !== undefined && l.taxRate !== null ? String(l.taxRate) : '',
+            warehouseId: '',
+            description: l.description ?? '',
+            lineType: 'INVENTORY',
+          }))
+        : [emptyDocLine()],
+    );
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      const updated = await api.patch<BizDoc>(`/organizations/${orgId}/commercial-offers/${doc.id}`, {
+        expectedVersion: doc.version,
+        lines: serializeDocLines(editLines, { showWarehouse: false, quantityAsString: true, priceAsString: true }),
+      });
+      setDoc(updated);
+      setEditing(false);
+      showSuccess(t.common.save);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="document-detail">
       <div className="page-header">
@@ -257,6 +294,11 @@ export function CommercialOfferDetailPage() {
           <Link to="/commercial-offers" className="link-muted">
             {t.common.backToList}
           </Link>
+          {hasPermission('sales.offer.edit') && (doc.status as string) === 'DRAFT' && !editing && (
+            <button disabled={busy} onClick={startEdit}>
+              {t.common.edit}
+            </button>
+          )}
           {hasPermission('sales.offer.send') && (doc.status as string) === 'DRAFT' && (
             <button disabled={busy} onClick={() => action('send', 'Offer sent')}>
               Send
@@ -301,28 +343,42 @@ export function CommercialOfferDetailPage() {
 
       <section className="card">
         <h2>{t.common.lines}</h2>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>{t.common.product}</th>
-              <th>{t.common.unit}</th>
-              <th>{t.common.quantity}</th>
-              <th>{t.common.price}</th>
-              <th>{t.common.lineTotal}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(doc.lines ?? []).map((l, i) => (
-              <tr key={l.id ?? i}>
-                <td>{products.find((p) => p.id === l.productId)?.name ?? l.productId}</td>
-                <td>{units.find((u) => u.id === l.unitId)?.code ?? l.unitId}</td>
-                <td className="numeric">{l.quantity}</td>
-                <td className="numeric">{l.price}</td>
-                <td className="numeric">{l.lineTotal}</td>
+        {editing ? (
+          <>
+            <DocLinesEditor lines={editLines} setLines={setEditLines} products={products} units={units} showTax={false} priceHint="auto from SALE price list" />
+            <div className="inline-form">
+              <button className="primary" disabled={busy} onClick={saveEdit}>
+                {busy ? t.common.saving : t.common.save}
+              </button>
+              <button disabled={busy} onClick={() => setEditing(false)}>
+                {t.common.cancel}
+              </button>
+            </div>
+          </>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>{t.common.product}</th>
+                <th>{t.common.unit}</th>
+                <th>{t.common.quantity}</th>
+                <th>{t.common.price}</th>
+                <th>{t.common.lineTotal}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(doc.lines ?? []).map((l, i) => (
+                <tr key={l.id ?? i}>
+                  <td>{products.find((p) => p.id === l.productId)?.name ?? l.productId}</td>
+                  <td>{units.find((u) => u.id === l.unitId)?.code ?? l.unitId}</td>
+                  <td className="numeric">{l.quantity}</td>
+                  <td className="numeric">{l.price}</td>
+                  <td className="numeric">{l.lineTotal}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
     </div>
   );

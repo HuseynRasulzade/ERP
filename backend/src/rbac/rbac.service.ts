@@ -24,7 +24,7 @@ export class RbacService {
     });
   }
 
-  async createRole(tenantId: string, code: string, name: string, permissionCodes: string[]) {
+  async createRole(tenantId: string, code: string, name: string, permissionCodes: string[], description?: string) {
     const existing = await this.prisma.role.findUnique({ where: { tenantId_code: { tenantId, code } } });
     if (existing) throw new ConflictAppError(`Role code already exists in this tenant: ${code}`);
 
@@ -35,6 +35,7 @@ export class RbacService {
         tenantId,
         code,
         name,
+        description,
         permissions: { create: permissions.map((p) => ({ permissionId: p.id })) },
       },
       include: { permissions: { include: { permission: true } } },

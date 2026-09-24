@@ -38,6 +38,26 @@ export class SalesLineItemDto {
   @IsOptional()
   @IsString()
   sourceShipmentLineId?: string;
+
+  /** Line-level override of the order's own warehouse — falls back to
+   * the header's warehouseId when omitted (see SalesOrderToShipmentMapper). */
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  /** Services never ship (SalesOrderToShipmentMapper skips them) and
+   * are exempt from reservation/fulfillment tracking. */
+  @IsOptional()
+  @IsBoolean()
+  isService?: boolean;
+
+  @IsOptional()
+  @IsString()
+  reservationPolicy?: string;
+
+  @IsOptional()
+  @IsString()
+  fulfillmentPolicy?: string;
 }
 
 export class CreateSalesOrderDto {
@@ -58,6 +78,19 @@ export class CreateSalesOrderDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  /** Required before a Shipment can ever be created from this order —
+   * see SalesOrderToShipmentMapper.mapHeader. */
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @IsOptional() @IsString() salesChannel?: string;
+  @IsOptional() @IsString() priority?: string;
+  @IsOptional() @IsString() externalReference?: string;
+  @IsOptional() @IsDateString() requestedDeliveryDate?: string;
+  @IsOptional() @IsDateString() promisedDeliveryDate?: string;
+  @IsOptional() @IsString() shipmentPaymentPolicy?: string;
 
   @ValidateNested({ each: true })
   @Type(() => SalesLineItemDto)
@@ -85,6 +118,17 @@ export class UpdateSalesOrderDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @IsOptional() @IsString() salesChannel?: string;
+  @IsOptional() @IsString() priority?: string;
+  @IsOptional() @IsString() externalReference?: string;
+  @IsOptional() @IsDateString() requestedDeliveryDate?: string;
+  @IsOptional() @IsDateString() promisedDeliveryDate?: string;
+  @IsOptional() @IsString() shipmentPaymentPolicy?: string;
 
   @IsOptional()
   @ValidateNested({ each: true })
@@ -115,6 +159,14 @@ export class CreateSalesInvoiceDto {
   @IsString()
   description?: string;
 
+  /** Manual override for the tax point date used to resolve VAT rates at
+   * posting time — see SalesInvoicePostingHandler (`invoice.taxPointDate
+   * ?? businessDate`). Left unset, posting falls back to the business
+   * date exactly as before this field existed. */
+  @IsOptional()
+  @IsDateString()
+  taxPointDate?: string;
+
   @ValidateNested({ each: true })
   @Type(() => SalesLineItemDto)
   @ArrayMinSize(1)
@@ -141,6 +193,10 @@ export class UpdateSalesInvoiceDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsDateString()
+  taxPointDate?: string;
 
   @IsOptional()
   @ValidateNested({ each: true })

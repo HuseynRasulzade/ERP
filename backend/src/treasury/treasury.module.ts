@@ -16,6 +16,21 @@ import { PaymentOrderPostingHandler } from './payment-order.posting-handler';
 import { PaymentOrderService } from './payment-order.service';
 import { PaymentOrderController } from './payment-order.controller';
 import { PaymentOrderApprovalPlanProvider } from './payment-order-approval-plan.provider';
+import { PaymentAllocationService } from './payment-allocation.service';
+
+import { CashTransactionRepository } from './cash-transaction.repository';
+import { CashTransactionPostingHandler } from './cash-transaction.posting-handler';
+import { CashTransactionService } from './cash-transaction.service';
+import { CashTransactionController } from './cash-transaction.controller';
+
+import { BankReconciliationService } from './bank-reconciliation.service';
+import { BankReconciliationController } from './bank-reconciliation.controller';
+
+import { BankService } from './bank.service';
+import { BankController } from './bank.controller';
+
+import { CashFlowReportService } from './cash-flow-report.service';
+import { CashFlowReportController } from './cash-flow-report.controller';
 
 /**
  * Treasury / payment chain (docs/APPROVALS.md, Purchase Invoice ->
@@ -26,14 +41,22 @@ import { PaymentOrderApprovalPlanProvider } from './payment-order-approval-plan.
  */
 @Module({
   imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule, ApprovalsModule],
-  controllers: [PaymentRequestController, PaymentOrderController],
+  controllers: [PaymentRequestController, PaymentOrderController, CashTransactionController, BankReconciliationController, BankController, CashFlowReportController],
   providers: [
     PaymentRequestService,
     PaymentOrderRepository,
     PaymentOrderPostingHandler,
     PaymentOrderService,
     PaymentOrderApprovalPlanProvider,
+    PaymentAllocationService,
+    CashTransactionRepository,
+    CashTransactionPostingHandler,
+    CashTransactionService,
+    BankReconciliationService,
+    BankService,
+    CashFlowReportService,
   ],
+  exports: [PaymentOrderService],
 })
 export class TreasuryModule implements OnModuleInit {
   constructor(
@@ -42,11 +65,15 @@ export class TreasuryModule implements OnModuleInit {
     private readonly paymentOrderHandler: PaymentOrderPostingHandler,
     private readonly approvalPlanRegistry: ApprovalPlanRegistryService,
     private readonly paymentOrderApprovalPlan: PaymentOrderApprovalPlanProvider,
+    private readonly cashTransactionRepository: CashTransactionRepository,
+    private readonly cashTransactionHandler: CashTransactionPostingHandler,
   ) {}
 
   onModuleInit() {
     this.registry.registerRepository(this.paymentOrderRepository);
     this.registry.registerHandler(this.paymentOrderHandler);
     this.approvalPlanRegistry.register(this.paymentOrderApprovalPlan);
+    this.registry.registerRepository(this.cashTransactionRepository);
+    this.registry.registerHandler(this.cashTransactionHandler);
   }
 }

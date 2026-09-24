@@ -47,6 +47,11 @@ export class IdentityService {
     await this.prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
   }
 
+  async updateProfile(userId: string, patch: { displayName?: string; locale?: string; timezone?: string }) {
+    await this.findById(userId);
+    return this.prisma.user.update({ where: { id: userId }, data: patch });
+  }
+
   async listMemberships(userId: string) {
     return this.prisma.tenantMembership.findMany({
       where: { userId, status: 'ACTIVE' },

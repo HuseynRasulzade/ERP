@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AccountClass } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
@@ -15,6 +16,23 @@ export interface TrialBalanceRow {
   closingDebit: string;
   closingCredit: string;
 }
+
+export interface FinancialStatementRow {
+  accountId: string;
+  code: string;
+  name: string;
+  sectionCode: string | null;
+  sectionName: string | null;
+  groupCode: string | null;
+  groupName: string | null;
+  amount: string; // signed per the account's own normalBalance — never re-signed by the caller
+}
+
+const REVENUE_CLASSES: AccountClass[] = ['REVENUE', 'CONTRA_REVENUE'];
+const EXPENSE_CLASSES: AccountClass[] = ['EXPENSE', 'TAX_EXPENSE'];
+const ASSET_CLASSES: AccountClass[] = ['ASSET', 'CONTRA_ASSET'];
+const LIABILITY_CLASSES: AccountClass[] = ['LIABILITY', 'CONTRA_LIABILITY'];
+const EQUITY_CLASSES: AccountClass[] = ['EQUITY', 'CONTRA_EQUITY'];
 
 /**
  * Accounting balance query engine (spec sections 67-72) — Trial Balance,
@@ -149,6 +167,130 @@ export class AccountingQueryService {
       openingBalance: openingBalance.toFixed(2),
       movements: rows,
       closingBalance: running.toFixed(2),
+    };
+  }
+
+  /**
+   * Income Statement (Mənfəət və Zərər haqqında hesabat) — period-only
+   * turnover (no opening balance: revenue/expense accounts don't carry
+   * one across periods) over REVENUE/CONTRA_REVENUE/EXPENSE/TAX_EXPENSE
+   * accounts, signed per each account's own `normalBalance` (never a
+   * hardcoded debit/credit assumption — a CONTRA_REVENUE account like
+   * Sales Returns has NormalBalance DEBIT and nets against revenue
+   * automatically this way). Reuses the exact groupBy(['accountId','side'])
+   * pattern `trialBalance` already established over AccountingMovement.
+   */
+  async incomeStatement(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    params: { fromDate: Date; toDate: Date },
+  ): Promise<{ rows: FinancialStatementRow[]; totalRevenue: string; totalExpense: string; netIncome: string }> {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+
+    const accounts = await this.prisma.account.findMany({
+      where: { tenantId, accountClass: { in: [...REVENUE_CLASSES, ...EXPENSE_CLASSES] } },
+      include: { section: true, group: true },
+      orderBy: { code: 'asc' },
+    });
+    const accountIds = accounts.map((a) => a.id);
+
+    const turnover = await this.prisma.accountingMovement.groupBy({
+      by: ['accountId', 'side'],
+      where: { tenantId, organizationId, accountId: { in: accountIds }, businessDate: { gte: params.fromDate, lte: params.toDate } },
+      _sum: { amountBase: true },
+    });
+    const turnoverMap = groupToMap(turnover);
+
+    let totalRevenue = new Decimal(0);
+    let totalExpense = new Decimal(0);
+    const rows: FinancialStatementRow[] = accounts.map((account) => {
+      const t = turnoverMap.get(account.id) ?? { DEBIT: new Decimal(0), CREDIT: new Decimal(0) };
+      const amount = account.normalBalance === 'CREDIT' ? t.CREDIT.minus(t.DEBIT) : t.DEBIT.minus(t.CREDIT);
+      if (REVENUE_CLASSES.includes(account.accountClass)) totalRevenue = totalRevenue.plus(amount);
+      else totalExpense = totalExpense.plus(amount);
+      return {
+        accountId: account.id,
+        code: account.code,
+        name: account.name,
+        sectionCode: account.section?.code ?? null,
+        sectionName: account.section?.name ?? null,
+        groupCode: account.group?.code ?? null,
+        groupName: account.group?.name ?? null,
+        amount: amount.toFixed(2),
+      };
+    });
+
+    return { rows, totalRevenue: totalRevenue.toFixed(2), totalExpense: totalExpense.toFixed(2), netIncome: totalRevenue.minus(totalExpense).toFixed(2) };
+  }
+
+  /**
+   * Balance Sheet (Balans Hesabatı) as of a single date — cumulative
+   * since inception (no `fromDate` floor, unlike Trial Balance's period
+   * window) over ASSET/LIABILITY/EQUITY accounts, same signing
+   * convention as `incomeStatement`. Because this build never runs a
+   * period-close journal entry sweeping P&L into Retained Earnings (no
+   * such handler exists anywhere in this codebase — confirmed), the
+   * current cumulative net income is folded in as a single synthetic
+   * EQUITY line ("Cari mənfəət/zərər") computed live from the same
+   * Income Statement query, exactly so Assets = Liabilities + Equity
+   * actually holds — never a stored closing entry, consistent with
+   * every other report here reading live from AccountingMovement only.
+   */
+  async balanceSheet(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    params: { asOfDate: Date },
+  ): Promise<{ rows: FinancialStatementRow[]; totalAssets: string; totalLiabilities: string; totalEquity: string; currentPeriodNetIncome: string }> {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+
+    const accounts = await this.prisma.account.findMany({
+      where: { tenantId, accountClass: { in: [...ASSET_CLASSES, ...LIABILITY_CLASSES, ...EQUITY_CLASSES] } },
+      include: { section: true, group: true },
+      orderBy: { code: 'asc' },
+    });
+    const accountIds = accounts.map((a) => a.id);
+
+    const cumulative = await this.prisma.accountingMovement.groupBy({
+      by: ['accountId', 'side'],
+      where: { tenantId, organizationId, accountId: { in: accountIds }, businessDate: { lte: params.asOfDate } },
+      _sum: { amountBase: true },
+    });
+    const cumulativeMap = groupToMap(cumulative);
+
+    let totalAssets = new Decimal(0);
+    let totalLiabilities = new Decimal(0);
+    let totalEquity = new Decimal(0);
+    const rows: FinancialStatementRow[] = accounts.map((account) => {
+      const c = cumulativeMap.get(account.id) ?? { DEBIT: new Decimal(0), CREDIT: new Decimal(0) };
+      const amount = account.normalBalance === 'CREDIT' ? c.CREDIT.minus(c.DEBIT) : c.DEBIT.minus(c.CREDIT);
+      if (ASSET_CLASSES.includes(account.accountClass)) totalAssets = totalAssets.plus(amount);
+      else if (LIABILITY_CLASSES.includes(account.accountClass)) totalLiabilities = totalLiabilities.plus(amount);
+      else totalEquity = totalEquity.plus(amount);
+      return {
+        accountId: account.id,
+        code: account.code,
+        name: account.name,
+        sectionCode: account.section?.code ?? null,
+        sectionName: account.section?.name ?? null,
+        groupCode: account.group?.code ?? null,
+        groupName: account.group?.name ?? null,
+        amount: amount.toFixed(2),
+      };
+    });
+
+    const tenantStart = new Date(0);
+    const income = await this.incomeStatement(tenantId, membershipId, organizationId, { fromDate: tenantStart, toDate: params.asOfDate });
+    const currentPeriodNetIncome = new Decimal(income.netIncome);
+    totalEquity = totalEquity.plus(currentPeriodNetIncome);
+
+    return {
+      rows,
+      totalAssets: totalAssets.toFixed(2),
+      totalLiabilities: totalLiabilities.toFixed(2),
+      totalEquity: totalEquity.toFixed(2),
+      currentPeriodNetIncome: currentPeriodNetIncome.toFixed(2),
     };
   }
 

@@ -1,6 +1,7 @@
 import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateBankAccountDto {
+  @IsOptional() @IsString() bankId?: string;
   @IsString() bankName!: string;
   @IsOptional() @IsString() bankCode?: string;
   @IsOptional() @IsString() branchName?: string;
@@ -15,6 +16,7 @@ export class CreateBankAccountDto {
 }
 
 export class UpdateBankAccountDto {
+  @IsOptional() @IsString() bankId?: string;
   @IsOptional() @IsString() bankName?: string;
   @IsOptional() @IsString() bankCode?: string;
   @IsOptional() @IsString() branchName?: string;

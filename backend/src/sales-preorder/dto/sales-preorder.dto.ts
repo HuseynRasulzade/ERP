@@ -37,6 +37,22 @@ export class CreateCustomerRequestDto {
   lines!: CustomerRequestLineDto[];
 }
 
+export class UpdateCustomerRequestDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+  @IsOptional() @IsDateString() documentDate?: string;
+  @IsOptional() @IsDateString() requestedDeliveryDate?: string;
+  @IsOptional() @IsString() salesManagerId?: string;
+  @IsOptional() @IsString() sourceChannel?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() externalReference?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CustomerRequestLineDto)
+  lines?: CustomerRequestLineDto[];
+}
+
 export class CommercialOfferLineDto {
   @IsString() productId!: string;
   @IsString() unitId!: string;
@@ -60,6 +76,20 @@ export class CreateCommercialOfferDto {
   @ValidateNested({ each: true })
   @Type(() => CommercialOfferLineDto)
   lines!: CommercialOfferLineDto[];
+}
+
+export class UpdateCommercialOfferDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+  @IsOptional() @IsDateString() documentDate?: string;
+  @IsOptional() @IsDateString() validUntil?: string;
+  @IsOptional() priceIncludesTax?: boolean;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CommercialOfferLineDto)
+  lines?: CommercialOfferLineDto[];
 }
 
 export class VersionedCommandDto {

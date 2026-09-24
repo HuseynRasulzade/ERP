@@ -13,6 +13,7 @@ export function RolesPage() {
   const [showForm, setShowForm] = useState(false);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const load = async () => {
@@ -45,10 +46,11 @@ export function RolesPage() {
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/roles', { code, name, permissionCodes: Array.from(selected) });
+      await api.post('/roles', { code, name, description: description || undefined, permissionCodes: Array.from(selected) });
       showSuccess('Role created');
       setCode('');
       setName('');
+      setDescription('');
       setSelected(new Set());
       setShowForm(false);
       await load();
@@ -81,6 +83,10 @@ export function RolesPage() {
             Name
             <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Auditor" />
           </label>
+          <label>
+            Description
+            <input value={description} onChange={(e) => setDescription(e.target.value)} />
+          </label>
           <fieldset>
             <legend>Permissions</legend>
             {Object.entries(grouped).map(([module, perms]) => (
@@ -106,6 +112,7 @@ export function RolesPage() {
               {r.name} <span className="muted">({r.code})</span>
               {r.isSystem && <span className="badge badge-system">system</span>}
             </h2>
+            {r.description && <p className="muted">{r.description}</p>}
             <div className="chip-row">
               {r.permissions.map((rp) => (
                 <span key={rp.permission.code} className="chip">

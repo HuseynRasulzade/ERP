@@ -115,6 +115,17 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
     }
   };
 
+  const printDocument = async () => {
+    try {
+      const blob = await api.downloadBlob(`/organizations/${orgId}/${kind.basePath}/${doc.id}/print`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
   const createBasedOn = async (target: { docType: string; routePrefix: string; label: string }) => {
     setBusy(true);
     try {
@@ -151,7 +162,7 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
     e.preventDefault();
     setBusy(true);
     try {
-      const lines = serializeDocLines(lineDrafts, { showPrice, showTax, showWarehouse: kind.showLineWarehouse });
+      const lines = serializeDocLines(lineDrafts, { showPrice, showTax, showWarehouse: kind.showLineWarehouse, quantityAsString: kind.quantityAsString });
       await api.patch(`/organizations/${orgId}/${kind.basePath}/${doc.id}`, { expectedVersion: doc.version, lines });
       showSuccess(t.toast.updatedItem(doc.number ?? doc.id));
       setEditingLines(false);
@@ -178,6 +189,11 @@ export function DocDetailPage({ kind, renderExtras }: { kind: DocKind; renderExt
           <Link to={`/${kind.routePrefix}`} className="link-muted">
             {t.common.backToList}
           </Link>
+          {kind.basePath === 'purchase-orders' && (
+            <button disabled={busy} onClick={printDocument}>
+              Print
+            </button>
+          )}
           {kind.editLinesPerm && hasPermission(kind.editLinesPerm) && doc.postingStatus === 'NOT_POSTED' && doc.status !== 'CANCELLED' && !editingLines && (
             <button disabled={busy} onClick={startEditingLines}>
               {t.common.edit}

@@ -121,7 +121,13 @@ export class SupplierOrderToPurchaseInvoiceMapper implements CreateBasedOnMapper
 /** GOODS_RECEIPT => PURCHASE_INVOICE (spec section 25) — every field
  * (supplier, contract-equivalent, currency, products, quantity,
  * warehouse, linked receipt lines) inherited from the receipt, capped at
- * its remaining invoiceable quantity. */
+ * its remaining invoiceable quantity. GoodsReceiptLine carries no tax
+ * rate of its own (it's informational GRNI-clearing data, not a taxable
+ * document line) — tax is looked back through `supplierOrderLineId` to
+ * the originating PurchaseOrderLine's own rate, mirroring how
+ * ShipmentToSalesInvoiceMapper looks back through `sourceOrderLineId`
+ * for price. A standalone receipt with no source PO line falls back to
+ * 0% (documented limitation, same reasoning as that sales-side mapper). */
 @Injectable()
 export class GoodsReceiptToPurchaseInvoiceMapper implements CreateBasedOnMapper<BaseDocumentFields, Record<string, unknown>> {
   readonly sourceDocumentType = GOODS_RECEIPT_TYPE;
@@ -138,16 +144,25 @@ export class GoodsReceiptToPurchaseInvoiceMapper implements CreateBasedOnMapper<
     const receipt = await client.goodsReceipt.findFirst({ where: { id: source.id, tenantId: source.tenantId }, include: { lines: { orderBy: { position: 'asc' } } } });
     if (!receipt) throw new ValidationAppError(`Goods receipt not found: ${source.id}`);
 
+    const sourceOrderLineIds = receipt.lines.map((l) => l.supplierOrderLineId).filter((id): id is string => !!id);
+    const sourceOrderLines = sourceOrderLineIds.length > 0
+      ? await client.purchaseOrderLine.findMany({ where: { id: { in: sourceOrderLineIds } } })
+      : [];
+
     const lines = [];
     for (const line of receipt.lines) {
       const remaining = await this.fulfillment.remainingToInvoice(source.tenantId, 'GOODS_RECEIPT_LINE', line.id, tx as PrismaTransactionClient | undefined);
       if (remaining.lte(0)) continue;
       const net = remaining.mul(line.price.toString()).toDecimalPlaces(2);
-      lines.push({ goodsReceiptLineId: line.id, supplierOrderLineId: line.supplierOrderLineId, lineType: 'INVENTORY', productId: line.productId, unitId: line.unitId, quantity: remaining.toString(), price: line.price.toString(), lineTotal: net.toString(), taxRate: '0', taxAmount: '0', lineTotalWithTax: net.toString(), warehouseId: line.warehouseId ?? receipt.warehouseId });
+      const sourceOrderLine = line.supplierOrderLineId ? sourceOrderLines.find((ol) => ol.id === line.supplierOrderLineId) : undefined;
+      const taxRate = sourceOrderLine?.taxRate.toString() ?? '0';
+      const tax = net.mul(taxRate).div(100).toDecimalPlaces(2);
+      lines.push({ goodsReceiptLineId: line.id, supplierOrderLineId: line.supplierOrderLineId, lineType: 'INVENTORY', productId: line.productId, unitId: line.unitId, quantity: remaining.toString(), price: line.price.toString(), lineTotal: net.toString(), taxRate, taxAmount: tax.toString(), lineTotalWithTax: net.plus(tax).toString(), warehouseId: line.warehouseId ?? receipt.warehouseId });
     }
     if (lines.length === 0) throw new ValidationAppError('This goods receipt has no remaining invoiceable lines');
 
     const subtotal = lines.reduce((s, l) => s + Number(l.lineTotal), 0);
+    const taxTotal = lines.reduce((s, l) => s + Number(l.taxAmount), 0);
 
     await ensureSequence(this.prisma, source.tenantId, PURCHASE_INVOICE_TYPE, 'PI');
     const allocated = await this.numbering.allocateNumber(source.tenantId, PURCHASE_INVOICE_TYPE, new Date(), tx as PrismaTransactionClient | undefined);
@@ -161,8 +176,8 @@ export class GoodsReceiptToPurchaseInvoiceMapper implements CreateBasedOnMapper<
       number: allocated.formatted,
       documentDate: new Date(),
       subtotal: subtotal.toFixed(2),
-      taxTotal: '0.00',
-      grandTotal: subtotal.toFixed(2),
+      taxTotal: taxTotal.toFixed(2),
+      grandTotal: (subtotal + taxTotal).toFixed(2),
       description: `Based on goods receipt ${receipt.number ?? receipt.id}`,
       lines,
     };

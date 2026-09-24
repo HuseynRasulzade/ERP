@@ -78,6 +78,11 @@ export const PermissionCodes = {
   UNIT_OF_MEASURE_EDIT: 'unit_of_measure.edit',
   UNIT_OF_MEASURE_DEACTIVATE: 'unit_of_measure.deactivate',
 
+  PRODUCT_PARENT_CATEGORY_VIEW: 'product_parent_category.view',
+  PRODUCT_PARENT_CATEGORY_CREATE: 'product_parent_category.create',
+  PRODUCT_PARENT_CATEGORY_EDIT: 'product_parent_category.edit',
+  PRODUCT_PARENT_CATEGORY_DEACTIVATE: 'product_parent_category.deactivate',
+
   PRODUCT_CATEGORY_VIEW: 'product_category.view',
   PRODUCT_CATEGORY_CREATE: 'product_category.create',
   PRODUCT_CATEGORY_EDIT: 'product_category.edit',
@@ -153,6 +158,7 @@ export const PermissionCodes = {
   ACCOUNTING_POSTING_HISTORY_VIEW: 'accounting.posting_history.view',
   ACCOUNTING_TRIAL_BALANCE_VIEW: 'accounting.trial_balance.view',
   ACCOUNTING_GENERAL_LEDGER_VIEW: 'accounting.general_ledger.view',
+  ACCOUNTING_FINANCIAL_STATEMENTS_VIEW: 'accounting.financial_statements.view',
 
   // Tax Engine (docx spec Phase 5, section 97)
   TAX_CONFIG_VIEW: 'tax.config.view',
@@ -275,6 +281,16 @@ export const PermissionCodes = {
   PAYMENT_ORDER_APPROVE: 'treasury.payment_order.approve',
   PAYMENT_ORDER_REJECT: 'treasury.payment_order.reject',
   PAYMENT_ORDER_RECONCILE: 'treasury.payment_order.reconcile',
+  CASH_TRANSACTION_VIEW: 'treasury.cash_transaction.view',
+  CASH_TRANSACTION_CREATE: 'treasury.cash_transaction.create',
+  CASH_TRANSACTION_EDIT: 'treasury.cash_transaction.edit',
+  TREASURY_RECONCILIATION_VIEW: 'treasury.reconciliation.view',
+  TREASURY_RECONCILIATION_MANAGE: 'treasury.reconciliation.manage',
+  BANK_VIEW: 'bank.view',
+  BANK_CREATE: 'bank.create',
+  BANK_EDIT: 'bank.edit',
+  BANK_DEACTIVATE: 'bank.deactivate',
+  CASH_FLOW_VIEW: 'treasury.cash_flow.view',
 
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
@@ -295,6 +311,19 @@ export const PermissionCodes = {
   INVENTORY_UNPOST: 'inventory.unpost',
   INVENTORY_PERIOD_OVERRIDE: 'inventory.period_override',
   INVENTORY_MANUAL_ADJUSTMENT: 'inventory.manual_adjustment',
+
+  // Inventory Costing Engine (docx spec Phase 11, section 97)
+  INVENTORY_COST_VIEW: 'inventory_cost.view',
+  INVENTORY_COST_VIEW_LAYERS: 'inventory_cost.view_layers',
+  INVENTORY_COST_RECALCULATE: 'inventory_cost.recalculate',
+  INVENTORY_COST_FINALIZE: 'inventory_cost.finalize',
+  INVENTORY_COST_REOPEN: 'inventory_cost.reopen',
+  INVENTORY_COST_ADJUST: 'inventory_cost.adjust',
+  INVENTORY_COST_MANUAL_OVERRIDE: 'inventory_cost.manual_override',
+  INVENTORY_COST_VIEW_ERRORS: 'inventory_cost.view_errors',
+  INVENTORY_COST_VIEW_COGS: 'inventory_cost.view_cogs',
+  INVENTORY_COST_VIEW_ACCOUNTING: 'inventory_cost.view_accounting',
+  INVENTORY_COST_POLICY_MANAGE: 'inventory_cost.policy_manage',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -370,6 +399,10 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.UNIT_OF_MEASURE_EDIT, module: 'unit_of_measure', description: 'Edit units of measure' },
   { code: PermissionCodes.UNIT_OF_MEASURE_DEACTIVATE, module: 'unit_of_measure', description: 'Deactivate units of measure' },
 
+  { code: PermissionCodes.PRODUCT_PARENT_CATEGORY_VIEW, module: 'product_parent_category', description: 'View parent categories (üst kateqoriya)' },
+  { code: PermissionCodes.PRODUCT_PARENT_CATEGORY_CREATE, module: 'product_parent_category', description: 'Create parent categories (üst kateqoriya)' },
+  { code: PermissionCodes.PRODUCT_PARENT_CATEGORY_EDIT, module: 'product_parent_category', description: 'Edit parent categories (üst kateqoriya)' },
+  { code: PermissionCodes.PRODUCT_PARENT_CATEGORY_DEACTIVATE, module: 'product_parent_category', description: 'Deactivate parent categories (üst kateqoriya)' },
   { code: PermissionCodes.PRODUCT_CATEGORY_VIEW, module: 'product_category', description: 'View product categories' },
   { code: PermissionCodes.PRODUCT_CATEGORY_CREATE, module: 'product_category', description: 'Create product categories' },
   { code: PermissionCodes.PRODUCT_CATEGORY_EDIT, module: 'product_category', description: 'Edit product categories' },
@@ -441,6 +474,7 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.ACCOUNTING_POSTING_HISTORY_VIEW, module: 'accounting', description: 'View posting run history' },
   { code: PermissionCodes.ACCOUNTING_TRIAL_BALANCE_VIEW, module: 'accounting', description: 'View the trial balance' },
   { code: PermissionCodes.ACCOUNTING_GENERAL_LEDGER_VIEW, module: 'accounting', description: 'View the general ledger' },
+  { code: PermissionCodes.ACCOUNTING_FINANCIAL_STATEMENTS_VIEW, module: 'accounting', description: 'View the income statement and balance sheet' },
 
   { code: PermissionCodes.TAX_CONFIG_VIEW, module: 'tax', description: 'View tax configuration' },
   { code: PermissionCodes.TAX_RULE_VIEW, module: 'tax', description: 'View tax rules' },
@@ -548,6 +582,16 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.PAYMENT_ORDER_APPROVE, module: 'treasury', description: 'Approve a payment order (finance)' },
   { code: PermissionCodes.PAYMENT_ORDER_REJECT, module: 'treasury', description: 'Reject a payment order' },
   { code: PermissionCodes.PAYMENT_ORDER_RECONCILE, module: 'treasury', description: 'Reconcile a posted payment order against a bank statement' },
+  { code: PermissionCodes.CASH_TRANSACTION_VIEW, module: 'treasury', description: 'View cash transactions (Kassa mədaxil/məxaric)' },
+  { code: PermissionCodes.CASH_TRANSACTION_CREATE, module: 'treasury', description: 'Create cash transactions' },
+  { code: PermissionCodes.CASH_TRANSACTION_EDIT, module: 'treasury', description: 'Edit draft cash transactions' },
+  { code: PermissionCodes.TREASURY_RECONCILIATION_VIEW, module: 'treasury', description: 'View bank statement lines' },
+  { code: PermissionCodes.TREASURY_RECONCILIATION_MANAGE, module: 'treasury', description: 'Enter and match bank statement lines' },
+  { code: PermissionCodes.BANK_VIEW, module: 'treasury', description: 'View the bank (institution) catalog' },
+  { code: PermissionCodes.BANK_CREATE, module: 'treasury', description: 'Create bank catalog entries' },
+  { code: PermissionCodes.BANK_EDIT, module: 'treasury', description: 'Edit bank catalog entries' },
+  { code: PermissionCodes.BANK_DEACTIVATE, module: 'treasury', description: 'Deactivate a bank catalog entry' },
+  { code: PermissionCodes.CASH_FLOW_VIEW, module: 'treasury', description: 'View the cash flow statement (bank + cashbox movements)' },
 
   { code: PermissionCodes.INVENTORY_VIEW, module: 'inventory', description: 'View stock balances and movements for accessible warehouses' },
   { code: PermissionCodes.INVENTORY_VIEW_ALL_WAREHOUSES, module: 'inventory', description: 'View stock across all warehouses, not just assigned ones' },
@@ -567,4 +611,16 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.INVENTORY_UNPOST, module: 'inventory', description: 'Unpost inventory documents' },
   { code: PermissionCodes.INVENTORY_PERIOD_OVERRIDE, module: 'inventory', description: 'Post inventory documents into a closed period' },
   { code: PermissionCodes.INVENTORY_MANUAL_ADJUSTMENT, module: 'inventory', description: 'Manually adjust stock outside the normal document flow' },
+
+  { code: PermissionCodes.INVENTORY_COST_VIEW, module: 'inventory_cost', description: 'View inventory valuation and unit cost' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_LAYERS, module: 'inventory_cost', description: 'View FIFO cost layers' },
+  { code: PermissionCodes.INVENTORY_COST_RECALCULATE, module: 'inventory_cost', description: 'Trigger cost recalculation' },
+  { code: PermissionCodes.INVENTORY_COST_FINALIZE, module: 'inventory_cost', description: 'Finalize inventory costing for a period' },
+  { code: PermissionCodes.INVENTORY_COST_REOPEN, module: 'inventory_cost', description: 'Reopen a finalized costing period' },
+  { code: PermissionCodes.INVENTORY_COST_ADJUST, module: 'inventory_cost', description: 'Create manual cost adjustments' },
+  { code: PermissionCodes.INVENTORY_COST_MANUAL_OVERRIDE, module: 'inventory_cost', description: 'Manually override a calculated cost' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_ERRORS, module: 'inventory_cost', description: 'View costing errors' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_COGS, module: 'inventory_cost', description: 'View COGS' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_ACCOUNTING, module: 'inventory_cost', description: 'View costing accounting entries' },
+  { code: PermissionCodes.INVENTORY_COST_POLICY_MANAGE, module: 'inventory_cost', description: 'Manage inventory costing policy' },
 ];

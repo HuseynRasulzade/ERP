@@ -19,7 +19,11 @@ export interface CreateBasedOnMapper<TSource = unknown, TTargetInput = unknown> 
    * Builds the input needed to create the target document from the source.
    * Runs inside the create-based-on transaction; `tx` lets mappers copy
    * source lines or allocate numbers atomically with the link creation.
+   * `membershipId` is available for mappers that need to resolve a price
+   * (PriceListService.resolvePrice's own access check requires it) —
+   * optional because most mappers copy an already-frozen price/tax
+   * snapshot from the source document's own lines and never need it.
    * May be sync (header-only, like the demo self mapper) or async.
    */
-  mapHeader(source: TSource, tx?: unknown): TTargetInput | Promise<TTargetInput>;
+  mapHeader(source: TSource, tx?: unknown, membershipId?: string): TTargetInput | Promise<TTargetInput>;
 }

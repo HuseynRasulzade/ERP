@@ -50,7 +50,7 @@ export class RolesController {
     @Body() dto: CreateRoleDto,
     @CurrentUser() user: { userId: string },
   ) {
-    const role = await this.rbac.createRole(tenantId, dto.code, dto.name, dto.permissionCodes);
+    const role = await this.rbac.createRole(tenantId, dto.code, dto.name, dto.permissionCodes, dto.description);
     await this.audit.record({
       tenantId,
       eventType: 'ROLE_CREATED',

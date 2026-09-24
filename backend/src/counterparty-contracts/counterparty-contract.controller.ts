@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { CounterpartyContractService } from './counterparty-contract.service';
 import {
   CreateContractFromPurchaseOrderDto,
+  CreateContractFromSalesOrderDto,
   CreateContractLineDto,
   CreateCounterpartyContractDto,
   GenerateContractPaymentScheduleDto,
@@ -48,6 +49,20 @@ export class CounterpartyContractsForCounterpartyController {
     return this.contracts.eligiblePurchaseOrdersForCounterparty(tenantId, membershipId, organizationId, counterpartyId);
   }
 
+  /** Same as above, mirrored for the Sales Order side (spec-alignment:
+   * a contract can be created from either a confirmed Purchase Order or
+   * a confirmed Sales Order, never both). */
+  @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
+  @Get('eligible-sales-orders')
+  eligibleSalesOrders(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('counterpartyId') counterpartyId: string,
+  ) {
+    return this.contracts.eligibleSalesOrdersForCounterparty(tenantId, membershipId, organizationId, counterpartyId);
+  }
+
   @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
   @Post()
   create(
@@ -85,6 +100,20 @@ export class CounterpartyContractController {
     @Body() dto: CreateContractFromPurchaseOrderDto,
   ) {
     return this.contracts.createFromPurchaseOrder(tenantId, membershipId, organizationId, user.userId, dto);
+  }
+
+  /** Bespoke command mirroring `createFromPurchaseOrder`, for a contract
+   * created from a confirmed Sales Order instead. */
+  @RequirePermissions(PermissionCodes.CONTRACT_CREATE)
+  @Post('from-sales-order')
+  createFromSalesOrder(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: CreateContractFromSalesOrderDto,
+  ) {
+    return this.contracts.createFromSalesOrder(tenantId, membershipId, organizationId, user.userId, dto);
   }
 
   @RequirePermissions(PermissionCodes.CONTRACT_VIEW)

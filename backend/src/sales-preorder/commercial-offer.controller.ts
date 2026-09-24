@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { CommercialOfferService } from './commercial-offer.service';
-import { CreateCommercialOfferDto, VersionedCommandDto } from './dto/sales-preorder.dto';
+import { CreateCommercialOfferDto, UpdateCommercialOfferDto, VersionedCommandDto } from './dto/sales-preorder.dto';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -38,6 +38,19 @@ export class CommercialOfferController {
     @Body() dto: CreateCommercialOfferDto,
   ) {
     return this.service.create(tenantId, membershipId, organizationId, user.userId, dto);
+  }
+
+  @RequirePermissions(PermissionCodes.SALES_OFFER_EDIT)
+  @Patch(':id')
+  update(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: UpdateCommercialOfferDto,
+  ) {
+    return this.service.update(tenantId, membershipId, organizationId, id, user.userId, dto);
   }
 
   @RequirePermissions(PermissionCodes.SALES_OFFER_SEND)

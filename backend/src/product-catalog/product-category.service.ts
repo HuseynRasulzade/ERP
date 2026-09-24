@@ -2,12 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
-import { ConcurrencyConflictError, ConflictAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
+import { ProductCatalogCodeService } from './product-catalog-code.service';
+import { ConcurrencyConflictError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 
 export interface ProductCategoryInput {
-  code: string;
   name: string;
   parentCategoryId?: string;
+  parentGroupId?: string;
   description?: string;
 }
 
@@ -22,6 +23,7 @@ export class ProductCategoryService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly codeService: ProductCatalogCodeService,
   ) {}
 
   async list(tenantId: string, membershipId: string, organizationId: string, includeInactive = false) {
@@ -31,6 +33,7 @@ export class ProductCategoryService {
       orderBy: { name: 'asc' },
       include: {
         parentCategory: { select: { id: true, code: true, name: true } },
+        parentGroup: { select: { id: true, code: true, name: true } },
       },
     });
   }
@@ -79,17 +82,25 @@ export class ProductCategoryService {
     }
   }
 
+  private async assertParentGroupBelongsToOrganization(organizationId: string, parentGroupId?: string) {
+    if (!parentGroupId) return;
+    const parentGroup = await this.prisma.productParentCategory.findFirst({
+      where: { id: parentGroupId, organizationId },
+    });
+    if (!parentGroup) {
+      throw new ValidationAppError('Parent category (üst kateqoriya) does not belong to this organization');
+    }
+  }
+
   async create(tenantId: string, membershipId: string, organizationId: string, userId: string, input: ProductCategoryInput) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     await this.assertParentBelongsToOrganization(organizationId, input.parentCategoryId);
+    await this.assertParentGroupBelongsToOrganization(organizationId, input.parentGroupId);
 
-    const existing = await this.prisma.productCategory.findUnique({
-      where: { organizationId_code: { organizationId, code: input.code } },
-    });
-    if (existing) throw new ConflictAppError(`Product category code already exists: ${input.code}`);
+    const code = await this.codeService.allocate(organizationId, 'CATEGORY', 'K');
 
     const category = await this.prisma.productCategory.create({
-      data: { tenantId, organizationId, createdBy: userId, updatedBy: userId, ...input },
+      data: { tenantId, organizationId, code, createdBy: userId, updatedBy: userId, ...input },
     });
 
     await this.audit.record({
@@ -111,6 +122,7 @@ export class ProductCategoryService {
       where: { id: categoryId, organizationId },
       include: {
         parentCategory: { select: { id: true, code: true, name: true } },
+        parentGroup: { select: { id: true, code: true, name: true } },
       },
     });
     if (!category) throw new NotFoundAppError('ProductCategory', categoryId);
@@ -130,6 +142,9 @@ export class ProductCategoryService {
     if (patch.parentCategoryId !== undefined) {
       await this.assertParentBelongsToOrganization(organizationId, patch.parentCategoryId);
       await this.assertNoCycle(organizationId, categoryId, patch.parentCategoryId);
+    }
+    if (patch.parentGroupId !== undefined) {
+      await this.assertParentGroupBelongsToOrganization(organizationId, patch.parentGroupId);
     }
 
     const result = await this.prisma.productCategory.updateMany({

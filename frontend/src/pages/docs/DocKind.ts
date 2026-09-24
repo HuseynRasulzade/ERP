@@ -66,6 +66,11 @@ export interface DocKind {
   /** Shows an over-receipt-reason input on lines sourced from a Purchase
    * Order (currently: Goods Receipt only). */
   showOverReceiptReason?: boolean;
+  /** When set, line quantity is serialized as a numeric string rather than
+   * a number (currently: Shipment, Sales Return — their DTOs validate
+   * quantity with @IsNumberString for Decimal precision). Every other
+   * kind keeps sending a plain number, matching its DTO's `quantity: number`. */
+  quantityAsString?: boolean;
   extraFields?: DocExtraField[];
   createBasedOnTargets?: CreateBasedOnTarget[];
   requirementPicker?: RequirementPickerConfig;

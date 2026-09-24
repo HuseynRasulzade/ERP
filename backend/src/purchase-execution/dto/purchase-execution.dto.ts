@@ -333,6 +333,34 @@ export class CreatePurchaseReturnDto {
   lines!: PurchaseReturnLineItemDto[];
 }
 
+export class UpdatePurchaseReturnDto {
+  @IsNumber()
+  expectedVersion!: number;
+
+  @IsOptional()
+  @IsDateString()
+  documentDate?: string;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsIn(['DAMAGED', 'WRONG_ITEM', 'QUALITY_ISSUE', 'EXCESS_DELIVERY', 'EXPIRED', 'CONTRACT_CANCELLATION', 'OTHER'])
+  returnReason?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => PurchaseReturnLineItemDto)
+  lines?: PurchaseReturnLineItemDto[];
+}
+
 // -- Additional Purchase Cost -----------------------------------------------------
 
 export class AdditionalPurchaseCostTargetLineDto {

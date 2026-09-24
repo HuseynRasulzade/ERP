@@ -342,16 +342,19 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       const warehouseId = shipmentLine?.warehouseId;
       if (!warehouseId) continue;
 
-      const unitCost = await this.costing.getUnitCost(tenantId, organizationId, line.productId, warehouseId, businessDate);
+      const unitCost =
+        (await this.costing.getCostForShipmentLine(tenantId, SHIPMENT_TYPE, shipmentLine.shipmentId, line.sourceShipmentLineId, tx)) ??
+        (await this.costing.getUnitCost(tenantId, organizationId, line.productId, warehouseId, businessDate, tx));
       if (!unitCost) continue; // spec section 38: no authoritative cost — skip, never fabricate
 
       const totalCost = unitCost.mul(line.quantity.toString());
       const cogs = await this.mappings.resolve(tenantId, organizationId, MappingKeys.COGS, businessDate, tx);
       const inventory = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
 
+      const dimensions = [{ dimensionCode: 'PRODUCT', referenceId: line.productId }, { dimensionCode: 'WAREHOUSE', referenceId: warehouseId }];
       result.push(
-        { accountId: cogs.id, side: 'DEBIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'COGS' },
-        { accountId: inventory.id, side: 'CREDIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'Inventory issue cost' },
+        { accountId: cogs.id, side: 'DEBIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'COGS', dimensions },
+        { accountId: inventory.id, side: 'CREDIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'Inventory issue cost', dimensions },
       );
     }
     return result;

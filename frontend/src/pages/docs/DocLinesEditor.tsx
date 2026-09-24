@@ -112,13 +112,16 @@ export function DocLinesEditor({ lines, setLines, products, units, warehouses, s
   );
 }
 
-export function serializeDocLines(lines: LineDraft[], opts: { showPrice?: boolean; showTax?: boolean; showWarehouse?: boolean } = {}) {
+export function serializeDocLines(
+  lines: LineDraft[],
+  opts: { showPrice?: boolean; showTax?: boolean; showWarehouse?: boolean; quantityAsString?: boolean; priceAsString?: boolean } = {},
+) {
   return lines.map((l) => ({
     productId: l.productId,
     unitId: l.unitId,
-    quantity: Number(l.quantity),
-    ...(opts.showPrice !== false && l.price.trim() !== '' ? { price: Number(l.price) } : {}),
-    ...(opts.showTax !== false && l.taxRate.trim() !== '' ? { taxRate: Number(l.taxRate) } : {}),
+    quantity: opts.quantityAsString ? l.quantity : Number(l.quantity),
+    ...(opts.showPrice !== false && l.price.trim() !== '' ? { price: opts.priceAsString ? l.price : Number(l.price) } : {}),
+    ...(opts.showTax !== false && l.taxRate.trim() !== '' ? { taxRate: opts.priceAsString ? l.taxRate : Number(l.taxRate) } : {}),
     ...(opts.showWarehouse && l.warehouseId ? { warehouseId: l.warehouseId } : {}),
     ...(l.description.trim() === '' ? {} : { description: l.description.trim() }),
     // Never edited through this grid — carried through so a line re-saved

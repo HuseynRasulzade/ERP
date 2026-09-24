@@ -119,6 +119,7 @@ export class SalesInvoiceService {
           grandTotal: totals.grandTotal,
           priceIncludesTax,
           description: dto.description,
+          taxPointDate: dto.taxPointDate ? this.parseDate(dto.taxPointDate) : undefined,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -182,6 +183,7 @@ export class SalesInvoiceService {
       currencyId?: string;
       priceIncludesTax?: boolean;
       description?: string;
+      taxPointDate?: string;
       lines?: SalesLineItemDto[];
     },
   ) {
@@ -244,6 +246,7 @@ export class SalesInvoiceService {
           ...(patch.currencyId !== undefined ? { currencyId: patch.currencyId } : {}),
           ...(patch.priceIncludesTax !== undefined ? { priceIncludesTax } : {}),
           ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.taxPointDate !== undefined ? { taxPointDate: this.parseDate(patch.taxPointDate) } : {}),
           subtotal: totals.subtotal,
           taxTotal: totals.taxTotal,
           grandTotal: totals.grandTotal,

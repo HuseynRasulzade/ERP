@@ -7,7 +7,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
-  app.enableCors();
+
+  // CORS_ORIGIN as a comma-separated allowlist locks this down for
+  // production; unset (dev default) reflects the request's own origin,
+  // matching this app's previous wide-open `enableCors()` behavior.
+  const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()).filter(Boolean);
+  app.enableCors({ origin: corsOrigin && corsOrigin.length > 0 ? corsOrigin : true });
 
   // Request validation is authoritative server-side (section 38/39) —
   // unknown fields are stripped, not silently accepted; validation failures

@@ -60,12 +60,46 @@ export class CommercialOfferRepository implements DocumentRepositoryAdapter {
         validUntil: input.validUntil as Date | undefined,
         currencyId: input.currencyId as string | undefined,
         priceIncludesTax: (input.priceIncludesTax as boolean) ?? false,
+        subtotal: (input.subtotal as any) ?? 0,
+        taxTotal: (input.taxTotal as any) ?? 0,
+        grandTotal: (input.grandTotal as any) ?? 0,
         sourceRequestId: input.sourceRequestId as string | undefined,
         description: input.description as string | undefined,
         createdBy,
         updatedBy: createdBy,
       },
     });
+
+    // CUSTOMER_REQUEST -> COMMERCIAL_OFFER carries resolved lines through
+    // `input.lines` (see CustomerRequestToCommercialOfferMapper) — same
+    // "materialize what the mapper already resolved" convention as
+    // SalesOrderRepository.create().
+    const lines = input.lines as Array<Record<string, unknown>> | undefined;
+    if (lines?.length) {
+      for (const [index, line] of lines.entries()) {
+        await tx.commercialOfferLine.create({
+          data: {
+            tenantId,
+            commercialOfferId: row.id,
+            position: index,
+            productId: line.productId as string,
+            unitId: line.unitId as string,
+            quantity: line.quantity as any,
+            price: line.price as any,
+            discountPercent: line.discountPercent as any,
+            discountAmount: line.discountAmount as any,
+            lineTotal: line.lineTotal as any,
+            taxRate: line.taxRate as any,
+            taxAmount: line.taxAmount as any,
+            lineTotalWithTax: line.lineTotalWithTax as any,
+            priceListId: line.priceListId as string | undefined,
+            productPriceId: line.productPriceId as string | undefined,
+            description: line.description as string | undefined,
+          },
+        });
+      }
+    }
+
     return this.toBaseFields(row);
   }
 

@@ -15,6 +15,7 @@ interface AuthContextValue {
   selectTenant: (tenantId: string) => Promise<void>;
   refreshTenants: () => Promise<MyTenant[]>;
   hasPermission: (code: string) => boolean;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -126,6 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasPermission = useCallback((code: string) => permissions.includes(code), [permissions]);
 
+  const refreshUser = useCallback(async () => {
+    const me = await api.get<Me>('/users/me');
+    setUser(me);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -139,8 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       selectTenant,
       refreshTenants,
       hasPermission,
+      refreshUser,
     }),
-    [user, tenants, currentTenantId, permissions, loading, login, register, logout, selectTenant, refreshTenants, hasPermission],
+    [user, tenants, currentTenantId, permissions, loading, login, register, logout, selectTenant, refreshTenants, hasPermission, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

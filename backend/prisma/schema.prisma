@@ -64,7 +64,9 @@ model Tenant {
   registerMovements                       RegisterMovement[]
   responsiblePersons                      ResponsiblePerson[]
   unitsOfMeasure                          UnitOfMeasure[]
+  banks                                    Bank[]
   productCategories                       ProductCategory[]
+  productParentCategories                 ProductParentCategory[]
   products                                Product[]
   unitConversions                         UnitConversion[]
   counterparties                          Counterparty[]
@@ -145,6 +147,9 @@ model Tenant {
   approvalSteps                           ApprovalStep[]
   PaymentRequest                          PaymentRequest[]
   PaymentOrder                            PaymentOrder[]
+  PaymentAllocation                       PaymentAllocation[]
+  CashTransaction                         CashTransaction[]
+  BankStatementLine                       BankStatementLine[]
   PeriodReopenRequest                     PeriodReopenRequest[]
 
   @@map("tenants")
@@ -207,6 +212,7 @@ model Organization {
   taxProfiles              TaxProfile[]              @relation("OrgTaxProfiles")
   accessGrants             OrganizationAccess[]
   productCategories        ProductCategory[]
+  productParentCategories  ProductParentCategory[]
   products                 Product[]
   counterparties           Counterparty[]
   counterpartyContracts    CounterpartyContract[]
@@ -246,6 +252,9 @@ model Organization {
   inventoryStatusTransfers InventoryStatusTransfer[]
   PaymentRequest           PaymentRequest[]
   PaymentOrder             PaymentOrder[]
+  PaymentAllocation        PaymentAllocation[]
+  CashTransaction          CashTransaction[]
+  BankStatementLine        BankStatementLine[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -407,8 +416,9 @@ model Warehouse {
   @@map("warehouses")
 }
 
-/// Structural cashbox master data ONLY (section 13) — no cash balances or
-/// movements until Phase 15.
+/// Structural cashbox master data (section 13). Cash movements themselves
+/// live on CashTransaction, a separate document type posting against this
+/// cashbox — kept separate so this table stays pure master data.
 model Cashbox {
   id                  String  @id @default(uuid())
   tenantId            String  @map("tenant_id")
@@ -431,11 +441,41 @@ model Cashbox {
   currency     Currency           @relation(fields: [currencyId], references: [id])
   responsible  ResponsiblePerson? @relation(fields: [responsiblePersonId], references: [id])
 
-  defaultForOrganizations Organization[] @relation("OrgDefaultCashbox")
+  defaultForOrganizations Organization[]    @relation("OrgDefaultCashbox")
+  cashTransactions        CashTransaction[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
   @@map("cashboxes")
+}
+
+/// Bank (institution) catalog — 1C's "Банки" directory: a tenant-wide
+/// list of banking institutions, kept separate from BankAccount (which
+/// is one organization's account AT a bank). Multiple BankAccount rows,
+/// across different organizations, can reference the same Bank. Mirrors
+/// UnitOfMeasureService's tenant-scoped catalog pattern exactly.
+model Bank {
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  code                 String
+  name                 String
+  swiftBic             String? @map("swift_bic")
+  correspondentAccount String? @map("correspondent_account")
+  address              String?
+  active               Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  bankAccounts BankAccount[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, active])
+  @@map("banks")
 }
 
 /// Organization bank account MASTER DATA ONLY (section 14/15) — no
@@ -444,6 +484,7 @@ model BankAccount {
   id                   String    @id @default(uuid())
   tenantId             String    @map("tenant_id")
   organizationId       String    @map("organization_id")
+  bankId               String?   @map("bank_id")
   bankName             String    @map("bank_name")
   bankCode             String?   @map("bank_code")
   branchName           String?   @map("branch_name")
@@ -466,13 +507,54 @@ model BankAccount {
 
   organization Organization @relation("OrgBankAccounts", fields: [organizationId], references: [id])
   currency     Currency     @relation(fields: [currencyId], references: [id])
+  bank         Bank?        @relation(fields: [bankId], references: [id])
 
-  defaultForOrganizations Organization[] @relation("OrgDefaultBankAccount")
+  defaultForOrganizations Organization[]      @relation("OrgDefaultBankAccount")
   PaymentOrder            PaymentOrder[]
+  statementLines          BankStatementLine[]
 
   @@index([organizationId, active])
   @@index([iban])
+  @@index([bankId])
   @@map("bank_accounts")
+}
+
+/// Bank statement reconciliation (Barışdırma) — a real statement-import +
+/// matching workflow, distinct from PaymentOrder.reconcile()'s single
+/// manual amount field. Each line is one bank statement entry (manually
+/// entered — this build has no file-import parser, matching every other
+/// document type here); matching it to the PaymentOrder it clears also
+/// drives PaymentOrder's own `reconciled`/`bankStatementAmount` fields
+/// (see BankReconciliationService), so the two mechanisms never disagree.
+model BankStatementLine {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  organizationId String   @map("organization_id")
+  bankAccountId  String   @map("bank_account_id")
+  statementDate  DateTime @map("statement_date") @db.Date
+  description    String?
+  reference      String?
+  // Positive = inflow (credit to the account), negative = outflow.
+  amount         Decimal  @db.Decimal(18, 2)
+
+  status              String    @default("UNMATCHED") // UNMATCHED | MATCHED
+  matchedDocumentType String?   @map("matched_document_type") // PAYMENT_ORDER
+  matchedDocumentId   String?   @map("matched_document_id")
+  matchedAt           DateTime? @map("matched_at")
+  matchedBy           String?   @map("matched_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  bankAccount  BankAccount  @relation(fields: [bankAccountId], references: [id])
+
+  @@index([organizationId, bankAccountId, status])
+  @@map("bank_statement_lines")
 }
 
 /// Accounting policy METADATA + effective dating ONLY (section 16-18) — no
@@ -782,6 +864,7 @@ model Currency {
   additionalPurchaseCosts                 AdditionalPurchaseCost[]
   PaymentRequest                          PaymentRequest[]
   PaymentOrder                            PaymentOrder[]
+  CashTransaction                         CashTransaction[]
 
   @@map("currencies")
 }
@@ -1208,6 +1291,33 @@ model UnitOfMeasure {
   @@map("units_of_measure")
 }
 
+/// Product Parent Category ("Üst Kateqoriya") — independent master catalog
+/// that ProductCategory rows can be grouped under. Separate from
+/// ProductCategory's own self-referencing parentCategoryId, which stays in
+/// place for backward compatibility.
+model ProductParentCategory {
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  organizationId String  @map("organization_id")
+  code           String
+  name           String
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  categories   ProductCategory[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@map("product_parent_categories")
+}
+
 /// Product Category — hierarchical classification (section 80).
 /// Organization-scoped category tree (parent-child relationships).
 /// Cycles are validated at the service layer.
@@ -1216,6 +1326,7 @@ model ProductCategory {
   tenantId         String  @map("tenant_id")
   organizationId   String  @map("organization_id")
   parentCategoryId String? @map("parent_category_id")
+  parentGroupId    String? @map("parent_group_id")
   code             String
   name             String
   description      String?
@@ -1227,16 +1338,31 @@ model ProductCategory {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant          Tenant            @relation(fields: [tenantId], references: [id])
-  organization    Organization      @relation(fields: [organizationId], references: [id])
-  parentCategory  ProductCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
-  childCategories ProductCategory[] @relation("CategoryHierarchy")
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id])
+  organization    Organization           @relation(fields: [organizationId], references: [id])
+  parentCategory  ProductCategory?       @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  childCategories ProductCategory[]      @relation("CategoryHierarchy")
+  parentGroup     ProductParentCategory? @relation(fields: [parentGroupId], references: [id])
   products        Product[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
   @@index([organizationId, parentCategoryId])
+  @@index([organizationId, parentGroupId])
   @@map("product_categories")
+}
+
+/// Atomic counter backing auto-generated, collision-safe codes for the
+/// product catalog's category tables (e.g. "UK-0001", "K-0001").
+/// Deliberately separate from NumberSequence/NumberingService, which is
+/// tenant-scoped and always stamps a year — a poor fit for these codes.
+model ProductCatalogCodeCounter {
+  organizationId String @map("organization_id")
+  entityType     String @map("entity_type") // 'PARENT_CATEGORY' | 'CATEGORY'
+  nextNumber     BigInt @default(1) @map("next_number")
+
+  @@id([organizationId, entityType])
+  @@map("product_catalog_code_counters")
 }
 
 enum ProductType {
@@ -1451,6 +1577,7 @@ model Counterparty {
   inventoryMovementsAsOwner    InventoryMovement[]
   PaymentRequest               PaymentRequest[]
   PaymentOrder                 PaymentOrder[]
+  CashTransaction              CashTransaction[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, taxId])
@@ -1764,13 +1891,14 @@ model SalesInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant         Tenant             @relation(fields: [tenantId], references: [id])
-  organization   Organization       @relation(fields: [organizationId], references: [id])
-  counterparty   Counterparty       @relation(fields: [counterpartyId], references: [id])
-  currency       Currency?          @relation(fields: [currencyId], references: [id])
-  sourceShipment Shipment?          @relation(fields: [sourceShipmentId], references: [id])
-  lines          SalesInvoiceLine[]
-  returns        SalesReturn[]
+  tenant           Tenant             @relation(fields: [tenantId], references: [id])
+  organization     Organization       @relation(fields: [organizationId], references: [id])
+  counterparty     Counterparty       @relation(fields: [counterpartyId], references: [id])
+  currency         Currency?          @relation(fields: [currencyId], references: [id])
+  sourceShipment   Shipment?          @relation(fields: [sourceShipmentId], references: [id])
+  lines            SalesInvoiceLine[]
+  returns          SalesReturn[]
+  cashTransactions CashTransaction[]
 
   @@unique([tenantId, number])
   @@index([tenantId, documentDate])
@@ -2974,10 +3102,11 @@ model ShipmentLine {
 }
 
 /// AR contract for Phase 13 (spec sections 40-41, 71-72) — a clean
-/// receivable obligation, not a full AR register (no payment allocation,
-/// no aging). `status` stays NOT_PAID forever in this build (spec
-/// explicitly forbids fabricating PARTIALLY_PAID/PAID without a real
-/// settlement module).
+/// receivable obligation, not a full AR register (no aging). `paidAmount`
+/// / `status` mirror `SupplierPayable`'s own lifecycle exactly (see
+/// CashTransaction's CUSTOMER_PAYMENT clearing path): both stay honest —
+/// `paidAmount` only ever grows from a real posted cash receipt, `status`
+/// only ever flips to PAID once `paidAmount >= amountDue`, never fabricated.
 model SettlementObligation {
   id                 String    @id @default(uuid())
   tenantId           String    @map("tenant_id")
@@ -2987,6 +3116,7 @@ model SettlementObligation {
   sourceDocumentId   String    @map("source_document_id")
   currencyId         String?   @map("currency_id")
   amountDue          Decimal   @map("amount_due") @db.Decimal(18, 2)
+  paidAmount         Decimal   @default(0) @map("paid_amount") @db.Decimal(18, 2)
   dueDate            DateTime? @map("due_date") @db.Date
   status             String    @default("NOT_PAID")
 
@@ -3560,13 +3690,15 @@ model PurchaseInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant          Tenant                   @relation(fields: [tenantId], references: [id])
-  organization    Organization             @relation(fields: [organizationId], references: [id])
-  counterparty    Counterparty             @relation(fields: [counterpartyId], references: [id])
-  currency        Currency?                @relation(fields: [currencyId], references: [id])
-  lines           PurchaseInvoiceLine[]
-  purchaseReturns PurchaseReturn[]
-  matchingResults PurchaseMatchingResult[]
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id])
+  organization     Organization             @relation(fields: [organizationId], references: [id])
+  counterparty     Counterparty             @relation(fields: [counterpartyId], references: [id])
+  currency         Currency?                @relation(fields: [currencyId], references: [id])
+  lines            PurchaseInvoiceLine[]
+  purchaseReturns  PurchaseReturn[]
+  matchingResults    PurchaseMatchingResult[]
+  cashTransactions   CashTransaction[]
+  paymentAllocations PaymentAllocation[]
 
   @@unique([organizationId, counterpartyId, supplierInvoiceNumber])
   @@index([tenantId, number])
@@ -3753,10 +3885,103 @@ model PaymentOrder {
   bankAccount             BankAccount              @relation(fields: [bankAccountId], references: [id])
   counterpartyBankAccount CounterpartyBankAccount? @relation(fields: [counterpartyBankAccountId], references: [id])
 
+  allocations PaymentAllocation[]
+
   @@unique([tenantId, number])
   @@index([organizationId, paymentRequestId])
   @@index([organizationId, counterpartyId, status])
   @@map("payment_orders")
+}
+
+/// Splittable payment allocation (1C parity: "avans/qarşılıqlı
+/// hesablaşmaların bölüşdürülməsi") — a PaymentOrder's single `amount`
+/// no longer has to clear exactly the one invoice its originating
+/// PaymentRequest named; it can be split across several open Purchase
+/// Invoices for the same counterparty, with any unallocated remainder
+/// left as an unmatched advance (`purchaseInvoiceId = null`). Rows are
+/// set as a whole (replace-all) while the order is NOT_POSTED; posting
+/// reads them to reduce each named invoice's SupplierPayable.paidAmount
+/// instead of the old always-one-invoice logic — see
+/// PaymentOrderPostingHandler.buildAccountingBatch.
+model PaymentAllocation {
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  organizationId    String  @map("organization_id")
+  paymentOrderId    String  @map("payment_order_id")
+  purchaseInvoiceId String? @map("purchase_invoice_id")
+  amount            Decimal @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  paymentOrder    PaymentOrder    @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+  purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id])
+
+  @@index([tenantId, paymentOrderId])
+  @@index([tenantId, purchaseInvoiceId])
+  @@map("payment_allocations")
+}
+
+/// Kassa mədaxil/məxaric (cash receipt/payment) — the transaction engine
+/// Cashbox never had (Cashbox itself stays pure master data, unchanged).
+/// One line per document (petty-cash shape, not a multi-line document like
+/// Shipment) — mirrors PaymentOrder's single-amount structure but against
+/// a Cashbox instead of a BankAccount, and skips PaymentOrder's approval /
+/// reconciliation machinery as out of scope for this build.
+model CashTransaction {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("CASH_TRANSACTION") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  cashboxId      String  @map("cashbox_id")
+  // RECEIPT (mədaxil) or PAYMENT (məxaric).
+  direction      String
+  // CUSTOMER_PAYMENT | SUPPLIER_PAYMENT | OTHER_INCOME | OTHER_EXPENSE —
+  // selects which GL contra-account this transaction posts against.
+  category       String
+  counterpartyId String? @map("counterparty_id")
+  currencyId     String? @map("currency_id")
+  amount         Decimal @db.Decimal(18, 2)
+  description    String?
+
+  // Optional: which specific invoice this CUSTOMER_PAYMENT/SUPPLIER_PAYMENT
+  // clears (see CashTransactionPostingHandler) — reduces that invoice's
+  // SettlementObligation/SupplierPayable paidAmount on post, exactly like
+  // PaymentOrder does for its own PaymentRequest.purchaseInvoiceId. Left
+  // unset, the payment still posts to the AR/AP GL account but settles
+  // against itself (an unapplied/advance receipt or payment).
+  sourceSalesInvoiceId    String? @map("source_sales_invoice_id")
+  sourcePurchaseInvoiceId String? @map("source_purchase_invoice_id")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant                Tenant           @relation(fields: [tenantId], references: [id])
+  organization          Organization     @relation(fields: [organizationId], references: [id])
+  cashbox               Cashbox          @relation(fields: [cashboxId], references: [id])
+  counterparty          Counterparty?    @relation(fields: [counterpartyId], references: [id])
+  currency              Currency?        @relation(fields: [currencyId], references: [id])
+  sourceSalesInvoice    SalesInvoice?    @relation(fields: [sourceSalesInvoiceId], references: [id])
+  sourcePurchaseInvoice PurchaseInvoice? @relation(fields: [sourcePurchaseInvoiceId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, cashboxId, status])
+  @@map("cash_transactions")
 }
 
 /// Return of goods to a supplier (spec sections 14-16) — against a
@@ -4116,6 +4341,194 @@ model InventoryMovement {
   @@index([tenantId, registrarDocumentType, registrarDocumentId])
   @@index([tenantId, productId, stockStatus])
   @@map("inventory_movements")
+}
+
+/// Phase 11 — Inventory Costing Engine (spec sections 1-140). Quantity
+/// register (InventoryMovement above) stays authoritative for "how many
+/// units"; this and the models below are the separate cost/valuation
+/// subledger answering "what are they worth" — never collapsed into a
+/// mutable field on Product/Warehouse (spec section 2).
+///
+/// Effective-dated per organization; `costingMethod` picked here drives
+/// which InventoryCostingStrategy (FIFO vs WEIGHTED_AVERAGE) processes
+/// that organization's movements from `effectiveFrom` onward.
+model InventoryCostingPolicy {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  organizationId String   @map("organization_id")
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  effectiveTo    DateTime? @map("effective_to") @db.Date
+
+  costingMethod String  @map("costing_method") // FIFO | WEIGHTED_AVERAGE
+  averageMethod String? @map("average_method") // MOVING_AVERAGE | PERIODIC_WEIGHTED_AVERAGE (WA only)
+  valuationCurrencyId String @map("valuation_currency_id")
+
+  includePurchaseAdditionalCosts Boolean @default(true) @map("include_purchase_additional_costs")
+  includeCustomsCost             Boolean @default(true) @map("include_customs_cost")
+  includeFreight                 Boolean @default(true) @map("include_freight")
+  allowProvisionalCost           Boolean @default(true) @map("allow_provisional_cost")
+  allowNegativeQuantityCosting   Boolean @default(true) @map("allow_negative_quantity_costing")
+  recalculateBackdatedDocuments  Boolean @default(true) @map("recalculate_backdated_documents")
+
+  // Costing dimension resolver config (spec section 5) — which of these
+  // participate in a costingKey alongside organization+product.
+  costByWarehouse      Boolean @default(true) @map("cost_by_warehouse")
+  costByCharacteristic Boolean @default(false) @map("cost_by_characteristic")
+  costByBatch          Boolean @default(false) @map("cost_by_batch")
+
+  roundingPolicy String @default("STANDARD") @map("rounding_policy")
+  active         Boolean @default(true)
+  version        Int     @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@index([tenantId, organizationId, effectiveFrom])
+  @@map("inventory_costing_policies")
+}
+
+/// FIFO cost layer (spec section 8) — one row per incoming (RECEIPT-type)
+/// inventory movement under FIFO policy. `remainingQuantity` is depleted
+/// by InventoryCostConsumption rows as outgoing movements consume it,
+/// oldest layer first (spec section 10). Never overwritten in place for
+/// the historical "original" columns (spec section 73 — immutability);
+/// only the "current" and "remaining" columns mutate as consumption or
+/// adjustment happens.
+model InventoryCostLayer {
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  organizationId String @map("organization_id")
+  costingKey     String @map("costing_key")
+
+  productId    String  @map("product_id")
+  warehouseId  String? @map("warehouse_id")
+  batchId      String? @map("batch_id")
+
+  sourceReceiptDocumentType  String @map("source_receipt_document_type")
+  sourceReceiptDocumentId    String @map("source_receipt_document_id")
+  sourceReceiptLineId        String @map("source_receipt_line_id")
+  sourceInventoryMovementId  String @map("source_inventory_movement_id")
+
+  receiptDate DateTime @map("receipt_date")
+
+  originalQuantity      Decimal @map("original_quantity") @db.Decimal(18, 6)
+  remainingQuantity     Decimal @map("remaining_quantity") @db.Decimal(18, 6)
+  originalUnitCost      Decimal @map("original_unit_cost") @db.Decimal(18, 6)
+  currentUnitCost       Decimal @map("current_unit_cost") @db.Decimal(18, 6)
+  originalTotalCost     Decimal @map("original_total_cost") @db.Decimal(18, 6)
+  currentRemainingValue Decimal @map("current_remaining_value") @db.Decimal(18, 6)
+  currencyId            String  @map("currency_id")
+
+  status String @default("OPEN") // OPEN | PARTIALLY_CONSUMED | CLOSED | ADJUSTED | REVERSED
+  // Deterministic FIFO ordering tie-breaker (spec section 10) alongside
+  // receiptDate — a DB-assigned monotonic sequence, not wall-clock time.
+  postingSequence BigInt @default(autoincrement()) @map("posting_sequence")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  consumptions InventoryCostConsumption[]
+
+  @@index([tenantId, costingKey, status, receiptDate, postingSequence])
+  @@index([sourceInventoryMovementId])
+  @@map("inventory_cost_layers")
+}
+
+/// Traceability mapping (spec section 11): which FIFO layer(s) an
+/// outgoing movement drew cost from, and how much — lets a user drill
+/// from "Shipment SH-100" down to "100 units from Receipt GR-001 @ 10".
+model InventoryCostConsumption {
+  id     String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  outgoingInventoryMovementId String  @map("outgoing_inventory_movement_id")
+  outgoingDocumentType        String  @map("outgoing_document_type")
+  outgoingDocumentId          String  @map("outgoing_document_id")
+  outgoingDocumentLineId      String? @map("outgoing_document_line_id")
+
+  costLayerId String @map("cost_layer_id")
+
+  consumedQuantity Decimal @map("consumed_quantity") @db.Decimal(18, 6)
+  unitCost         Decimal @map("unit_cost") @db.Decimal(18, 6)
+  consumedCost     Decimal @map("consumed_cost") @db.Decimal(18, 6)
+
+  calculationRunId String? @map("calculation_run_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  costLayer InventoryCostLayer @relation(fields: [costLayerId], references: [id])
+
+  @@index([outgoingInventoryMovementId])
+  @@index([tenantId, costLayerId])
+  @@map("inventory_cost_consumptions")
+}
+
+/// Cost register (spec section 6) — one row per costed InventoryMovement
+/// (both RECEIPT and ISSUE, under either FIFO or WEIGHTED_AVERAGE), the
+/// authoritative "what did this specific movement cost" record that
+/// valuation/COGS reporting reads from instead of re-deriving from
+/// layers every time. Unique on sourceInventoryMovementId — the
+/// idempotency guard (spec section 93): reprocessing the same
+/// InventoryMovementPosted event upserts, never duplicates.
+model InventoryCostMovement {
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  organizationId String @map("organization_id")
+  costingKey     String @map("costing_key")
+
+  warehouseId String? @map("warehouse_id")
+  productId   String  @map("product_id")
+  batchId     String? @map("batch_id")
+  ownershipType String @default("OWN") @map("ownership_type")
+
+  sourceInventoryMovementId String  @map("source_inventory_movement_id")
+  sourceDocumentType        String  @map("source_document_type")
+  sourceDocumentId          String  @map("source_document_id")
+  sourceDocumentLineId      String? @map("source_document_line_id")
+
+  effectiveDate DateTime @map("effective_date")
+  postingDate   DateTime @map("posting_date")
+  movementType  String   @map("movement_type") // RECEIPT | ISSUE
+
+  quantity         Decimal  @db.Decimal(18, 6)
+  unitCost         Decimal  @map("unit_cost") @db.Decimal(18, 6)
+  totalCost        Decimal  @map("total_cost") @db.Decimal(18, 6)
+  provisionalCost  Decimal? @map("provisional_cost") @db.Decimal(18, 6)
+  finalCost        Decimal? @map("final_cost") @db.Decimal(18, 6)
+  valuationCurrencyId String @map("valuation_currency_id")
+
+  postingVersion Int    @default(1) @map("posting_version")
+  costStatus     String @default("FINAL") @map("cost_status") // UNCALCULATED | PROVISIONAL | FINAL | RECALCULATION_REQUIRED | ERROR
+  calculationRunId String? @map("calculation_run_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([sourceInventoryMovementId])
+  @@index([tenantId, costingKey])
+  @@index([tenantId, productId])
+  @@map("inventory_cost_movements")
+}
+
+/// Weighted-average running balance per costingKey (spec section 12-13,
+/// MOVING_AVERAGE mode) — a rebuildable projection (spec section 2: "may
+/// be stored as a performance projection, but must be rebuildable"), not
+/// a second source of truth. Rebuilt by replaying InventoryCostMovement
+/// rows for that costingKey in order.
+model InventoryCostBalance {
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  organizationId String @map("organization_id")
+  costingKey     String @map("costing_key")
+
+  quantity        Decimal @db.Decimal(18, 6)
+  totalValue      Decimal @map("total_value") @db.Decimal(18, 6)
+  averageUnitCost Decimal @map("average_unit_cost") @db.Decimal(18, 6)
+  currencyId      String  @map("currency_id")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, costingKey])
+  @@map("inventory_cost_balances")
 }
 
 /// Warehouse-to-warehouse (or, when `transferType = INTERNAL_LOCATION_
@@ -4519,6 +4932,11 @@ model CounterpartyContract {
   // -- Nomenclature lines + live totals (spec sections 11-13) ---------------
   priceIncludesTax       Boolean  @default(false) @map("price_includes_tax")
   sourcePurchaseOrderId  String?  @map("source_purchase_order_id")
+  // Mirrors sourcePurchaseOrderId, for a contract created from a
+  // (confirmed/posted) Sales Order instead — see
+  // CounterpartyContractService.createFromSalesOrder. A contract is
+  // sourced from at most one of the two, never both.
+  sourceSalesOrderId     String?  @map("source_sales_order_id")
   // Set whenever a line is added/edited/removed by hand after being pulled
   // from the source PO — the frontend warns before a "change source PO"
   // resync discards lines while this is true. Reset to false by every
@@ -4593,6 +5011,7 @@ model CounterpartyContractLine {
   // but the contract cannot approve while any line carries this.
   taxCalculationError    String?  @map("tax_calculation_error")
   sourceOrderLineId      String?  @map("source_order_line_id") // PurchaseOrderLine — soft reference
+  sourceSalesOrderLineId String?  @map("source_sales_order_line_id") // SalesOrderLine — soft reference, mirrors sourceOrderLineId
   // Snapshot of the source PO line's own tax, captured once at creation —
   // compared against the live-recalculated tax above every time the
   // counterparty's tax status (or another tax-point field) changes so a
@@ -4615,6 +5034,7 @@ model CounterpartyContractLine {
 
   @@index([contractId, position])
   @@index([tenantId, sourceOrderLineId])
+  @@index([tenantId, sourceSalesOrderLineId])
   @@map("counterparty_contract_lines")
 }
 

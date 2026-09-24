@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLocale } from '../../i18n/LocaleContext';
 import { CP_STATUS_CLASS } from './CounterpartyListPage';
 import { DocumentManager } from './DocumentManager';
+import type { ResponsiblePerson } from '../core/ResponsiblePersonPage';
 
 export function ContractDetailPage() {
   const { id: counterpartyId, contractId } = useParams<{ id: string; contractId: string }>();
@@ -19,6 +20,7 @@ export function ContractDetailPage() {
   const orgId = currentOrganizationId;
 
   const [contract, setContract] = useState<CounterpartyContract | null>(null);
+  const [responsiblePersons, setResponsiblePersons] = useState<ResponsiblePerson[]>([]);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
@@ -54,6 +56,10 @@ export function ContractDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    api.get<ResponsiblePerson[]>('/responsible-persons').then(setResponsiblePersons).catch(() => {});
+  }, []);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -123,7 +129,14 @@ export function ContractDetailPage() {
           <div className="inline-form">
             <label>{t.counterparty.subject}<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
             <label>{t.counterparty.contractType}<input value={form.contractType} onChange={(e) => setForm({ ...form, contractType: e.target.value })} placeholder="e.g. SUPPLY, SERVICE, LEASE" /></label>
-            <label>{t.counterparty.responsiblePerson}<input value={form.responsiblePersonId} onChange={(e) => setForm({ ...form, responsiblePersonId: e.target.value })} placeholder="responsible person id" /></label>
+            <label>{t.counterparty.responsiblePerson}
+              <select value={form.responsiblePersonId} onChange={(e) => setForm({ ...form, responsiblePersonId: e.target.value })}>
+                <option value="">-</option>
+                {responsiblePersons.map((p) => (
+                  <option key={p.id} value={p.id}>{p.displayName}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="inline-form">
             <label>{t.counterparty.signedDate}<input type="date" value={form.signedDate} onChange={(e) => setForm({ ...form, signedDate: e.target.value })} /></label>
@@ -185,7 +198,7 @@ export function ContractDetailPage() {
             <dt>{t.counterparty.paymentTerms}</dt><dd>{contract.paymentTerms ?? '—'}</dd>
             <dt>{t.procurement.contractLimit}</dt><dd className="numeric">{(contract as any).limitAmount ?? '—'}</dd>
             <dt>{t.procurement.contractLimitPolicy}</dt><dd>{(contract as any).limitPolicy ?? '—'}</dd>
-            <dt>{t.counterparty.responsiblePerson}</dt><dd>{contract.responsiblePersonId ?? '—'}</dd>
+            <dt>{t.counterparty.responsiblePerson}</dt><dd>{contract.responsiblePersonId ? (responsiblePersons.find((p) => p.id === contract.responsiblePersonId)?.displayName ?? contract.responsiblePersonId) : '—'}</dd>
             <dt>{t.contract.deliveryDate}</dt><dd>{contract.deliveryDate?.slice(0, 10) ?? '—'}</dd>
             <dt>{t.contract.deliveryTermDays}</dt><dd>{contract.deliveryTermDays ?? '—'}</dd>
             <dt>{t.contract.deliveryAddress}</dt><dd>{contract.deliveryAddress ?? '—'}</dd>

@@ -45,11 +45,13 @@ export class SalesInvoiceRepository implements DocumentRepositoryAdapter {
 
   /**
    * Materializes a target invoice for CreateBasedOnService. Accepts the
-   * pre-allocated header fields the SALES_ORDER => SALES_INVOICE mapper
-   * produces (number, documentDate, currency, tax flag, description) so the
-   * engine's single create is the only write — no duplicate headers.
-   * The draft starts with zero totals and no lines; lines are added via the
-   * invoice update endpoint before posting.
+   * pre-allocated header fields the mapper produces (number, documentDate,
+   * currency, tax flag, description) so the engine's single create is the
+   * only write — no duplicate headers. When the mapper supplies `input.lines`
+   * (SALES_ORDER => SALES_INVOICE and SHIPMENT => SALES_INVOICE both do,
+   * carrying each line's own resolved price/tax snapshot — never
+   * re-resolved here), they're inserted in the same transaction; a mapper
+   * that omits `lines` still gets a draft with none, same as before.
    */
   async create(
     tenantId: string,
@@ -75,6 +77,33 @@ export class SalesInvoiceRepository implements DocumentRepositoryAdapter {
         updatedBy: createdBy,
       },
     });
+
+    const lines = input.lines as Array<Record<string, unknown>> | undefined;
+    if (lines?.length) {
+      for (const [index, line] of lines.entries()) {
+        await tx.salesInvoiceLine.create({
+          data: {
+            tenantId,
+            salesInvoiceId: row.id,
+            position: index,
+            productId: line.productId as string,
+            unitId: line.unitId as string,
+            quantity: line.quantity as any,
+            price: line.price as any,
+            lineTotal: line.lineTotal as any,
+            taxRate: line.taxRate as any,
+            taxAmount: line.taxAmount as any,
+            lineTotalWithTax: line.lineTotalWithTax as any,
+            priceListId: line.priceListId as string | undefined,
+            productPriceId: line.productPriceId as string | undefined,
+            sourceOrderLineId: line.sourceOrderLineId as string | undefined,
+            sourceShipmentLineId: line.sourceShipmentLineId as string | undefined,
+            description: line.description as string | undefined,
+          },
+        });
+      }
+    }
+
     return this.toBaseFields(row);
   }
 

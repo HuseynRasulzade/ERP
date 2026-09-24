@@ -2,6 +2,7 @@ import './common/utils/bigint-json';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 
 import { PrismaModule } from './prisma/prisma.module';
@@ -35,11 +36,18 @@ import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
+import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
+import { PrintFormsModule } from './print-forms/print-forms.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Global rate limiting (Təhlükəsizlik) — a generous default for normal
+    // API traffic; auth endpoints override this with a much tighter
+    // per-IP limit via @Throttle (see identity.controller.ts) since they
+    // are the brute-force/credential-stuffing surface.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     RequestContextModule,
     PrismaModule,
 
@@ -103,17 +111,27 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
     WarehouseInventoryModule,
 
+    // Inventory Costing Engine (docx spec Phase 11 — FIFO / Weighted
+    // Average cost layers, COGS, valuation; separate subledger from the
+    // quantity register above).
+    InventoryCostingModule,
+
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).
     CounterpartyContractsModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,
+
+    // Simple PDF print forms (1C parity: "çap formaları")
+    PrintFormsModule,
   ],
   controllers: [AppController],
   providers: [
-    // Guard order matters: authenticate -> resolve tenant context -> check
-    // permissions. Nest runs APP_GUARD providers in registration order.
+    // Guard order matters: rate-limit -> authenticate -> resolve tenant
+    // context -> check permissions. Nest runs APP_GUARD providers in
+    // registration order.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: TenantContextGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

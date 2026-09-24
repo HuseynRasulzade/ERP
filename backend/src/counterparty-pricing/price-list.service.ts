@@ -149,6 +149,53 @@ export class PriceListService {
     return pp;
   }
 
+  async updatePrice(tenantId: string, membershipId: string, organizationId: string, priceListId: string, productPriceId: string, userId: string, expectedVersion: number, patch: any) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, priceListId);
+
+    const existing = await this.prisma.productPrice.findFirst({ where: { id: productPriceId, priceListId } });
+    if (!existing) throw new NotFoundAppError('ProductPrice', productPriceId);
+
+    const updateData: any = { updatedBy: userId, version: { increment: 1 } };
+    if (patch.price !== undefined) {
+      const price = new Decimal(patch.price.toString());
+      if (price.lte(0)) throw new ValidationAppError('Price must be positive');
+      updateData.price = price;
+    }
+    if (patch.minQuantity !== undefined) updateData.minQuantity = new Decimal(patch.minQuantity.toString());
+    if (patch.maxQuantity !== undefined) updateData.maxQuantity = patch.maxQuantity ? new Decimal(patch.maxQuantity.toString()) : null;
+
+    const result = await this.prisma.productPrice.updateMany({
+      where: { id: productPriceId, priceListId, version: expectedVersion }, data: updateData,
+    });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+    await this.audit.record({
+      tenantId, eventType: 'PRODUCT_PRICE_UPDATED', entityType: 'PriceList',
+      entityId: priceListId, action: 'UPDATE', userId, newValues: patch,
+    });
+    return this.prisma.productPrice.findUnique({ where: { id: productPriceId } });
+  }
+
+  async deactivatePrice(tenantId: string, membershipId: string, organizationId: string, priceListId: string, productPriceId: string, userId: string, expectedVersion: number) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, priceListId);
+
+    const existing = await this.prisma.productPrice.findFirst({ where: { id: productPriceId, priceListId } });
+    if (!existing) throw new NotFoundAppError('ProductPrice', productPriceId);
+    if (!existing.active) throw new ValidationAppError('Product price is already inactive');
+
+    const result = await this.prisma.productPrice.updateMany({
+      where: { id: productPriceId, priceListId, version: expectedVersion },
+      data: { active: false, updatedBy: userId, version: { increment: 1 } },
+    });
+    if (result.count === 0) throw new ConcurrencyConflictError();
+    await this.audit.record({
+      tenantId, eventType: 'PRODUCT_PRICE_DEACTIVATED', entityType: 'PriceList',
+      entityId: priceListId, action: 'DEACTIVATE', userId,
+    });
+    return this.prisma.productPrice.findUnique({ where: { id: productPriceId } });
+  }
+
   /**
    * Resolve the best price for a product given organization, type, counterparty, quantity, and date.
    * Considers effective dating, counterparty specificity, quantity breaks, and priority.

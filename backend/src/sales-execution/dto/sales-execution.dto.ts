@@ -34,6 +34,20 @@ export class VersionedCommandDto {
   @IsInt() @Min(1) expectedVersion!: number;
 }
 
+export class UpdateShipmentDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+  @IsOptional() @IsDateString() documentDate?: string;
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() deliveryAddressSnapshot?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ShipmentLineDto)
+  lines?: ShipmentLineDto[];
+}
+
 export class SalesReturnLineDto {
   @IsOptional() @IsString() sourceInvoiceLineId?: string;
   @IsString() productId!: string;
@@ -60,4 +74,19 @@ export class CreateSalesReturnDto {
   @ValidateNested({ each: true })
   @Type(() => SalesReturnLineDto)
   lines!: SalesReturnLineDto[];
+}
+
+export class UpdateSalesReturnDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+  @IsOptional() @IsDateString() documentDate?: string;
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsIn(['PHYSICAL_RETURN', 'FINANCIAL_CREDIT_ONLY', 'PRICE_CORRECTION']) returnType?: string;
+  @IsOptional() @IsString() reasonCode?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SalesReturnLineDto)
+  lines?: SalesReturnLineDto[];
 }

@@ -117,6 +117,7 @@ export function serializeLines(lines: SalesLineDraft[]) {
     ...(l.price.trim() === '' ? {} : { price: Number(l.price) }),
     ...(l.taxRate.trim() === '' ? {} : { taxRate: Number(l.taxRate) }),
     ...(l.description.trim() === '' ? {} : { description: l.description.trim() }),
+    ...(l.sourceShipmentLineId ? { sourceShipmentLineId: l.sourceShipmentLineId } : {}),
   }));
 }
 
