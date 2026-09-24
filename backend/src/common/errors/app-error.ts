@@ -109,6 +109,25 @@ export const ErrorCode = {
   TRANSFER_ALREADY_RECEIVED: 'TRANSFER_ALREADY_RECEIVED',
   TRANSFER_RECEIVE_EXCEEDS_SHIPPED: 'TRANSFER_RECEIVE_EXCEEDS_SHIPPED',
   INVENTORY_UNPOST_DEPENDENCY: 'INVENTORY_UNPOST_DEPENDENCY',
+
+  // HR Core (Phase 17, spec section 126 — specific, never "HR operation failed")
+  HR_STAFFING_CAPACITY_EXCEEDED: 'HR_STAFFING_CAPACITY_EXCEEDED',
+  HR_ASSIGNMENT_OVERLAP: 'HR_ASSIGNMENT_OVERLAP',
+  HR_EFFECTIVE_DATE_CONFLICT: 'HR_EFFECTIVE_DATE_CONFLICT',
+  HR_INVALID_EFFECTIVE_DATE: 'HR_INVALID_EFFECTIVE_DATE',
+  HR_CIRCULAR_MANAGER: 'HR_CIRCULAR_MANAGER',
+  HR_CONTRACT_REQUIRED: 'HR_CONTRACT_REQUIRED',
+  HR_EMPLOYMENT_NOT_ACTIVE: 'HR_EMPLOYMENT_NOT_ACTIVE',
+  HR_DUPLICATE_EMPLOYMENT: 'HR_DUPLICATE_EMPLOYMENT',
+  HR_DUPLICATE_PERSON: 'HR_DUPLICATE_PERSON',
+  HR_PRIMARY_EMPLOYMENT_CONFLICT: 'HR_PRIMARY_EMPLOYMENT_CONFLICT',
+  HR_INACTIVE_REFERENCE: 'HR_INACTIVE_REFERENCE',
+  HR_FTE_INVALID: 'HR_FTE_INVALID',
+  HR_DOCUMENT_STATE: 'HR_DOCUMENT_STATE',
+  HR_APPROVAL_REQUIRED: 'HR_APPROVAL_REQUIRED',
+  HR_SEGREGATION_OF_DUTIES: 'HR_SEGREGATION_OF_DUTIES',
+  HR_PERIOD_CLOSED: 'HR_PERIOD_CLOSED',
+  HR_DOWNSTREAM_DEPENDENCY: 'HR_DOWNSTREAM_DEPENDENCY',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -700,5 +719,13 @@ export class TransferReceiveExceedsShippedError extends AppError {
 export class InventoryUnpostDependencyError extends AppError {
   constructor(reason: string) {
     super(ErrorCode.INVENTORY_UNPOST_DEPENDENCY, reason, HttpStatus.CONFLICT);
+  }
+}
+
+/** HR Core (Phase 17) business-rule failure — always carries a specific
+ * code and a human-readable, date-bearing message (spec section 126). */
+export class HrRuleError extends AppError {
+  constructor(code: ErrorCodeType, message: string, httpStatus: HttpStatus = HttpStatus.UNPROCESSABLE_ENTITY, details?: unknown) {
+    super(code, message, httpStatus, { details });
   }
 }
