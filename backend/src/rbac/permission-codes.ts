@@ -295,6 +295,21 @@ export const PermissionCodes = {
   INVENTORY_UNPOST: 'inventory.unpost',
   INVENTORY_PERIOD_OVERRIDE: 'inventory.period_override',
   INVENTORY_MANUAL_ADJUSTMENT: 'inventory.manual_adjustment',
+
+  // Inventory Costing (docx spec Phase 11, section 97) — cost data is
+  // sensitive: a warehouse operator may see quantities (inventory.view)
+  // without any of these.
+  INVENTORY_COST_VIEW: 'inventory_cost.view',
+  INVENTORY_COST_VIEW_LAYERS: 'inventory_cost.view_layers',
+  INVENTORY_COST_RECALCULATE: 'inventory_cost.recalculate',
+  INVENTORY_COST_FINALIZE: 'inventory_cost.finalize',
+  INVENTORY_COST_REOPEN: 'inventory_cost.reopen',
+  INVENTORY_COST_ADJUST: 'inventory_cost.adjust',
+  INVENTORY_COST_MANUAL_OVERRIDE: 'inventory_cost.manual_override',
+  INVENTORY_COST_VIEW_ERRORS: 'inventory_cost.view_errors',
+  INVENTORY_COST_VIEW_COGS: 'inventory_cost.view_cogs',
+  INVENTORY_COST_VIEW_ACCOUNTING: 'inventory_cost.view_accounting',
+  INVENTORY_COST_POLICY_MANAGE: 'inventory_cost.policy_manage',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -567,4 +582,16 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.INVENTORY_UNPOST, module: 'inventory', description: 'Unpost inventory documents' },
   { code: PermissionCodes.INVENTORY_PERIOD_OVERRIDE, module: 'inventory', description: 'Post inventory documents into a closed period' },
   { code: PermissionCodes.INVENTORY_MANUAL_ADJUSTMENT, module: 'inventory', description: 'Manually adjust stock outside the normal document flow' },
+
+  { code: PermissionCodes.INVENTORY_COST_VIEW, module: 'inventory_cost', description: 'View inventory valuation (unit cost / value)' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_LAYERS, module: 'inventory_cost', description: 'View FIFO cost layers and cost traces' },
+  { code: PermissionCodes.INVENTORY_COST_RECALCULATE, module: 'inventory_cost', description: 'Run provisional costing / backdated recalculation' },
+  { code: PermissionCodes.INVENTORY_COST_FINALIZE, module: 'inventory_cost', description: 'Finalize inventory cost for a period' },
+  { code: PermissionCodes.INVENTORY_COST_REOPEN, module: 'inventory_cost', description: 'Reopen a finalized inventory costing period' },
+  { code: PermissionCodes.INVENTORY_COST_ADJUST, module: 'inventory_cost', description: 'Create and post inventory cost adjustments' },
+  { code: PermissionCodes.INVENTORY_COST_MANUAL_OVERRIDE, module: 'inventory_cost', description: 'Post manual/migration cost corrections' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_ERRORS, module: 'inventory_cost', description: 'View costing errors and the costing health report' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_COGS, module: 'inventory_cost', description: 'View COGS / gross margin reports' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_ACCOUNTING, module: 'inventory_cost', description: 'View costing accounting entries and GL reconciliation' },
+  { code: PermissionCodes.INVENTORY_COST_POLICY_MANAGE, module: 'inventory_cost', description: 'Create inventory costing policies' },
 ];

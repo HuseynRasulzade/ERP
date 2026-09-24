@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -9,7 +10,7 @@ import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 
-const EXPENSE_MAPPING_BY_OPERATION: Record<string, string> = {
+export const EXPENSE_MAPPING_BY_OPERATION: Record<string, string> = {
   OFFICE_CONSUMPTION: MappingKeys.ADMIN_EXPENSE,
   MARKETING: MappingKeys.COMMERCIAL_EXPENSE,
   MAINTENANCE: MappingKeys.OTHER_OPERATING_EXPENSE,
@@ -41,6 +42,7 @@ export class InternalConsumptionPostingHandler implements DocumentPostingHandler
     private readonly prisma: PrismaService,
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -103,11 +105,19 @@ export class InternalConsumptionPostingHandler implements DocumentPostingHandler
       );
     }
 
-    // No costing engine yet (Phase 11) — see class doc.
+    // Actual cost (Costing spec section 35): Dr Expense (line expense
+    // account, else the operation type's expense mapping) / Cr Inventory
+    // at the engine's FIFO / average cost — only when the organization has
+    // a costing policy; otherwise quantity-only as before.
+    const cost = await this.costing.onDocumentPosted(tenantId, INTERNAL_CONSUMPTION_TYPE, consumption.id, tx, document.postedBy ?? document.createdBy ?? 'system');
+    if (cost && cost.glLines.length > 0) {
+      return { description: `Internal consumption ${consumption.number ?? consumption.id}`, operationType: 'SYSTEM_DOCUMENT', lines: cost.glLines };
+    }
     return null;
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.onDocumentUnposted(tenantId, INTERNAL_CONSUMPTION_TYPE, document.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.movements.deleteMovementsFor(tenantId, INTERNAL_CONSUMPTION_TYPE, document.id, tx);
   }
 }

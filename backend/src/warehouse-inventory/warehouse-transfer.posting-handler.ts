@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -39,6 +40,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
     private readonly prisma: PrismaService,
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -126,7 +128,12 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
       );
     }
 
-    // Never a financial consequence — see class doc.
+    // Cost preservation (Costing spec sections 30-32): the source key's
+    // cost moves with the goods into the destination key (or, when both
+    // warehouses share a costing key, nothing happens at all). Never a
+    // new economic cost and never a GL entry — organization inventory
+    // value is unchanged.
+    await this.costing.onDocumentPosted(tenantId, WAREHOUSE_TRANSFER_TYPE, transfer.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     return null;
   }
 
@@ -139,6 +146,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
           : 'Cannot unpost a transfer that has already been partially received — the destination has already consumed part of the in-transit stock',
       );
     }
+    await this.costing.onDocumentUnposted(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.movements.deleteMovementsFor(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx);
     // Reset any partial receivedQuantity progress written before this unpost.
     await tx.warehouseTransferLine.updateMany({ where: { warehouseTransferId: document.id, tenantId }, data: { receivedQuantity: '0' } });

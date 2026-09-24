@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -39,6 +40,7 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -144,6 +146,12 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
       }
     }
 
+    // Costing (spec sections 8, 17): the receipt's own value (receipt
+    // price, later corrected by invoice difference / additional costs)
+    // creates the cost layer; the GL below is the value source, so the
+    // engine books nothing extra here.
+    await this.costing.onDocumentPosted(tenantId, GOODS_RECEIPT_TYPE, receipt.id, tx, document.postedBy ?? document.createdBy ?? 'system');
+
     const grniTotal = receipt.lines.reduce((sum, l) => sum.plus(l.lineTotal.toString()), new Decimal(0));
     if (grniTotal.lte(0)) return null; // no informational price on any line — inventory-only receipt, no GRNI value to clear later
 
@@ -197,6 +205,7 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     const dependentReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalGoodsReceiptId: document.id, postingStatus: 'POSTED' } });
     if (dependentReturn) throw new GoodsReceiptHasDownstreamLinksError('a posted Purchase Return references this receipt — unpost it first');
 
+    await this.costing.onDocumentUnposted(tenantId, GOODS_RECEIPT_TYPE, document.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.inventory.deleteMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await this.batchSerial.undoReceivedSerials(tenantId, GOODS_RECEIPT_TYPE, receiptLineIds, tx);
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: GOODS_RECEIPT_TYPE, targetDocumentId: document.id, relationType: RelationTypes.SUPPLIER_ORDER_TO_RECEIPT } });

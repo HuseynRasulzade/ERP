@@ -1,3 +1,4 @@
+import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 import { Module, OnModuleInit } from '@nestjs/common';
 import { DocumentFrameworkModule } from '../document-framework/document-framework.module';
 import { DocumentFrameworkRegistry } from '../document-framework/document-framework-registry.service';
@@ -60,7 +61,7 @@ import { PurchaseInvoiceApprovalPlanProvider } from './purchase-invoice-approval
  * mappers covering the spec's core document chains (section 25).
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule, InventoryCostingModule],
   controllers: [GoodsReceiptController, PurchaseInvoiceController, PurchaseReturnController, AdditionalPurchaseCostController, PurchaseExecutionQueriesController],
   providers: [
     PurchaseFulfillmentService,

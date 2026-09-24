@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import Decimal from 'decimal.js';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
@@ -41,6 +42,7 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
     private readonly mappings: AccountingMappingService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -106,6 +108,17 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
       );
     }
 
+    // Costing policy active (Costing spec sections 34, 101): a write-off
+    // leaves at ACTUAL cost (FIFO / average — `costReference` is ignored,
+    // users never type an arbitrary write-off cost), a surplus enters at
+    // its `costReference` (else current cost), an opening balance creates
+    // the opening cost layer from `costReference` (no GL — opening GL
+    // balances belong to Accounting Core's own opening-balance flow).
+    const cost = await this.costing.onDocumentPosted(tenantId, INVENTORY_ADJUSTMENT_TYPE, adjustment.id, tx, document.postedBy ?? document.createdBy ?? 'system');
+    if (cost) {
+      return cost.glLines.length > 0 ? { description: `Inventory adjustment ${adjustment.number ?? adjustment.id}`, operationType: 'SYSTEM_DOCUMENT', lines: cost.glLines } : null;
+    }
+
     if (adjustment.adjustmentType === 'OPENING_BALANCE') return null;
     if (adjustment.lines.some((l) => l.costReference == null)) return null;
 
@@ -141,6 +154,7 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.onDocumentUnposted(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx, document.postedBy ?? document.createdBy ?? 'system');
     await this.movements.deleteMovementsFor(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx);
   }
 }

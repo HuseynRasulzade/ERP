@@ -109,6 +109,14 @@ export const ErrorCode = {
   TRANSFER_ALREADY_RECEIVED: 'TRANSFER_ALREADY_RECEIVED',
   TRANSFER_RECEIVE_EXCEEDS_SHIPPED: 'TRANSFER_RECEIVE_EXCEEDS_SHIPPED',
   INVENTORY_UNPOST_DEPENDENCY: 'INVENTORY_UNPOST_DEPENDENCY',
+
+  // Phases 6-11 audit — Inventory Costing (docx spec Phase 11) + reservation fixes
+  INVENTORY_COSTING_PERIOD_FINALIZED: 'INVENTORY_COSTING_PERIOD_FINALIZED',
+  INVENTORY_COST_DEPENDENCY: 'INVENTORY_COST_DEPENDENCY',
+  INVENTORY_COSTING_BLOCKED: 'INVENTORY_COSTING_BLOCKED',
+  INVENTORY_COSTING_FINALIZATION_BLOCKED: 'INVENTORY_COSTING_FINALIZATION_BLOCKED',
+  INVENTORY_COSTING_POLICY_INVALID: 'INVENTORY_COSTING_POLICY_INVALID',
+  RESERVATION_INSUFFICIENT_STOCK: 'RESERVATION_INSUFFICIENT_STOCK',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -700,5 +708,51 @@ export class TransferReceiveExceedsShippedError extends AppError {
 export class InventoryUnpostDependencyError extends AppError {
   constructor(reason: string) {
     super(ErrorCode.INVENTORY_UNPOST_DEPENDENCY, reason, HttpStatus.CONFLICT);
+  }
+}
+
+// ---- Phases 6-11 audit: Inventory Costing (docx spec Phase 11) ----
+
+export class InventoryCostingPeriodFinalizedError extends AppError {
+  constructor(period: string) {
+    super(
+      ErrorCode.INVENTORY_COSTING_PERIOD_FINALIZED,
+      `Inventory costing period ${period} is finalized — reopen it before posting or recalculating a cost-affecting document dated inside it`,
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+export class InventoryCostDependencyError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.INVENTORY_COST_DEPENDENCY, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class InventoryCostingBlockedError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.INVENTORY_COSTING_BLOCKED, reason, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class InventoryCostingFinalizationBlockedError extends AppError {
+  constructor(blockers: unknown) {
+    super(ErrorCode.INVENTORY_COSTING_FINALIZATION_BLOCKED, 'Inventory cost finalization is blocked — see details', HttpStatus.UNPROCESSABLE_ENTITY, { details: blockers });
+  }
+}
+
+export class InventoryCostingPolicyInvalidError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.INVENTORY_COSTING_POLICY_INVALID, reason, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export class ReservationInsufficientStockError extends AppError {
+  constructor(available: string, requested: string) {
+    super(
+      ErrorCode.RESERVATION_INSUFFICIENT_STOCK,
+      `Available stock is ${available} units, requested reservation quantity is ${requested} units`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 import { Module, OnModuleInit } from '@nestjs/common';
 import { DocumentFrameworkModule } from '../document-framework/document-framework.module';
 import { DocumentFrameworkRegistry } from '../document-framework/document-framework-registry.service';
@@ -49,6 +50,7 @@ import { SalesReturnController } from './sales-return.controller';
     TaxEngineModule,
     SalesPreorderModule,
     WarehouseInventoryModule,
+    InventoryCostingModule,
   ],
   controllers: [ShipmentController, SalesReturnController],
   providers: [

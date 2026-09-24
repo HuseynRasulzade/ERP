@@ -20,13 +20,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
   }
 
-  async runInTransaction<T>(fn: (tx: PrismaTransactionClient) => Promise<T>): Promise<T> {
+  async runInTransaction<T>(fn: (tx: PrismaTransactionClient) => Promise<T>, options?: { timeout?: number }): Promise<T> {
     return this.$transaction((tx) => fn(tx), {
       // Posting/unposting must not see phantom reads of concurrently
       // allocated sequences or concurrently posted movements.
       isolationLevel: 'ReadCommitted',
       maxWait: 10_000,
-      timeout: 20_000,
+      // Explicit, heavy calculation runs (e.g. inventory cost period close)
+      // may ask for a longer budget; everything else keeps 20s.
+      timeout: options?.timeout ?? 20_000,
     });
   }
 }
