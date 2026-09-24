@@ -268,6 +268,25 @@ computed live, snapshotted on demand.
 
 Full write-up: [`backend/docs/PURCHASE_EXECUTION.md`](backend/docs/PURCHASE_EXECUTION.md).
 
+### Verification audit — Phases 0–5
+
+A spec-by-spec checklist of the six foundation specs (foundation,
+organization structure, nomenclature, counterparties, Accounting Core,
+Tax Engine) against the code, with Done/Partial/Missing per requirement,
+lives in [`backend/docs/AUDIT_PHASES_00_05.md`](backend/docs/AUDIT_PHASES_00_05.md).
+The audit fixed the correctness gaps it found. It enforces organization
+access on the generic document commands and on manual operations. It checks
+ledger dimension integrity (tenant, organization and entity type) plus the
+currency and quantity rules. It serializes concurrent duplicate postings. The
+period guard now locks the period row, and period close/reopen are atomic.
+Trial Balance now reports net opening balances with a parent-account rollup,
+and there is an opening-balance endpoint. The tax resolver honours
+legal-source validity and never falls back to a silent 0% rate. The audit
+also closed a password-hash leak in the member and access listings, added
+DB-level immutability of the audit, ledger and tax registers, and added
+DB-level non-overlap of policy and tax-profile versions. The flaky numbering
+concurrency test is fixed as well.
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -289,6 +308,7 @@ Policy, Tax Profile, Access).
 | `backend/test/phase2.e2e-spec.ts` | 19 | Unit of measure CRUD, product category hierarchy/cycle detection, product CRUD with SKU/barcode uniqueness, organization access isolation, deactivation guards |
 | `backend/test/phase3.e2e-spec.ts` | 15 | Unit conversions, counterparty CRUD/addresses/contacts, price lists/prices, price resolution, isolation |
 | `backend/test/phase4.e2e-spec.ts` | 17 | Price snapshotting, explicit-price override, customer-only guard, isolation/concurrency, post/unpost/cancel with movements, closed-period block, invoice flow with real GL/Tax Register posting + unpost/repost, order ⇒ invoice CreateBasedOn |
+| `backend/test/audit-phases-00-05.e2e-spec.ts` | 38 | Audit fixes: org-scoped document commands + manual operations, dimension integrity, currency/quantity rules, concurrent duplicate posting, period close vs in-flight posting, Trial Balance net opening + rollup, opening balances, tax legal-source/rate validity, credential-free member listings, cross-tenant access-grant rejection, DB immutability triggers, numbering reset, non-overlap constraints, RBAC deny→grant |
 | `backend/test/accounting-core.e2e-spec.ts` | 18 | Idempotent chart adoption, account hierarchy, non-postable reporting nodes, mapping resolution + override, balance/dimension validation, manual operation lifecycle incl. reversal, closed-period block, Trial Balance/GL/Account Card, tenant isolation |
 | `backend/test/tax-engine.e2e-spec.ts` | 18 | Idempotent VAT localization seed, exclusive/inclusive calculation, zero-rated/exempt/out-of-scope distinction, missing/ambiguous rule detection, legal rule versioning + repealed-rule exclusion, recoverability split, atomic Tax+GL posting, duplicate prevention, reversal, shared Period Guard, tax registrations, tenant isolation |
 | `backend/test/sales-preorder.e2e-spec.ts` | 17 | Customer Request create/cancel, Commercial Offer price resolution/discount/Tax Preview, offer lifecycle + derived expiry, Request⇒Offer and Offer⇒SalesOrder conversion with price preservation, order confirmation with credit check + hold gating and an explicit no-GL/no-tax-register assertion, reservation create/oversubscription/release, fulfillment computation, shipment plan limits, payment schedule rounding, tenant isolation |
@@ -310,7 +330,8 @@ All run against a real PostgreSQL instance — no mocked database.
   new permission codes), frontend sales workspace included.
 - **Accounting Core** — ✅ done, tested, documented. No frontend UI yet
   (API only) — see docs for disclosed deferrals (reposting-as-generation,
-  opening-balance endpoint, currency/quantity requiredness).
+  dimension-filtered Trial Balance). Opening balances and currency/quantity
+  rules were added by the Phases 0–5 audit.
 - **Tax Engine** — ✅ done, tested, documented. VAT implemented deeply;
   other tax types (corporate income, withholding, ...) exist as concepts
   only, per the spec's own scoping. No frontend UI yet.

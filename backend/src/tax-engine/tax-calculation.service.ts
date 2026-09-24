@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PrismaTransactionClient } from '../prisma/prisma.service';
 import { TaxRuleResolverService } from './tax-rule-resolver.service';
+import { ValidationAppError } from '../common/errors/app-error';
 import { TaxRoundingService } from './tax-rounding.service';
 import { TaxContext } from './tax-context';
 import { TaxLineResult, DocumentTaxSummaryRow } from './tax-calculation-result';
@@ -54,6 +55,11 @@ export class TaxCalculationService {
 
     const recoverablePercent =
       params.recoverablePercent !== undefined ? new Decimal(params.recoverablePercent) : new Decimal(100);
+    // recoverable + nonrecoverable must always equal the tax (spec 122) —
+    // a percentage outside 0..100 would produce a negative component.
+    if (recoverablePercent.lt(0) || recoverablePercent.gt(100)) {
+      throw new ValidationAppError('recoverablePercent must be between 0 and 100');
+    }
     const recoverableAmount = this.rounding.round(tax.mul(recoverablePercent).div(100));
     const nonrecoverableAmount = this.rounding.round(tax.minus(recoverableAmount));
 

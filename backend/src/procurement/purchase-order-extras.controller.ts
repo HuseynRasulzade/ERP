@@ -28,14 +28,14 @@ export class PurchaseOrderExtrasController {
 
   @RequirePermissions(PermissionCodes.PURCHASE_ORDER_CONFIRM)
   @Post('confirm')
-  confirm(@CurrentTenantId() tenantId: string, @Param('id') id: string, @CurrentUser() user: { userId: string }, @Body() dto: VersionedCommandDto) {
-    return this.posting.post(tenantId, PURCHASE_ORDER_TYPE, id, dto.expectedVersion, user.userId);
+  confirm(@CurrentTenantId() tenantId: string, @CurrentMembershipId() membershipId: string, @Param('id') id: string, @CurrentUser() user: { userId: string }, @Body() dto: VersionedCommandDto) {
+    return this.posting.post(tenantId, PURCHASE_ORDER_TYPE, id, dto.expectedVersion, user.userId, membershipId);
   }
 
   @RequirePermissions(PermissionCodes.PURCHASE_ORDER_REOPEN)
   @Post('reopen')
-  reopen(@CurrentTenantId() tenantId: string, @Param('id') id: string, @CurrentUser() user: { userId: string }, @Body() dto: VersionedCommandDto) {
-    return this.posting.unpost(tenantId, PURCHASE_ORDER_TYPE, id, dto.expectedVersion, user.userId);
+  reopen(@CurrentTenantId() tenantId: string, @CurrentMembershipId() membershipId: string, @Param('id') id: string, @CurrentUser() user: { userId: string }, @Body() dto: VersionedCommandDto) {
+    return this.posting.unpost(tenantId, PURCHASE_ORDER_TYPE, id, dto.expectedVersion, user.userId, membershipId);
   }
 
   @RequirePermissions(PermissionCodes.PURCHASE_ORDER_HOLD_MANAGE)

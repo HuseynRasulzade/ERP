@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { AuditService } from '../audit/audit.service';
@@ -124,9 +125,11 @@ export class FoundationTestDocumentService {
           resetPolicy: 'YEARLY',
         },
       });
-    } catch {
+    } catch (error) {
       // Lost the race to create the sequence for this tenant — another
-      // concurrent create() already did it, which is fine.
+      // concurrent create() already did it, which is fine. Anything other
+      // than that unique violation is a real failure (section 75).
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
     }
   }
 }

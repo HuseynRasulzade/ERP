@@ -242,3 +242,11 @@ side effect of calculation.
   `sales-documents`; wiring real Sales Orders/Invoices through
   `TaxCalculationService` + `TaxRegisterService` + `AccountingPostingEngine`
   is the next, separate step.
+- Audit fixes (Phases 0–5 audit): the resolver drops a rule whose cited
+  `TaxLegalSource` is not in force on the tax point date (outside its
+  effective window, DRAFT, or REPEALED/SUPERSEDED without an end date), and
+  a rate-bearing rule (STANDARD/SPECIAL/REVERSE_CHARGE) whose rate is missing
+  or not in force fails with `TAX_RATE_NOT_FOUND` instead of computing 0%.
+  `recoverablePercent` must be 0..100. `POST /tax/localization/seed` now
+  requires `tax.rule.activate`. A DB trigger keeps `tax_movements` immutable
+  except the one-time `journal_entry_id` back-fill.

@@ -34,6 +34,7 @@ describe('Accounting Core (e2e)', () => {
   let structuralAccountId: string; // 341 - posting_allowed=false
 
   const DOC_DATE = '2026-06-15';
+  let fx: { usdId: string; counterpartyId: string; bankAccountId: string; productId: string };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -68,6 +69,25 @@ describe('Accounting Core (e2e)', () => {
     return { token, tenantId, orgId: orgRes.body.id };
   }
 
+  /** Real master-data rows to use as dimension values: the posting engine
+   * now enforces dimension reference integrity (Phase 4 spec section 30 —
+   * the value must exist, in this tenant/organization, with the right entity
+   * type), so arbitrary placeholder ids are rejected. */
+  async function dimensionFixtures(tenantId: string, organizationId: string, tag: string) {
+    const usd = await prisma.currency.findFirstOrThrow({ where: { code: 'USD' } });
+    const counterparty = await prisma.counterparty.create({
+      data: { tenantId, organizationId, counterpartyType: 'BOTH', code: `FX-CP-${tag}`, name: `Fixture counterparty ${tag}` },
+    });
+    const bankAccount = await prisma.bankAccount.create({
+      data: { tenantId, organizationId, bankName: 'Fixture Bank', accountName: `Fixture ${tag}`, iban: `AZ21NABZ${String(tag).replace(/\D/g, '').slice(-20).padStart(20, '0')}`, currencyId: usd.id },
+    });
+    const unit = await prisma.unitOfMeasure.create({ data: { tenantId, code: `FX-U-${tag}`, name: 'Fixture unit' } });
+    const product = await prisma.product.create({
+      data: { tenantId, organizationId, code: `FX-P-${tag}`, name: `Fixture product ${tag}`, baseUnitId: unit.id },
+    });
+    return { usdId: usd.id, counterpartyId: counterparty.id, bankAccountId: bankAccount.id, productId: product.id };
+  }
+
   function auth1(req: request.Test) {
     return req.set('Authorization', `Bearer ${token1}`).set('X-Tenant-Id', tenant1Id);
   }
@@ -88,6 +108,7 @@ describe('Accounting Core (e2e)', () => {
       token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
       const s2 = await setupTenant(`acc2-${run}@e2e.test`, `acc-t2-${run}`, 'ACO2');
       token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
+      fx = await dimensionFixtures(tenant1Id, org1Id, `${run}1`);
 
       const chart = await auth1(request(app.getHttpServer()).post('/accounting/chart/adopt')).expect(201);
       expect(chart.body.code).toBe('AZ_STANDARD');
@@ -182,8 +203,8 @@ describe('Accounting Core (e2e)', () => {
           businessDate: DOC_DATE,
           description: 'Unbalanced test',
           lines: [
-            { accountId: receivableAccountId, side: 'DEBIT', amountBase: '100', dimensions: [{ dimensionCode: 'PARTNER', referenceId: 'x' }, { dimensionCode: 'COUNTERPARTY', referenceId: 'x' }, { dimensionCode: 'AGREEMENT', referenceId: 'x' }, { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: 'x' }, { dimensionCode: 'CURRENCY', referenceId: 'x' }] },
-            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '99', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'p1' }] },
+            { accountId: receivableAccountId, side: 'DEBIT', amountBase: '100', dimensions: [{ dimensionCode: 'PARTNER', referenceId: fx.counterpartyId }, { dimensionCode: 'COUNTERPARTY', referenceId: fx.counterpartyId }, { dimensionCode: 'AGREEMENT', referenceId: fx.counterpartyId }, { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: 'x' }, { dimensionCode: 'CURRENCY', referenceId: fx.usdId }] },
+            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '99', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: fx.productId }] },
           ],
         })
         .expect(201);
@@ -203,7 +224,7 @@ describe('Accounting Core (e2e)', () => {
           businessDate: DOC_DATE,
           lines: [
             { accountId: receivableAccountId, side: 'DEBIT', amountBase: '50' }, // 211 requires PARTNER/COUNTERPARTY/... — none given
-            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '50', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'p1' }] },
+            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '50', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: fx.productId }] },
           ],
         })
         .expect(201);
@@ -220,7 +241,7 @@ describe('Accounting Core (e2e)', () => {
           businessDate: DOC_DATE,
           lines: [
             { accountId: structuralAccountId, side: 'DEBIT', amountBase: '10' },
-            { accountId: bankAccountId, side: 'CREDIT', amountBase: '10', dimensions: [{ dimensionCode: 'BANK_ACCOUNT', referenceId: 'b1' }, { dimensionCode: 'CURRENCY', referenceId: 'usd' }] },
+            { accountId: bankAccountId, side: 'CREDIT', amountBase: '10', dimensions: [{ dimensionCode: 'BANK_ACCOUNT', referenceId: fx.bankAccountId }, { dimensionCode: 'CURRENCY', referenceId: fx.usdId }] },
           ],
         })
         .expect(201);
@@ -240,8 +261,8 @@ describe('Accounting Core (e2e)', () => {
           businessDate: DOC_DATE,
           description: 'Cash sale',
           lines: [
-            { accountId: bankAccountId, side: 'DEBIT', amountBase: '500', dimensions: [{ dimensionCode: 'BANK_ACCOUNT', referenceId: 'b1' }, { dimensionCode: 'CURRENCY', referenceId: 'usd' }] },
-            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '500', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'p1' }] },
+            { accountId: bankAccountId, side: 'DEBIT', amountBase: '500', dimensions: [{ dimensionCode: 'BANK_ACCOUNT', referenceId: fx.bankAccountId }, { dimensionCode: 'CURRENCY', referenceId: fx.usdId }] },
+            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '500', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: fx.productId }] },
           ],
         })
         .expect(201);
@@ -317,8 +338,8 @@ describe('Accounting Core (e2e)', () => {
         .send({
           businessDate: '2026-08-10',
           lines: [
-            { accountId: bankAccountId, side: 'DEBIT', amountBase: '20', dimensions: [{ dimensionCode: 'BANK_ACCOUNT', referenceId: 'b1' }, { dimensionCode: 'CURRENCY', referenceId: 'usd' }] },
-            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '20', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'p1' }] },
+            { accountId: bankAccountId, side: 'DEBIT', amountBase: '20', dimensions: [{ dimensionCode: 'BANK_ACCOUNT', referenceId: fx.bankAccountId }, { dimensionCode: 'CURRENCY', referenceId: fx.usdId }] },
+            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '20', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: fx.productId }] },
           ],
         })
         .expect(201);

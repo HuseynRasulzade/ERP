@@ -4,6 +4,7 @@ import { DocumentFrameworkRegistry } from '../document-framework/document-framew
 import { DocumentLinkService } from './document-link.service';
 import { AuditService } from '../audit/audit.service';
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
+import { OrganizationAccessService } from '../org-structure/organization-access.service';
 
 /**
  * Generic "Create Based On" engine (section 27/28).
@@ -23,6 +24,7 @@ export class CreateBasedOnService {
     private readonly registry: DocumentFrameworkRegistry,
     private readonly documentLinks: DocumentLinkService,
     private readonly audit: AuditService,
+    private readonly orgAccess: OrganizationAccessService,
   ) {}
 
   getAvailableTargetDocumentTypes(sourceDocumentType: string): string[] {
@@ -35,6 +37,7 @@ export class CreateBasedOnService {
     sourceDocumentId: string,
     targetDocumentType: string,
     userId: string,
+    membershipId?: string,
   ) {
     const mapper = this.registry.getMapper(sourceDocumentType, targetDocumentType);
     if (!mapper) {
@@ -49,6 +52,16 @@ export class CreateBasedOnService {
     return this.prisma.runInTransaction(async (tx) => {
       const source = await sourceRepository.findById(tenantId, sourceDocumentId, tx);
       if (!source) throw new NotFoundAppError(sourceDocumentType, sourceDocumentId);
+      // Organization scope (Phase 1 section 22): a membership without a grant
+      // for the source's organization can neither read it nor derive a new
+      // document from it — reported as NOT_FOUND like a foreign-tenant id.
+      if (membershipId && source.organizationId) {
+        try {
+          await this.orgAccess.assertAccess(tenantId, membershipId, source.organizationId);
+        } catch {
+          throw new NotFoundAppError(sourceDocumentType, sourceDocumentId);
+        }
+      }
 
       const targetInput = (await mapper.mapHeader(source, tx)) as Record<string, unknown>;
       const target = await targetRepository.create(tenantId, targetInput, userId, tx);

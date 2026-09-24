@@ -70,6 +70,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return;
     }
 
+    // Database exclusion constraints (e.g. no overlapping ACTIVE accounting
+    // policy versions) surface from Prisma as an "unknown" request error
+    // carrying SQLSTATE 23P01 — the concurrent loser of a race the service
+    // check could not see. That is a data conflict, not a server fault.
+    if (
+      exception instanceof Prisma.PrismaClientUnknownRequestError &&
+      /23P01|exclusion constraint/i.test(exception.message)
+    ) {
+      this.logger.warn(`Exclusion constraint violation: ${exception.message}`);
+      response.status(HttpStatus.CONFLICT).json({
+        code: ErrorCode.CONFLICT,
+        message: 'The operation could not be completed due to a data conflict',
+        requestId,
+        correlationId,
+      });
+      return;
+    }
+
     this.logger.error('Unhandled exception', exception instanceof Error ? exception.stack : exception);
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       code: 'INTERNAL_ERROR',

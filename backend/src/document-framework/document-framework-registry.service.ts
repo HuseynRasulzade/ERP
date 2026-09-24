@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DocumentPostingHandler } from './document-posting-handler.interface';
 import { DocumentRepositoryAdapter } from './document-repository.interface';
 import { CreateBasedOnMapper } from '../document-link/create-based-on.interfaces';
+import { NotFoundAppError } from '../common/errors/app-error';
 
 /**
  * Handler registry / strategy pattern (section 12): each future document
@@ -23,7 +24,9 @@ export class DocumentFrameworkRegistry {
   getHandler(documentType: string): DocumentPostingHandler {
     const handler = this.handlers.get(documentType);
     if (!handler) {
-      throw new Error(`No posting handler registered for document type: ${documentType}`);
+      // A client-supplied unknown type on the generic /documents/:type/...
+      // surface is a NOT_FOUND, not an internal 500 (Phase 0 section 37).
+      throw new NotFoundAppError('Document type', documentType);
     }
     return handler;
   }
@@ -38,7 +41,7 @@ export class DocumentFrameworkRegistry {
   getRepository(documentType: string): DocumentRepositoryAdapter {
     const repository = this.repositories.get(documentType);
     if (!repository) {
-      throw new Error(`No repository adapter registered for document type: ${documentType}`);
+      throw new NotFoundAppError('Document type', documentType);
     }
     return repository;
   }

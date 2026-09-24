@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { AccountMappingAmbiguousError, AccountMappingNotFoundError, NotFoundAppError } from '../common/errors/app-error';
+import {
+  AccountInactiveError,
+  AccountMappingAmbiguousError,
+  AccountMappingNotFoundError,
+  AccountNotPostableError,
+  NotFoundAppError,
+} from '../common/errors/app-error';
 
 /**
  * Semantic Account Mapping resolver (spec sections 39-43). Business modules
@@ -68,6 +74,15 @@ export class AccountingMappingService {
   ) {
     const account = await this.prisma.account.findFirst({ where: { id: input.accountId, tenantId } });
     if (!account) throw new NotFoundAppError('Account', input.accountId);
+    // A semantic mapping must resolve to an account that can actually be
+    // posted to — mapping SALES_REVENUE to a reporting node or an inactive
+    // account would only surface later as a failed business posting.
+    if (!account.postingAllowed) throw new AccountNotPostableError(account.code);
+    if (!account.active) throw new AccountInactiveError(account.code);
+    if (input.organizationId) {
+      const org = await this.prisma.organization.findFirst({ where: { id: input.organizationId, tenantId }, select: { id: true } });
+      if (!org) throw new NotFoundAppError('Organization', input.organizationId);
+    }
 
     const mapping = await this.prisma.accountingMapping.create({
       data: {

@@ -16,6 +16,16 @@ inside a non-`OPEN` period is rejected (`PERIOD_CLOSED`) even for a user who
 otherwise holds ordinary posting permission. A date with no period
 configured at all is treated as open.
 
+Concurrency: when a posting path calls the guard with its own transaction
+(`assertDateIsOpen(tenantId, date, organizationId, tx)` — every posting path
+does), the governing period row is read `FOR SHARE`; `close`/`reopen` take
+`FOR UPDATE` and write the status flip and its audit event in one
+transaction. A close therefore waits for any in-flight posting that already
+passed the guard, and every posting that starts after the close commits sees
+`CLOSED` — no posting can land in a period after it was closed. Creating a
+period (`POST /periods`) requires `periods.close` and the optional
+`organizationId` must belong to the tenant.
+
 `close`/`reopen` on `PeriodService` are direct, permission-gated
 (`periods.close`/`periods.reopen`), always-audited actions
 (`PERIOD_CLOSED`/`PERIOD_REOPENED`) — unchanged by the request workflow

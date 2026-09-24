@@ -109,8 +109,8 @@ export class OrganizationController {
 
   @RequirePermissions(PermissionCodes.ORGANIZATION_ACCESS_MANAGE)
   @Get(':id/access')
-  listAccess(@Param('id') organizationId: string) {
-    return this.access.listGrants(organizationId);
+  listAccess(@CurrentTenantId() tenantId: string, @Param('id') organizationId: string) {
+    return this.access.listGrants(tenantId, organizationId);
   }
 
   /** The CALLING user's own grant for this organization (department
@@ -131,6 +131,7 @@ export class OrganizationController {
     @CurrentUser() user: { userId: string },
     @Body() dto: GrantOrganizationAccessDto,
   ) {
+    await this.access.assertGrantScope(tenantId, organizationId, dto.membershipId, dto.departmentId);
     const grant = await this.access.grant(organizationId, dto.membershipId, dto.accessLevel ?? 'FULL', user.userId, dto.departmentId);
     await this.audit.record({
       tenantId,
@@ -152,6 +153,7 @@ export class OrganizationController {
     @Param('membershipId') membershipId: string,
     @CurrentUser() user: { userId: string },
   ) {
+    await this.access.assertGrantScope(tenantId, organizationId, membershipId);
     await this.access.revoke(organizationId, membershipId);
     await this.audit.record({
       tenantId,

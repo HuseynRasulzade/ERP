@@ -4,6 +4,7 @@ import { DocumentCommandDto } from './dto/document-command.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
 import { PermissionCodes } from '../rbac/permission-codes';
 
 /**
@@ -24,8 +25,9 @@ export class DocumentCommandsController {
     @Param('documentId') documentId: string,
     @Body() dto: DocumentCommandDto,
     @CurrentUser() user: { userId: string },
+    @CurrentMembershipId() membershipId: string,
   ) {
-    return this.posting.post(tenantId, documentType, documentId, dto.expectedVersion, user.userId);
+    return this.posting.post(tenantId, documentType, documentId, dto.expectedVersion, user.userId, membershipId);
   }
 
   @RequirePermissions(PermissionCodes.DOCUMENTS_UNPOST)
@@ -36,8 +38,9 @@ export class DocumentCommandsController {
     @Param('documentId') documentId: string,
     @Body() dto: DocumentCommandDto,
     @CurrentUser() user: { userId: string },
+    @CurrentMembershipId() membershipId: string,
   ) {
-    return this.posting.unpost(tenantId, documentType, documentId, dto.expectedVersion, user.userId);
+    return this.posting.unpost(tenantId, documentType, documentId, dto.expectedVersion, user.userId, membershipId);
   }
 
   @RequirePermissions(PermissionCodes.DOCUMENTS_CANCEL)
@@ -48,7 +51,8 @@ export class DocumentCommandsController {
     @Param('documentId') documentId: string,
     @Body() dto: DocumentCommandDto,
     @CurrentUser() user: { userId: string },
+    @CurrentMembershipId() membershipId: string,
   ) {
-    return this.posting.cancel(tenantId, documentType, documentId, dto.expectedVersion, user.userId);
+    return this.posting.cancel(tenantId, documentType, documentId, dto.expectedVersion, user.userId, membershipId);
   }
 }

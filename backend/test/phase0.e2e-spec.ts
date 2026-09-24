@@ -30,6 +30,15 @@ describe('Phase 0 foundation (e2e)', () => {
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
+    // Bind the HTTP server ONCE, up front. Without this, supertest calls
+    // `server.listen(0)` lazily on the first request and then
+    // `server.close()` as soon as ANY request finishes; on Node >= 19
+    // `close()` also destroys idle keep-alive/just-accepted sockets, so in
+    // the 60-way concurrent numbering test below the first response to
+    // complete tore down connections still waiting to be parsed — the
+    // intermittent `read ECONNRESET`. With an already-listening server
+    // supertest reuses it and never closes it; `app.close()` does that.
+    await app.listen(0);
     prisma = app.get(PrismaService);
 
     const regA = await request(app.getHttpServer()).post('/auth/register').send(userA).expect(201);

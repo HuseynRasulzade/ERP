@@ -5,6 +5,7 @@ import { DocumentCommandsController } from './document-commands.controller';
 import { PeriodModule } from '../period/period.module';
 import { AuditModule } from '../audit/audit.module';
 import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
+import { OrgStructureModule } from '../org-structure/org-structure.module';
 
 /**
  * The reusable posting/document framework itself. Deliberately has ZERO
@@ -20,7 +21,7 @@ import { AccountingCoreModule } from '../accounting-core/accounting-core.module'
  * imports document-framework) — not a document-type-specific branch.
  */
 @Module({
-  imports: [PeriodModule, AuditModule, AccountingCoreModule],
+  imports: [PeriodModule, AuditModule, AccountingCoreModule, OrgStructureModule],
   controllers: [DocumentCommandsController],
   providers: [DocumentFrameworkRegistry, DocumentPostingService],
   exports: [DocumentFrameworkRegistry, DocumentPostingService],

@@ -11,11 +11,13 @@ import { AccountingMappingService } from './accounting-mapping.service';
 import { AccountingPostingEngine } from './accounting-posting-engine.service';
 import { ManualOperationService } from './manual-operation.service';
 import { AccountingQueryService } from './accounting-query.service';
+import { OpeningBalanceService } from './opening-balance.service';
 
 import { AccountsController, ChartOfAccountsController } from './accounts.controller';
 import { AccountingMappingsController } from './accounting-mappings.controller';
 import { ManualOperationsController } from './manual-operations.controller';
 import { AccountingReportsController } from './accounting-reports.controller';
+import { OpeningBalancesController } from './opening-balances.controller';
 
 /**
  * Accounting Core (docx spec Phase 4). Exports ChartOfAccountsService,
@@ -31,6 +33,7 @@ import { AccountingReportsController } from './accounting-reports.controller';
     AccountingMappingsController,
     ManualOperationsController,
     AccountingReportsController,
+    OpeningBalancesController,
   ],
   providers: [
     ChartOfAccountsService,
@@ -39,6 +42,7 @@ import { AccountingReportsController } from './accounting-reports.controller';
     AccountingPostingEngine,
     ManualOperationService,
     AccountingQueryService,
+    OpeningBalanceService,
   ],
   exports: [ChartOfAccountsService, AccountingMappingService, AccountingPostingEngine, AccountService],
 })

@@ -8,6 +8,17 @@ import { NotFoundAppError } from '../common/errors/app-error';
  * access is an explicit grant, checked here and nowhere else, so every
  * organization-scoped service calls the same choke point.
  */
+/** User columns that are safe to return inside membership/grant listings. */
+export const SAFE_USER_FIELDS = {
+  id: true,
+  email: true,
+  displayName: true,
+  status: true,
+  locale: true,
+  timezone: true,
+  lastLoginAt: true,
+} as const;
+
 @Injectable()
 export class OrganizationAccessService {
   constructor(private readonly prisma: PrismaService) {}
@@ -25,11 +36,43 @@ export class OrganizationAccessService {
     await this.prisma.organizationAccess.deleteMany({ where: { tenantMembershipId: membershipId, organizationId } });
   }
 
-  listGrants(organizationId: string) {
+  /**
+   * Grants of one organization of the CALLER'S tenant. The organization is
+   * resolved inside `tenantId` first (a foreign-tenant id is NOT_FOUND, as
+   * everywhere else), and the member's user row is projected to display
+   * fields only — never the password hash or other credentials (Phase 0
+   * sections 24/39, Phase 1 section 33).
+   */
+  async listGrants(tenantId: string, organizationId: string) {
+    await this.assertOrganizationInTenant(tenantId, organizationId);
     return this.prisma.organizationAccess.findMany({
       where: { organizationId },
-      include: { membership: { include: { user: true } }, department: true },
+      include: { membership: { include: { user: { select: SAFE_USER_FIELDS } } }, department: true },
     });
+  }
+
+  /**
+   * Scope check for grant/revoke (Phase 1 section 22 / Phase 0 section 61):
+   * the organization, the membership and (if given) the home department
+   * must all belong to the caller's tenant — an access row can never link
+   * a membership to another tenant's organization.
+   */
+  async assertGrantScope(tenantId: string, organizationId: string, membershipId: string, departmentId?: string | null) {
+    await this.assertOrganizationInTenant(tenantId, organizationId);
+    const membership = await this.prisma.tenantMembership.findFirst({ where: { id: membershipId, tenantId }, select: { id: true } });
+    if (!membership) throw new NotFoundAppError('TenantMembership', membershipId);
+    if (departmentId) {
+      const department = await this.prisma.department.findFirst({
+        where: { id: departmentId, tenantId, organizationId },
+        select: { id: true },
+      });
+      if (!department) throw new NotFoundAppError('Department', departmentId);
+    }
+  }
+
+  private async assertOrganizationInTenant(tenantId: string, organizationId: string) {
+    const org = await this.prisma.organization.findFirst({ where: { id: organizationId, tenantId }, select: { id: true } });
+    if (!org) throw new NotFoundAppError('Organization', organizationId);
   }
 
   /** The calling membership's OWN grant for this organization — used to
