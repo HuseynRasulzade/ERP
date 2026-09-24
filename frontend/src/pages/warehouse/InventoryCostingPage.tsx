@@ -14,7 +14,7 @@ interface CostingPolicy {
   costingMethod: string;
   averageMethod: string | null;
   valuationCurrencyId: string;
-  active: boolean;
+  status: string;
 }
 
 type Tab = 'valuation' | 'cogs' | 'layers' | 'policies';
@@ -68,7 +68,7 @@ export function InventoryCostingPage() {
   const loadPolicies = async () => {
     if (!orgId) return;
     try {
-      setPolicies(await api.get<CostingPolicy[]>(`/organizations/${orgId}/inventory-costing/policies`));
+      setPolicies(await api.get<CostingPolicy[]>(`/organizations/${orgId}/inventory-costing/policy`));
     } catch (err) {
       showError(err);
     }
@@ -102,7 +102,7 @@ export function InventoryCostingPage() {
     if (!orgId) return;
     setSubmitting(true);
     try {
-      await api.post(`/organizations/${orgId}/inventory-costing/policies`, {
+      await api.post(`/organizations/${orgId}/inventory-costing/policy`, {
         effectiveFrom, costingMethod, valuationCurrencyId,
         averageMethod: costingMethod === 'WEIGHTED_AVERAGE' ? 'MOVING_AVERAGE' : undefined,
       });
@@ -237,7 +237,7 @@ export function InventoryCostingPage() {
                         <td>{p.effectiveTo?.slice(0, 10) ?? '—'}</td>
                         <td>{p.costingMethod}</td>
                         <td>{p.averageMethod ?? '—'}</td>
-                        <td><span className={`badge badge-generic-${p.active ? 'success' : 'neutral'}`}>{p.active ? 'ACTIVE' : 'INACTIVE'}</span></td>
+                        <td><span className={`badge badge-generic-${p.effectiveTo === null ? 'success' : 'neutral'}`}>{p.effectiveTo === null ? 'ACTIVE' : 'CLOSED'}</span></td>
                       </tr>
                     ))}
                   </tbody>

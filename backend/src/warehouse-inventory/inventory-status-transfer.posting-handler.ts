@@ -7,6 +7,7 @@ import { ValidationAppError } from '../common/errors/app-error';
 import { INVENTORY_STATUS_TRANSFER_TYPE } from './inventory-status-transfer.repository';
 import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for InventoryStatusTransfer (spec section 26) — e.g.
@@ -24,12 +25,14 @@ export class InventoryStatusTransferPostingHandler implements DocumentPostingHan
     private readonly prisma: PrismaService,
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
     const transfer = await tx.inventoryStatusTransfer.findFirst({ where: { id: document.id, tenantId }, include: { lines: true, warehouse: true } });
     if (!transfer) throw new ValidationAppError('Document disappeared during posting');
     if (transfer.lines.length === 0) throw new ValidationAppError('Cannot post an inventory status transfer with no lines');
+    await this.freeze.assertNotFrozen(tenantId, transfer.warehouseId, null, INVENTORY_STATUS_TRANSFER_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
 
     for (const line of transfer.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a status transfer line with non-positive quantity');

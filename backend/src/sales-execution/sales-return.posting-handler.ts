@@ -18,8 +18,7 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
-import { CostingService } from './costing.service';
-import { InventoryCostCalculationService } from '../inventory-costing/inventory-cost-calculation.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import { SHIPMENT_TYPE } from './shipment.repository';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
@@ -41,10 +40,9 @@ const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
  *
  * Physical returns (spec section 50) write a RECEIPT inventory movement;
  * `FINANCIAL_CREDIT_ONLY`/`PRICE_CORRECTION` returns never touch
- * inventory (spec section 49). COGS reversal (spec section 52): Dr Goods
- * Inventory / Cr COGS, using the same weighted-average `CostingService`
- * the original invoice used — skipped per-line when no cost is available,
- * exactly like the original posting.
+ * inventory (spec section 49). COGS reversal (spec section 52) is
+ * skipped for the same reason original COGS was never posted — see
+ * `CostingService`.
  */
 @Injectable()
 export class SalesReturnPostingHandler implements DocumentPostingHandler {
@@ -57,8 +55,7 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     private readonly mappings: AccountingMappingService,
     private readonly inventory: InventoryLedgerService,
     private readonly batchSerial: BatchSerialService,
-    private readonly costing: CostingService,
-    private readonly costCalculation: InventoryCostCalculationService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -194,37 +191,17 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     ];
 
     if (ret.returnType === 'PHYSICAL_RETURN' && ret.warehouseId) {
-      const cogsAccount = await this.mappings.resolve(tenantId, organizationId, MappingKeys.COGS, businessDate, tx);
-      const inventoryAccount = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
-
       for (const line of ret.lines) {
-        // Spec section 26: restore the ORIGINAL shipment's cost, not a
-        // freshly-derived current cost — trace SalesReturnLine ->
-        // SalesInvoiceLine.sourceShipmentLineId -> its costed ISSUE movement.
-        let unitCost: Decimal | null = null;
+        const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, SALES_RETURN_TYPE, line.id, tx);
+
+        // Trace back to the original Shipment line (spec sections 26-27) —
+        // SalesReturnLine only carries the invoice line; the invoice line
+        // itself carries the shipment line it billed.
+        let originalShipmentLineId: string | undefined;
         if (line.sourceInvoiceLineId) {
           const invoiceLine = await tx.salesInvoiceLine.findFirst({ where: { id: line.sourceInvoiceLineId, tenantId } });
-          if (invoiceLine?.sourceShipmentLineId) {
-            const shipmentLine = await tx.shipmentLine.findFirst({ where: { id: invoiceLine.sourceShipmentLineId, tenantId } });
-            if (shipmentLine) {
-              unitCost = await this.costing.getCostForShipmentLine(tenantId, SHIPMENT_TYPE, shipmentLine.shipmentId, invoiceLine.sourceShipmentLineId, tx);
-            }
-          }
+          originalShipmentLineId = invoiceLine?.sourceShipmentLineId ?? undefined;
         }
-        // Spec section 27: no traceable source — configurable fallback;
-        // this build uses current average cost (documented, audited via
-        // the InventoryCostMovement row this RECEIPT still creates below).
-        if (!unitCost) unitCost = await this.costing.getUnitCost(tenantId, organizationId, line.productId, ret.warehouseId, businessDate, tx);
-        if (unitCost) {
-          const totalCost = unitCost.mul(line.quantity.toString());
-          const cogsDimensions = [{ dimensionCode: 'PRODUCT', referenceId: line.productId }, { dimensionCode: 'WAREHOUSE', referenceId: ret.warehouseId }];
-          lines.push(
-            { accountId: inventoryAccount.id, side: 'DEBIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'Inventory return — COGS reversal', dimensions: cogsDimensions },
-            { accountId: cogsAccount.id, side: 'CREDIT', amountBase: totalCost, sourceDocumentLineId: line.id, description: 'COGS reversal', dimensions: cogsDimensions },
-          );
-        }
-
-        const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, SALES_RETURN_TYPE, line.id, tx);
 
         if (capturedSerials.length > 0) {
           const serialIds = await this.batchSerial.returnSerials(tenantId, organizationId, line.productId, ret.warehouseId, undefined, SALES_RETURN_TYPE, line.id, tx);
@@ -234,12 +211,26 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
               { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'RECEIPT', businessDate, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
               tx,
             );
-            if (unitCost) {
-              await this.costCalculation.costReceiptMovement(
-                { tenantId, organizationId, inventoryMovementId: movement.id, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, effectiveDate: businessDate, postingDate: businessDate, quantity: 1, unitCost },
-                tx,
-              );
-            }
+            await this.costing.restoreCostFromOriginalConsumption(
+              tenantId,
+              {
+                organizationId,
+                productId: line.productId,
+                warehouseId: ret.warehouseId,
+                batchId: line.batchId,
+                quantity: '1',
+                unitCost: line.originalUnitPrice.toString(),
+                effectiveDate: businessDate,
+                sourceInventoryMovementId: movement.id,
+                sourceDocumentType: SALES_RETURN_TYPE,
+                sourceDocumentId: ret.id,
+                sourceDocumentLineId: line.id,
+                movementType: 'RECEIPT',
+                originalOutgoingDocumentType: SHIPMENT_TYPE,
+                originalOutgoingDocumentLineId: originalShipmentLineId,
+              },
+              tx,
+            );
           }
         } else {
           const movement = await this.inventory.recordMovement(
@@ -257,12 +248,29 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
             },
             tx,
           );
-          if (unitCost) {
-            await this.costCalculation.costReceiptMovement(
-              { tenantId, organizationId, inventoryMovementId: movement.id, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, sourceDocumentType: SALES_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, effectiveDate: businessDate, postingDate: businessDate, quantity: line.quantity.toString(), unitCost },
-              tx,
-            );
-          }
+          // Inventory Costing Engine (Phase 11, spec sections 26-27):
+          // restores the ORIGINAL shipment's own consumed cost when
+          // traceable — never "current average/first FIFO price".
+          await this.costing.restoreCostFromOriginalConsumption(
+            tenantId,
+            {
+              organizationId,
+              productId: line.productId,
+              warehouseId: ret.warehouseId,
+              batchId: line.batchId,
+              quantity: line.quantity.toString(),
+              unitCost: line.originalUnitPrice.toString(),
+              effectiveDate: businessDate,
+              sourceInventoryMovementId: movement.id,
+              sourceDocumentType: SALES_RETURN_TYPE,
+              sourceDocumentId: ret.id,
+              sourceDocumentLineId: line.id,
+              movementType: 'RECEIPT',
+              originalOutgoingDocumentType: SHIPMENT_TYPE,
+              originalOutgoingDocumentLineId: originalShipmentLineId,
+            },
+            tx,
+          );
         }
       }
     }
@@ -276,9 +284,12 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
-    await this.costCalculation.removeCostForReceipt(tenantId, SALES_RETURN_TYPE, document.id, tx);
-    await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
     const lineIds = (await tx.salesReturnLine.findMany({ where: { tenantId, salesReturnId: document.id }, select: { id: true } })).map((l) => l.id);
+    for (const lineId of lineIds) {
+      await this.costing.removeCostForReceiptLine(tenantId, lineId, tx);
+    }
+    await this.costing.removeCostMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
+    await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
     await this.batchSerial.undoReturnedSerials(tenantId, SALES_RETURN_TYPE, lineIds, tx);
   }
 }

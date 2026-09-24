@@ -14,7 +14,8 @@ import { InventoryLedgerService } from './inventory-ledger.service';
 import { ReservationService } from '../sales-preorder/reservation.service';
 import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
-import { InventoryCostCalculationService } from '../inventory-costing/inventory-cost-calculation.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -41,7 +42,8 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly reservations: ReservationService,
     private readonly fulfillment: OrderFulfillmentService,
     private readonly batchSerial: BatchSerialService,
-    private readonly costing: InventoryCostCalculationService,
+    private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -58,8 +60,14 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
       throw new ValidationAppError('Cannot post a shipment for a missing or inactive warehouse');
     }
 
+    const frozenChecked = new Set<string>();
     for (const line of shipment.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a shipment line with non-positive quantity');
+      const lineWarehouseId = line.warehouseId ?? shipment.warehouseId;
+      if (!frozenChecked.has(lineWarehouseId)) {
+        frozenChecked.add(lineWarehouseId);
+        await this.freeze.assertNotFrozen(tenantId, lineWarehouseId, null, SHIPMENT_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
+      }
 
       if (line.sourceOrderLineId) {
         const orderLine = await tx.salesOrderLine.findFirst({ where: { id: line.sourceOrderLineId, tenantId } });
@@ -124,8 +132,9 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
             { productId: line.productId, warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceLineId: line.id, batchId: line.batchId, serialId },
             tx,
           );
-          await this.costing.costIssueMovement(
-            { tenantId, organizationId: shipment.organizationId, inventoryMovementId: movement.id, productId: line.productId, warehouseId, batchId: line.batchId, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceDocumentLineId: line.id, effectiveDate: businessDate, postingDate: businessDate, quantity: 1 },
+          await this.costing.consumeCost(
+            tenantId,
+            { organizationId: shipment.organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: '1', effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceDocumentLineId: line.id, movementType: 'ISSUE' },
             tx,
           );
         }
@@ -145,8 +154,15 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
           },
           tx,
         );
-        await this.costing.costIssueMovement(
-          { tenantId, organizationId: shipment.organizationId, inventoryMovementId: movement.id, productId: line.productId, warehouseId, batchId: line.batchId, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceDocumentLineId: line.id, effectiveDate: businessDate, postingDate: businessDate, quantity: line.quantity.toString() },
+        // Inventory Costing Engine (Phase 11, spec section 24): determines
+        // the FIFO/weighted-average cost of this stock-out at the physical
+        // event itself — the COGS journal line itself is still posted later,
+        // at Sales Invoice time (CostingService.getShipmentLineCost reads
+        // this consumption back), matching this platform's existing "no GL
+        // consequence on Shipment" boundary (spec section 123).
+        await this.costing.consumeCost(
+          tenantId,
+          { organizationId: shipment.organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceDocumentLineId: line.id, movementType: 'ISSUE' },
           tx,
         );
       }
@@ -189,7 +205,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     const shipment = await tx.shipment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!shipment) return;
 
-    await this.costing.removeCostForIssue(tenantId, SHIPMENT_TYPE, shipment.id, tx);
+    await this.costing.reverseConsumption(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     for (const line of shipment.lines) {
       await this.batchSerial.undoIssuedSerials(tenantId, SHIPMENT_TYPE, [line.id], line.warehouseId ?? shipment.warehouseId, tx);

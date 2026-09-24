@@ -50,6 +50,7 @@ const az: Translations = {
     accountingMappings: 'Mühasibat Kartlaşdırması',
     procurementAnalytics: 'Təchizat Analitikası',
     inventoryCosting: 'Maya Dəyəri',
+    inventoryCount: 'İnventarizasiya',
     counterparties: 'Kontragentlər',
     organizations: 'Təşkilatlar',
     periods: 'Dövrlər',

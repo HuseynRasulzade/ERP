@@ -48,6 +48,7 @@ const en = {
     accountingMappings: 'Accounting Mappings',
     procurementAnalytics: 'Procurement Analytics',
     inventoryCosting: 'Inventory Costing',
+    inventoryCount: 'Inventory Count',
     counterparties: 'Counterparties',
     organizations: 'Organizations',
     periods: 'Periods',

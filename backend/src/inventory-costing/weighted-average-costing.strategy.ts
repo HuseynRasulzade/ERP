@@ -1,73 +1,81 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PrismaTransactionClient } from '../prisma/prisma.service';
-import { IncomingCostContext, InventoryCostingStrategy, OutgoingCostContext, OutgoingCostResult } from './inventory-costing.types';
+import { NoEligibleCostLayerError } from '../common/errors/app-error';
+import { CostEventContext, ConsumeInput, ConsumeResult, InventoryCostingStrategy, ReceiveInput, ReceiveResult } from './costing-strategy.interface';
+
+function startOfMonth(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
 
 /**
- * WeightedAverageCostingStrategy (spec sections 12-13) — MOVING_AVERAGE
- * mode: every incoming movement immediately recomputes the running
- * average for its costingKey. `InventoryCostBalance` is a rebuildable
- * projection (spec section 2), not a second source of truth — it can
- * always be reconstructed by replaying InventoryCostMovement rows for
- * the key in order.
+ * WeightedAverageCostingStrategy (spec sections 12-14). Deliberately holds
+ * NO mutable "average cost" field anywhere — every average is computed on
+ * demand by aggregating `InventoryCostMovement` (quantity/totalCost both
+ * SIGNED, so `SUM(totalCost)/SUM(quantity)` over a costing key at any point
+ * in time IS the average as of that point — spec section 50's determinism/
+ * rebuildability requirement falls out of this for free, no separate
+ * snapshot table needed for correctness).
  *
- * PERIODIC_WEIGHTED_AVERAGE (spec section 13) is not implemented in this
- * core build; MOVING_AVERAGE covers the "at least one model must fully
- * work" acceptance bar (spec section 555 policy note).
+ * MOVING_AVERAGE: the average recomputes after every movement (queries
+ * everything up to and including `effectiveDate`).
+ *
+ * PERIODIC_WEIGHTED_AVERAGE: every issue during an open month is costed
+ * PROVISIONALLY at the *opening-of-month* rate (spec section 15: "Period
+ * ərzində shipment-lər provisional cost ilə gedə bilər"); the true period
+ * average (opening + this month's receipts) is only computed once, at
+ * `CostingPeriodService.finalize`, which then raises a delta adjustment for
+ * every provisional issue in that period (spec section 14/57).
  */
 @Injectable()
 export class WeightedAverageCostingStrategy implements InventoryCostingStrategy {
-  async processIncomingMovement(ctx: IncomingCostContext, tx: PrismaTransactionClient): Promise<void> {
-    const balance = await tx.inventoryCostBalance.findUnique({ where: { tenantId_costingKey: { tenantId: ctx.tenantId, costingKey: ctx.costingKey } } });
-    const incomingValue = ctx.quantity.mul(ctx.unitCost);
-
-    const priorQty = balance ? new Decimal(balance.quantity.toString()) : new Decimal(0);
-    const priorValue = balance ? new Decimal(balance.totalValue.toString()) : new Decimal(0);
-
-    const newQty = priorQty.plus(ctx.quantity);
-    const newValue = priorValue.plus(incomingValue);
-    const newAvg = newQty.gt(0) ? newValue.div(newQty) : new Decimal(0);
-
-    await tx.inventoryCostBalance.upsert({
-      where: { tenantId_costingKey: { tenantId: ctx.tenantId, costingKey: ctx.costingKey } },
-      create: {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        costingKey: ctx.costingKey,
-        quantity: newQty.toString(),
-        totalValue: newValue.toString(),
-        averageUnitCost: newAvg.toString(),
-        currencyId: ctx.currencyId,
-      },
-      update: {
-        quantity: newQty.toString(),
-        totalValue: newValue.toString(),
-        averageUnitCost: newAvg.toString(),
-      },
-    });
+  async receive(_ctx: CostEventContext, input: ReceiveInput): Promise<ReceiveResult> {
+    // No layer bookkeeping — the register aggregate itself IS the pool.
+    return { unitCost: input.unitCost, totalCost: input.unitCost.mul(input.quantity).toDecimalPlaces(2) };
   }
 
-  async calculateOutgoingCost(ctx: OutgoingCostContext, tx: PrismaTransactionClient): Promise<OutgoingCostResult | null> {
-    const balance = await tx.inventoryCostBalance.findUnique({ where: { tenantId_costingKey: { tenantId: ctx.tenantId, costingKey: ctx.costingKey } } });
-    if (!balance) return null; // no cost history for this key — preserve "skip, don't fabricate"
+  async consume(ctx: CostEventContext, input: ConsumeInput, tx: PrismaTransactionClient): Promise<ConsumeResult> {
+    const periodic = ctx.policy.averageMethod === 'PERIODIC_WEIGHTED_AVERAGE';
+    const asOf = periodic ? new Date(startOfMonth(input.effectiveDate).getTime() - 1) : input.effectiveDate;
 
-    const unitCost = new Decimal(balance.averageUnitCost.toString());
-    const priorQty = new Decimal(balance.quantity.toString());
-    const priorValue = new Decimal(balance.totalValue.toString());
-    const totalCost = ctx.quantity.mul(unitCost);
+    let { qty, value } = await this.aggregateUpTo(ctx, asOf, tx);
+    let provisional = periodic;
 
-    const newQty = priorQty.minus(ctx.quantity);
-    const newValue = priorValue.minus(totalCost);
+    let unitCost: Decimal;
+    if (qty.gt(0)) {
+      unitCost = value.div(qty);
+    } else if (!periodic) {
+      // MOVING_AVERAGE bootstrap: no history at all as of this date — fall
+      // back to the full-history aggregate (covers same-day receipt+issue).
+      const full = await this.aggregateUpTo(ctx, input.effectiveDate, tx);
+      if (full.qty.gt(0)) {
+        unitCost = full.value.div(full.qty);
+      } else if (input.allowNegative) {
+        unitCost = new Decimal(0);
+        provisional = true;
+      } else {
+        throw new NoEligibleCostLayerError(ctx.costingKey);
+      }
+    } else if (input.allowNegative) {
+      unitCost = new Decimal(0);
+    } else {
+      throw new NoEligibleCostLayerError(ctx.costingKey);
+    }
 
-    await tx.inventoryCostBalance.update({
-      where: { tenantId_costingKey: { tenantId: ctx.tenantId, costingKey: ctx.costingKey } },
-      data: {
-        quantity: newQty.toString(),
-        totalValue: newValue.toString(),
-        // averageUnitCost intentionally unchanged by an outgoing movement — only receipts move the average.
-      },
+    const cost = unitCost.mul(input.quantity).toDecimalPlaces(2);
+    return { totalCost: cost, details: [{ quantity: input.quantity, unitCost, cost }], provisional };
+  }
+
+  async currentUnitCost(ctx: CostEventContext, asOfDate: Date, tx: PrismaTransactionClient): Promise<Decimal | null> {
+    const { qty, value } = await this.aggregateUpTo(ctx, asOfDate, tx);
+    return qty.gt(0) ? value.div(qty) : null;
+  }
+
+  private async aggregateUpTo(ctx: CostEventContext, date: Date, tx: PrismaTransactionClient): Promise<{ qty: Decimal; value: Decimal }> {
+    const agg = await tx.inventoryCostMovement.aggregate({
+      where: { tenantId: ctx.tenantId, costingKey: ctx.costingKey, effectiveDate: { lte: date } },
+      _sum: { quantity: true, totalCost: true },
     });
-
-    return { unitCost, totalCost, costStatus: newQty.lt(0) ? 'PROVISIONAL' : 'FINAL' };
+    return { qty: new Decimal(agg._sum.quantity?.toString() ?? 0), value: new Decimal(agg._sum.totalCost?.toString() ?? 0) };
   }
 }

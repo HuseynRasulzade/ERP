@@ -7,6 +7,8 @@ import { TransferUnpostBlockedError, ValidationAppError } from '../common/errors
 import { WAREHOUSE_TRANSFER_TYPE } from './warehouse-transfer.repository';
 import { InventoryMovementService } from './inventory-movement.service';
 import { StockAvailabilityService } from './stock-availability.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for WarehouseTransfer (spec sections 11-13). Never
@@ -39,6 +41,8 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
     private readonly prisma: PrismaService,
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
+    private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -48,6 +52,9 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
     if (transfer.transferType !== 'INTERNAL_LOCATION_TRANSFER' && transfer.sourceWarehouseId === transfer.destinationWarehouseId) {
       throw new ValidationAppError('Source and destination warehouse must differ for a warehouse-to-warehouse transfer');
     }
+    const postedBy = document.postedBy ?? document.createdBy ?? undefined;
+    await this.freeze.assertNotFrozen(tenantId, transfer.sourceWarehouseId, null, WAREHOUSE_TRANSFER_TYPE, document.id, postedBy, tx);
+    await this.freeze.assertNotFrozen(tenantId, transfer.destinationWarehouseId, null, WAREHOUSE_TRANSFER_TYPE, document.id, postedBy, tx);
 
     for (const line of transfer.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a transfer line with non-positive quantity');
@@ -83,7 +90,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
       const product = await tx.product.findFirst({ where: { id: line.productId, tenantId } });
       if (!product) throw new ValidationAppError('Transfer line references an unknown product');
 
-      await this.movements.recordMovement(
+      const outMovement = await this.movements.recordMovement(
         tenantId,
         {
           organizationId: transfer.organizationId,
@@ -104,7 +111,7 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
         tx,
       );
 
-      await this.movements.recordMovement(
+      const inMovement = await this.movements.recordMovement(
         tenantId,
         {
           organizationId: transfer.organizationId,
@@ -124,9 +131,36 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
         },
         tx,
       );
+
+      // Inventory Costing Engine (Phase 11, spec sections 30-31): value
+      // moves with the stock, unit cost preserved — organization total
+      // inventory value is unchanged. Applied at the same moment the
+      // quantity model enters the destination warehouse's own namespace
+      // (immediately, even for TWO_STEP — spec section 10 already models
+      // "in transit" as a status at the destination warehouse, not a
+      // separate location), consistent with Phase 10's own choice here.
+      await this.costing.transferCost(
+        tenantId,
+        {
+          organizationId: transfer.organizationId,
+          productId: line.productId,
+          sourceWarehouseId: transfer.sourceWarehouseId,
+          destinationWarehouseId: transfer.destinationWarehouseId,
+          batchId: line.batchId,
+          quantity: line.quantity.toString(),
+          effectiveDate: businessDate,
+          sourceDocumentType: WAREHOUSE_TRANSFER_TYPE,
+          sourceDocumentId: transfer.id,
+          sourceDocumentLineId: line.id,
+          outMovementId: outMovement.id,
+          inMovementId: inMovement.id,
+        },
+        tx,
+      );
     }
 
-    // Never a financial consequence — see class doc.
+    // Never a financial (GL) consequence — see class doc. Costing-subledger
+    // value transfer above is not a GL posting.
     return null;
   }
 
@@ -139,6 +173,11 @@ export class WarehouseTransferPostingHandler implements DocumentPostingHandler {
           : 'Cannot unpost a transfer that has already been partially received — the destination has already consumed part of the in-transit stock',
       );
     }
+    const lineIds = (await tx.warehouseTransferLine.findMany({ where: { tenantId, warehouseTransferId: document.id }, select: { id: true } })).map((l) => l.id);
+    for (const lineId of lineIds) {
+      await this.costing.removeCostForReceiptLine(tenantId, lineId, tx);
+    }
+    await this.costing.reverseConsumption(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx);
     await this.movements.deleteMovementsFor(tenantId, WAREHOUSE_TRANSFER_TYPE, document.id, tx);
     // Reset any partial receivedQuantity progress written before this unpost.
     await tx.warehouseTransferLine.updateMany({ where: { warehouseTransferId: document.id, tenantId }, data: { receivedQuantity: '0' } });

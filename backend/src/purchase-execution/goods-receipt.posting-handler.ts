@@ -12,7 +12,8 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from '../sales-execution/inventory-ledger.service';
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
-import { InventoryCostCalculationService } from '../inventory-costing/inventory-cost-calculation.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
+import { InventoryFreezeService } from '../inventory-count/inventory-freeze.service';
 
 /**
  * Posting handler for GoodsReceipt (spec sections 3-5). Real physical
@@ -40,7 +41,8 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
-    private readonly costing: InventoryCostCalculationService,
+    private readonly costing: InventoryCostingService,
+    private readonly freeze: InventoryFreezeService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -56,8 +58,14 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     const warehouse = await tx.warehouse.findFirst({ where: { id: receipt.warehouseId, tenantId } });
     if (!warehouse || !warehouse.active) throw new ValidationAppError('Cannot post a goods receipt for a missing or inactive warehouse');
 
+    const frozenChecked = new Set<string>();
     for (const line of receipt.lines) {
       if (line.quantity.lte(0)) throw new ValidationAppError('Cannot post a goods receipt line with non-positive quantity');
+      const lineWarehouseId = line.warehouseId ?? receipt.warehouseId;
+      if (!frozenChecked.has(lineWarehouseId)) {
+        frozenChecked.add(lineWarehouseId);
+        await this.freeze.assertNotFrozen(tenantId, lineWarehouseId, null, GOODS_RECEIPT_TYPE, document.id, document.postedBy ?? document.createdBy ?? undefined, tx);
+      }
 
       // Server-side re-check (spec section 22): never trust a
       // client-computed "remaining" — recompute from the database inside
@@ -105,8 +113,6 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
       const warehouseId = line.warehouseId ?? receipt.warehouseId;
       const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, GOODS_RECEIPT_TYPE, line.id, tx);
 
-      const unitCost = new Decimal(line.price.toString());
-
       if (capturedSerials.length > 0) {
         // Serial-tracked line: one InventoryMovement per unit (spec
         // section 23) — resolve/create the real SerialNumber rows now
@@ -118,12 +124,11 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
             { productId: line.productId, warehouseId, quantity: '1', movementType: 'RECEIPT', businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceLineId: line.id, batchId: line.batchId, serialId },
             tx,
           );
-          if (unitCost.gt(0)) {
-            await this.costing.costReceiptMovement(
-              { tenantId, organizationId, inventoryMovementId: movement.id, productId: line.productId, warehouseId, batchId: line.batchId, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, effectiveDate: businessDate, postingDate: businessDate, quantity: 1, unitCost },
-              tx,
-            );
-          }
+          await this.costing.receiveCost(
+            tenantId,
+            { organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: '1', unitCost: line.price.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, movementType: 'RECEIPT' },
+            tx,
+          );
         }
       } else {
         const movement = await this.inventory.recordMovement(
@@ -131,12 +136,16 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
           { productId: line.productId, warehouseId, quantity: line.quantity.toString(), movementType: 'RECEIPT', businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceLineId: line.id, batchId: line.batchId },
           tx,
         );
-        if (unitCost.gt(0)) {
-          await this.costing.costReceiptMovement(
-            { tenantId, organizationId, inventoryMovementId: movement.id, productId: line.productId, warehouseId, batchId: line.batchId, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, effectiveDate: businessDate, postingDate: businessDate, quantity: line.quantity.toString(), unitCost },
-            tx,
-          );
-        }
+        // Inventory Costing Engine (Phase 11): opens a FIFO layer / feeds
+        // the weighted-average pool at the receipt's own price — spec
+        // section 17's default input source when no other cost is known
+        // yet. A complete no-op when the organization has no costing
+        // policy configured (see InventoryCostingService docstring).
+        await this.costing.receiveCost(
+          tenantId,
+          { organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), unitCost: line.price.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, movementType: 'RECEIPT' },
+          tx,
+        );
       }
 
       if (line.supplierOrderLineId) {
@@ -213,7 +222,10 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     const dependentReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalGoodsReceiptId: document.id, postingStatus: 'POSTED' } });
     if (dependentReturn) throw new GoodsReceiptHasDownstreamLinksError('a posted Purchase Return references this receipt — unpost it first');
 
-    await this.costing.removeCostForReceipt(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
+    for (const lineId of receiptLineIds) {
+      await this.costing.removeCostForReceiptLine(tenantId, lineId, tx);
+    }
+    await this.costing.removeCostMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await this.batchSerial.undoReceivedSerials(tenantId, GOODS_RECEIPT_TYPE, receiptLineIds, tx);
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: GOODS_RECEIPT_TYPE, targetDocumentId: document.id, relationType: RelationTypes.SUPPLIER_ORDER_TO_RECEIPT } });

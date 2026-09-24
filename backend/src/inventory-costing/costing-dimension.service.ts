@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { InventoryCostingPolicy } from '@prisma/client';
 
-export interface CostingDimensionContext {
+export interface CostingDimensionInput {
   organizationId: string;
   productId: string;
   warehouseId?: string | null;
@@ -8,19 +9,21 @@ export interface CostingDimensionContext {
 }
 
 /**
- * InventoryCostingDimensionService (spec section 5) — costing dimensions
- * are configured independently of quantity dimensions. A policy might
- * cost at organization+product only (two warehouses share one average),
- * or drill down to organization+warehouse+product+batch. This is the one
- * place that assembles the resulting costingKey, so every consumer
- * (FIFO layers, WA balances, the cost register) partitions identically.
+ * CostingDimensionService (spec section 5) — a costing key is NOT assumed
+ * to equal the quantity register's own dimensions. A policy with
+ * `costByWarehouse = false` pools the same product's cost across every
+ * warehouse in the organization (e.g. two branches sharing one average
+ * cost) even though Phase 10 still tracks their physical stock separately;
+ * `costByBatch = true` splits the pool further per batch (spec section 37).
+ * Kept as its own service (not inlined into the strategies) so a future
+ * `costByCharacteristic` dimension is one place to change.
  */
 @Injectable()
-export class InventoryCostingDimensionService {
-  resolveCostingKey(policy: { costByWarehouse: boolean; costByBatch: boolean }, ctx: CostingDimensionContext): string {
-    const parts = [ctx.organizationId, ctx.productId];
-    if (policy.costByWarehouse && ctx.warehouseId) parts.push(ctx.warehouseId);
-    if (policy.costByBatch && ctx.batchId) parts.push(ctx.batchId);
+export class CostingDimensionService {
+  resolveCostingKey(policy: Pick<InventoryCostingPolicy, 'costByWarehouse' | 'costByBatch'>, input: CostingDimensionInput): string {
+    const parts = [input.organizationId, input.productId];
+    parts.push(policy.costByWarehouse ? (input.warehouseId ?? '-') : '*');
+    parts.push(policy.costByBatch ? (input.batchId ?? '-') : '*');
     return parts.join(':');
   }
 }

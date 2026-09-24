@@ -59,6 +59,9 @@ import {
 } from './pages/warehouse/WarehouseInventoryPages';
 import { InventoryReportsPage } from './pages/warehouse/InventoryReportsPage';
 import { InventoryCostingPage } from './pages/warehouse/InventoryCostingPage';
+import { InventoryCountPlanListPage, InventoryCountPlanDetailPage } from './pages/inventory-count/InventoryCountPlanPage';
+import { InventoryCountSessionDetailPage } from './pages/inventory-count/InventoryCountSessionPage';
+import { InventoryCountSheetDetailPage } from './pages/inventory-count/InventoryCountSheetPage';
 import { ProductCatalogPage } from './pages/catalog/ProductCatalogPage';
 import { CounterpartyListPage } from './pages/counterparties/CounterpartyListPage';
 import { CounterpartyDetailPage } from './pages/counterparties/CounterpartyDetailPage';
@@ -149,6 +152,10 @@ function AppRoutes() {
         <Route path="/inventory-status-transfers/:id" element={<InventoryStatusTransferDetailPage />} />
         <Route path="/inventory-reports" element={<InventoryReportsPage />} />
         <Route path="/inventory-costing" element={<InventoryCostingPage />} />
+        <Route path="/inventory-count/plans" element={<InventoryCountPlanListPage />} />
+        <Route path="/inventory-count/plans/:id" element={<InventoryCountPlanDetailPage />} />
+        <Route path="/inventory-count/sessions/:id" element={<InventoryCountSessionDetailPage />} />
+        <Route path="/inventory-count/sessions/:sessionId/sheets/:sheetId" element={<InventoryCountSheetDetailPage />} />
 
         <Route path="/product-catalog" element={<ProductCatalogPage />} />
         <Route path="/price-lists" element={<PriceListPage />} />

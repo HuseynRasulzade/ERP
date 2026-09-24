@@ -37,6 +37,7 @@ import { PurchaseExecutionModule } from './purchase-execution/purchase-execution
 import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
 import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
+import { InventoryCountModule } from './inventory-count/inventory-count.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 import { PrintFormsModule } from './print-forms/print-forms.module';
 
@@ -111,10 +112,16 @@ import { PrintFormsModule } from './print-forms/print-forms.module';
     // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
     WarehouseInventoryModule,
 
-    // Inventory Costing Engine (docx spec Phase 11 — FIFO / Weighted
-    // Average cost layers, COGS, valuation; separate subledger from the
-    // quantity register above).
+    // Inventory Costing Engine (docx spec Phase 11 — FIFO/weighted-average
+    // costing subledger, COGS, landed cost, backdated recalculation,
+    // period finalization; see docs/INVENTORY_COSTING.md).
     InventoryCostingModule,
+
+    // Inventory Count / Reconciliation Engine (docx spec Phase 12 — count
+    // plans, blind counting, variance detection, and reconciliation on
+    // top of Phase 10/11's stock and valuation truth; see
+    // docs/INVENTORY_COUNT.md).
+    InventoryCountModule,
 
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).
