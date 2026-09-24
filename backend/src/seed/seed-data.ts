@@ -85,6 +85,9 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
       PermissionCodes.DOCUMENTS_VIEW,
       PermissionCodes.PERIODS_VIEW,
       PermissionCodes.PERIODS_REOPEN,
+      PermissionCodes.INVENTORY_COUNT_VIEW,
+      PermissionCodes.INVENTORY_COUNT_APPROVE,
+      PermissionCodes.INVENTORY_COUNT_VIEW_COST,
     ],
   },
   {
@@ -112,14 +115,16 @@ export const SEED_APPROVAL_ROLES: { code: string; name: string; permissions: str
     name: 'Warehouse',
     permissions: [
       PermissionCodes.ORGANIZATION_VIEW,
-      PermissionCodes.PRODUCT_VIEW,PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.PURCHASE_EDIT, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW],
+      PermissionCodes.PRODUCT_VIEW,PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_CREATE, PermissionCodes.PURCHASE_EDIT, PermissionCodes.INVENTORY_VIEW, PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.INVENTORY_COUNT_VIEW, PermissionCodes.INVENTORY_COUNT_ENTER, PermissionCodes.INVENTORY_COUNT_RECOUNT],
   },
   {
     code: 'WAREHOUSE_SUPERVISOR',
     name: 'Warehouse Supervisor',
     permissions: [
       PermissionCodes.ORGANIZATION_VIEW,
-      PermissionCodes.PRODUCT_VIEW,PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_RECEIPT_APPROVE, PermissionCodes.PURCHASE_RECEIPT_REJECT, PermissionCodes.DOCUMENTS_VIEW],
+      PermissionCodes.PRODUCT_VIEW,PermissionCodes.PURCHASE_VIEW, PermissionCodes.PURCHASE_RECEIPT_APPROVE, PermissionCodes.PURCHASE_RECEIPT_REJECT, PermissionCodes.DOCUMENTS_VIEW,
+      PermissionCodes.INVENTORY_COUNT_VIEW, PermissionCodes.INVENTORY_COUNT_REVIEW, PermissionCodes.INVENTORY_COUNT_APPROVE, PermissionCodes.INVENTORY_COUNT_VIEW_ACCOUNTING_QTY],
   },
   // Inert placeholders (spec's wider named-role list) — view-only today,
   // ready for a future increment to extend.

@@ -35,6 +35,7 @@ import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
+import { InventoryCountModule } from './inventory-count/inventory-count.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 
 @Module({
@@ -102,6 +103,10 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // Engine every other module reads from, plus WarehouseTransfer,
     // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
     WarehouseInventoryModule,
+
+    // Phase 12 — Inventory Count / İnventarizasiya (stocktaking +
+    // reconciliation engine on top of the Phase 10 movement register).
+    InventoryCountModule,
 
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).
