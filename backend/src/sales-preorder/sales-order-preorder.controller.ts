@@ -49,22 +49,24 @@ export class SalesOrderPreorderController {
   @Post('confirm')
   confirm(
     @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
     @Param('id') id: string,
     @CurrentUser() user: { userId: string },
     @Body() dto: VersionedCommandDto,
   ) {
-    return this.posting.post(tenantId, SALES_ORDER_TYPE, id, dto.expectedVersion, user.userId);
+    return this.posting.post(tenantId, SALES_ORDER_TYPE, id, dto.expectedVersion, user.userId, membershipId);
   }
 
   @RequirePermissions(PermissionCodes.SALES_ORDER_REOPEN)
   @Post('reopen')
   reopen(
     @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
     @Param('id') id: string,
     @CurrentUser() user: { userId: string },
     @Body() dto: VersionedCommandDto,
   ) {
-    return this.posting.unpost(tenantId, SALES_ORDER_TYPE, id, dto.expectedVersion, user.userId);
+    return this.posting.unpost(tenantId, SALES_ORDER_TYPE, id, dto.expectedVersion, user.userId, membershipId);
   }
 
   @RequirePermissions(PermissionCodes.SALES_ORDER_VIEW)

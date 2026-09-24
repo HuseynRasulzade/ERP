@@ -213,22 +213,36 @@ period-guard logic needed.
 
 - **Reposting** as a first-class generation-tracked operation (unpost+
   post covers the practical case for manual operations today).
-- **Opening Balance** dedicated endpoint/UI (the engine supports the flag;
-  nothing calls it yet).
-- **Currency/quantity requiredness** is not enforced — an account with
-  `currencyTracking=true` doesn't yet *require* `transactionCurrencyId` on
-  its lines, and `quantityTracking=false` doesn't yet *reject* an
-  unexpected quantity.
+- ~~Opening Balance endpoint~~ — added by the Phases 0–5 audit:
+  `POST/GET /organizations/:org/opening-balances`, `POST …/:id/reverse`
+  (`opening-balance.service.ts`), flagged `OPENING_BALANCE`, balanced,
+  period-guarded, audited `OPENING_BALANCE_POSTED`. No UI yet.
+- Currency/quantity rules (added by the audit): a foreign amount/rate needs a
+  transaction currency (`CURRENCY_REQUIRED`) and a currency-tracking account
+  (`CURRENCY_NOT_ALLOWED`); a quantity needs a quantity-tracking account
+  (`QUANTITY_NOT_ALLOWED`). A currency-tracking account still does not
+  *require* a foreign amount (base-currency postings are legitimate).
+- Dimension values are now integrity-checked (tenant + organization + entity
+  type, `ACCOUNT_DIMENSION_VALUE_INVALID`); `SETTLEMENT_DOCUMENT` stays
+  untyped. `ACCOUNT_DIMENSION_NOT_ALLOWED` (rejecting dimensions an account
+  has no rule for) is still not enforced.
 - **Dimension-filtered Trial Balance drilldown** (by Partner/Agreement/
   etc.) — the spec itself defers the polished version to Phase 23; only
   account-level (with hierarchy rollup) is implemented.
-- **Concurrent duplicate-posting** race test (spec section 133) — the
-  `sourceDocumentType`/`sourceDocumentId` duplicate check in `postBatch`
-  exists, but there's no test forcing two simultaneous posts to prove only
-  one wins.
+- ~~Concurrent duplicate-posting race~~ — fixed by the audit: `postBatch`
+  takes a transaction-scoped advisory lock per source before its duplicate
+  check; tested with three simultaneous calls (exactly one entry).
 - **Sales/Purchase reconciliation** — this build does not touch
   `sales-documents`; its Sales Order/Invoice totals still use the
   placeholder tax math from before this engine existed. That reconciliation
   (wiring Sales posting through `AccountingPostingEngine.postBatch`,
   replacing ad-hoc tax math with the Tax Engine once built) is explicitly a
   separate, later step.
+- Trial Balance (audit fix): opening/closing are **net** balances on their
+  debit or credit side, and a parent account (e.g. 501 over 501-1) rolls up
+  its descendants (`isGroup`, `parentAccountId` in each row).
+- Manual-operation commands act only on manual entries of the URL's
+  organization; a system-document entry is corrected via its document, and a
+  reversal entry cannot be unposted (`REVERSAL_NOT_ALLOWED`).
+- DB triggers (migration `20260930100000_phase00_05_audit_fixes`) make
+  `accounting_movements`/`accounting_movement_dimensions` non-updatable.

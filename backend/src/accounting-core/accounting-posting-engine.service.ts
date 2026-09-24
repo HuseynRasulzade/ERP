@@ -4,16 +4,21 @@ import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service
 import { PeriodService } from '../period/period.service';
 import { AuditService } from '../audit/audit.service';
 import { NumberingService } from '../numbering/numbering.service';
+import { Prisma } from '@prisma/client';
 import {
   AccountDimensionRequiredError,
+  AccountDimensionValueInvalidError,
   AccountInactiveError,
   AccountNotPostableError,
   ConcurrencyConflictError,
+  CurrencyNotAllowedError,
+  CurrencyRequiredError,
   JournalAlreadyPostedError,
   JournalNotBalancedError,
   JournalNotPostedError,
   NotFoundAppError,
   PostingDuplicateError,
+  QuantityNotAllowedError,
   ReversalNotAllowedError,
   ValidationAppError,
 } from '../common/errors/app-error';
@@ -144,8 +149,8 @@ export class AccountingPostingEngine {
         throw new ValidationAppError('A reversed Journal Entry cannot be posted again');
       }
 
-      await this.periods.assertDateIsOpen(tenantId, entry.businessDate, entry.organizationId);
-      await this.validateLinesForPosting(tx, tenantId, entry.lines, entry.businessDate);
+      await this.periods.assertDateIsOpen(tenantId, entry.businessDate, entry.organizationId, tx);
+      await this.validateLinesForPosting(tx, tenantId, entry.organizationId, entry.lines, entry.businessDate);
 
       await this.createMovementsForLines(tx, {
         tenantId,
@@ -198,8 +203,15 @@ export class AccountingPostingEngine {
       if (!entry) throw new NotFoundAppError('JournalEntry', entryId);
       if (entry.version !== expectedVersion) throw new ConcurrencyConflictError();
       if (entry.status !== 'POSTED') throw new JournalNotPostedError(entryId);
+      // A reversal entry is the correction of a REVERSED original; removing
+      // its movements would silently resurrect the original's ledger effect
+      // while the original still reads REVERSED. Correct a reversal by
+      // reversing it again (a new, visible operation), never by unposting.
+      if (entry.isReversal) {
+        throw new ReversalNotAllowedError('A reversal entry cannot be unposted; reverse it instead');
+      }
 
-      await this.periods.assertDateIsOpen(tenantId, entry.businessDate, entry.organizationId);
+      await this.periods.assertDateIsOpen(tenantId, entry.businessDate, entry.organizationId, tx);
 
       const deleted = await tx.accountingMovement.deleteMany({ where: { tenantId, journalEntryId: entry.id } });
 
@@ -253,7 +265,7 @@ export class AccountingPostingEngine {
       }
 
       const businessDate = reversalBusinessDate ?? original.businessDate;
-      await this.periods.assertDateIsOpen(tenantId, businessDate, original.organizationId);
+      await this.periods.assertDateIsOpen(tenantId, businessDate, original.organizationId, tx);
 
       await this.ensureSequence(tenantId);
       const allocated = await this.numbering.allocateNumber(tenantId, JOURNAL_SEQUENCE_CODE, businessDate, tx);
@@ -364,6 +376,17 @@ export class AccountingPostingEngine {
   async postBatch(tenantId: string, userId: string, batch: AccountingPostingBatch, tx?: PrismaTransactionClient) {
     const run = async (client: PrismaTransactionClient) => {
       if (batch.sourceDocumentType && batch.sourceDocumentId) {
+        // Serialize concurrent postings of the SAME source (spec sections
+        // 45/133): a transaction-scoped advisory lock keyed by the source
+        // makes a second concurrent caller wait until the first commits or
+        // rolls back; its duplicate check below then runs in a fresh READ
+        // COMMITTED snapshot and sees the first caller's POSTED entry.
+        // Without it both callers could pass the check before either
+        // inserted, producing two active posting generations.
+        await client.$queryRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
+          `JE:${tenantId}:${batch.sourceDocumentType}:${batch.sourceDocumentId}`,
+        );
         const active = await client.journalEntry.findFirst({
           where: {
             tenantId,
@@ -376,7 +399,7 @@ export class AccountingPostingEngine {
       }
 
       this.assertShapeValid(batch.lines);
-      await this.periods.assertDateIsOpen(tenantId, batch.businessDate, batch.organizationId);
+      await this.periods.assertDateIsOpen(tenantId, batch.businessDate, batch.organizationId, client);
       await this.ensureSequence(tenantId);
       const allocated = await this.numbering.allocateNumber(tenantId, JOURNAL_SEQUENCE_CODE, batch.businessDate, client);
 
@@ -405,7 +428,7 @@ export class AccountingPostingEngine {
         include: { lines: { include: { dimensions: true } } },
       });
 
-      await this.validateLinesForPosting(client, tenantId, withLines.lines, batch.businessDate);
+      await this.validateLinesForPosting(client, tenantId, batch.organizationId, withLines.lines, batch.businessDate);
       await this.createMovementsForLines(client, {
         tenantId,
         organizationId: batch.organizationId,
@@ -453,6 +476,23 @@ export class AccountingPostingEngine {
       const amount = new Decimal(line.amountBase);
       if (amount.lte(0)) {
         throw new ValidationAppError('Every journal line amount must be a positive number (section 97/98)');
+      }
+      if (line.amountTransaction !== undefined && line.amountTransaction !== null && new Decimal(line.amountTransaction).lte(0)) {
+        throw new ValidationAppError('A journal line transaction-currency amount must be positive (section 98)');
+      }
+      if (line.exchangeRate !== undefined && line.exchangeRate !== null && new Decimal(line.exchangeRate).lte(0)) {
+        throw new ValidationAppError('A journal line exchange rate must be positive');
+      }
+      if (line.quantity !== undefined && line.quantity !== null && new Decimal(line.quantity).lte(0)) {
+        throw new ValidationAppError('A journal line quantity must be positive — direction comes from the side (section 98)');
+      }
+      if (line.quantityUnitId && (line.quantity === undefined || line.quantity === null)) {
+        throw new ValidationAppError('A quantity unit was given without a quantity');
+      }
+      const codes = (line.dimensions ?? []).map((d) => d.dimensionCode);
+      if (new Set(codes).size !== codes.length) {
+        // Spec section 33: one value per dimension type per journal line.
+        throw new ValidationAppError('A journal line may carry each accounting dimension at most once (section 33)');
       }
     }
   }
@@ -507,11 +547,16 @@ export class AccountingPostingEngine {
   private async validateLinesForPosting(
     tx: PrismaTransactionClient,
     tenantId: string,
+    organizationId: string,
     lines: Array<{
       id: string;
       accountId: string;
       side: string;
       amountBase: Decimal;
+      transactionCurrencyId?: string | null;
+      amountTransaction?: Decimal | null;
+      exchangeRate?: Decimal | null;
+      quantity?: Decimal | null;
       dimensions: Array<{ dimensionDefinitionId: string; referenceId: string }>;
     }>,
     businessDate: Date,
@@ -519,11 +564,40 @@ export class AccountingPostingEngine {
     let debitTotal = new Decimal(0);
     let creditTotal = new Decimal(0);
 
+    // The posting organization itself must belong to the tenant (spec
+    // section 37 "validate Organization") — a batch can never write ledger
+    // rows for another tenant's organization.
+    const organization = await tx.organization.findFirst({ where: { id: organizationId, tenantId }, select: { id: true } });
+    if (!organization) throw new NotFoundAppError('Organization', organizationId);
+
+    const definitionIds = Array.from(new Set(lines.flatMap((l) => l.dimensions.map((d) => d.dimensionDefinitionId))));
+    const definitions = definitionIds.length
+      ? await tx.accountingDimensionDefinition.findMany({ where: { id: { in: definitionIds } } })
+      : [];
+    const definitionById = new Map(definitions.map((d) => [d.id, d]));
+
     for (const line of lines) {
       const account = await tx.account.findFirst({ where: { id: line.accountId, tenantId } });
       if (!account) throw new NotFoundAppError('Account', line.accountId);
       if (!account.active) throw new AccountInactiveError(account.code);
       if (!account.postingAllowed) throw new AccountNotPostableError(account.code);
+      // An organization-specific custom account (Account.organizationId set)
+      // only exists in that organization's chart view.
+      if (account.organizationId && account.organizationId !== organizationId) {
+        throw new NotFoundAppError('Account', line.accountId);
+      }
+
+      // Multi-currency / quantity analytics (spec sections 58, 61): a
+      // foreign-currency amount needs a currency and an account that tracks
+      // currency; a quantity needs a quantity-tracking account. Rejected
+      // rather than silently stored, so ledger analytics stay unambiguous.
+      const hasForeignAmount = line.amountTransaction !== null && line.amountTransaction !== undefined;
+      const hasRate = line.exchangeRate !== null && line.exchangeRate !== undefined;
+      if ((hasForeignAmount || hasRate) && !line.transactionCurrencyId) throw new CurrencyRequiredError(account.code);
+      if (hasForeignAmount && !account.currencyTracking) throw new CurrencyNotAllowedError(account.code);
+      if (line.quantity !== null && line.quantity !== undefined && !account.quantityTracking) {
+        throw new QuantityNotAllowedError(account.code);
+      }
 
       const rules = await tx.accountDimensionRule.findMany({
         where: {
@@ -542,12 +616,92 @@ export class AccountingPostingEngine {
         }
       }
 
+      for (const dim of line.dimensions) {
+        const def = definitionById.get(dim.dimensionDefinitionId);
+        if (!def || (def.tenantId !== null && def.tenantId !== tenantId)) {
+          throw new AccountDimensionValueInvalidError(account.code, dim.dimensionDefinitionId, 'unknown dimension');
+        }
+        await this.assertDimensionValue(tx, tenantId, organizationId, account.code, def.code, dim.referenceId);
+      }
+
       if (line.side === 'DEBIT') debitTotal = debitTotal.add(line.amountBase);
       else creditTotal = creditTotal.add(line.amountBase);
     }
 
     if (!debitTotal.equals(creditTotal)) {
       throw new JournalNotBalancedError(debitTotal.toFixed(4), creditTotal.toFixed(4));
+    }
+  }
+
+  /**
+   * Dimension reference integrity (spec section 30): the value must be an
+   * existing entity of the type the dimension stands for, in the posting's
+   * tenant AND organization (every referenced master-data entity in this
+   * build is organization-scoped). "AccountDimension = WAREHOUSE but the id
+   * belongs to a Partner" and cross-tenant ids are both rejected.
+   *
+   * PARTNER/CONTRACT/AGREEMENT: this build has no separate Partner/
+   * Agreement entities (Phase 3 as built stops at Counterparty + contract),
+   * so they reference a Counterparty (CONTRACT also accepts a
+   * CounterpartyContract). SETTLEMENT_DOCUMENT points at an arbitrary
+   * business document of any type and is not type-checked here.
+   * Unknown/custom dimension codes are left to their own validation.
+   */
+  private async assertDimensionValue(
+    tx: PrismaTransactionClient,
+    tenantId: string,
+    organizationId: string,
+    accountCode: string,
+    dimensionCode: string,
+    referenceId: string,
+  ) {
+    const scoped = { id: referenceId, tenantId, organizationId };
+    let found: boolean;
+    switch (dimensionCode) {
+      case 'ORGANIZATION':
+        found = referenceId === organizationId;
+        break;
+      case 'BRANCH':
+        found = !!(await tx.branch.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'DEPARTMENT':
+        found = !!(await tx.department.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'WAREHOUSE':
+        found = !!(await tx.warehouse.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'CASHBOX':
+        found = !!(await tx.cashbox.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'BANK_ACCOUNT':
+        found = !!(await tx.bankAccount.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'PARTNER':
+      case 'COUNTERPARTY':
+      case 'AGREEMENT':
+        found = !!(await tx.counterparty.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'CONTRACT':
+        found =
+          !!(await tx.counterparty.findFirst({ where: scoped, select: { id: true } })) ||
+          !!(await tx.counterpartyContract.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'PRODUCT':
+      case 'PRODUCT_CHARACTERISTIC':
+        found = !!(await tx.product.findFirst({ where: scoped, select: { id: true } }));
+        break;
+      case 'CURRENCY':
+        found = !!(await tx.currency.findFirst({ where: { id: referenceId }, select: { id: true } }));
+        break;
+      default:
+        return;
+    }
+    if (!found) {
+      throw new AccountDimensionValueInvalidError(
+        accountCode,
+        dimensionCode,
+        'the referenced entity does not exist in this tenant/organization or is of the wrong type',
+      );
     }
   }
 
@@ -632,8 +786,11 @@ export class AccountingPostingEngine {
           resetPolicy: 'YEARLY',
         },
       });
-    } catch {
-      // Lost the race to create it concurrently — fine, it exists now.
+    } catch (error) {
+      // Lost the race to create it concurrently — fine, it exists now. Any
+      // other failure is real and must surface (Phase 0 section 75: no
+      // silent exception swallowing).
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
     }
   }
 

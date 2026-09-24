@@ -67,6 +67,11 @@ export class AccountService {
     });
     if (existing) throw new ConflictAppError(`Account code already exists: ${input.code}`);
 
+    if (input.organizationId) {
+      const org = await this.prisma.organization.findFirst({ where: { id: input.organizationId, tenantId }, select: { id: true } });
+      if (!org) throw new NotFoundAppError('Organization', input.organizationId);
+    }
+
     let parent: { id: string; financialStatementSectionId: string | null; financialStatementGroupId: string | null } | null = null;
     if (input.parentAccountId) {
       parent = await this.prisma.account.findFirst({ where: { id: input.parentAccountId, tenantId } });

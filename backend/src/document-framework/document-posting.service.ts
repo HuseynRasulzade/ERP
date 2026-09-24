@@ -4,6 +4,8 @@ import { DocumentFrameworkRegistry } from './document-framework-registry.service
 import { PeriodService } from '../period/period.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingPostingEngine } from '../accounting-core/accounting-posting-engine.service';
+import { OrganizationAccessService } from '../org-structure/organization-access.service';
+import { BaseDocumentFields } from './base-document';
 import {
   ConcurrencyConflictError,
   DocumentAlreadyPostedError,
@@ -45,7 +47,32 @@ export class DocumentPostingService {
     private readonly periods: PeriodService,
     private readonly audit: AuditService,
     private readonly accountingEngine: AccountingPostingEngine,
+    private readonly orgAccess: OrganizationAccessService,
   ) {}
+
+  /**
+   * Organization-scoped authorization for the generic command surface
+   * (Phase 1 sections 21-22, Phase 4 section 117). Tenant membership alone
+   * must never be enough to post/unpost/cancel another organization's
+   * document: when the caller's membership is known (every HTTP entry
+   * point passes it) and the document belongs to an organization, the
+   * membership needs an explicit grant for that organization — a missing
+   * grant reads as NOT_FOUND, exactly like a foreign-tenant id.
+   * Internal callers (no membershipId) keep the previous behaviour.
+   */
+  private async assertOrganizationAccess(
+    tenantId: string,
+    membershipId: string | undefined,
+    documentType: string,
+    document: BaseDocumentFields,
+  ) {
+    if (!membershipId || !document.organizationId) return;
+    try {
+      await this.orgAccess.assertAccess(tenantId, membershipId, document.organizationId);
+    } catch {
+      throw new NotFoundAppError(documentType, document.id);
+    }
+  }
 
   async post(
     tenantId: string,
@@ -53,6 +80,7 @@ export class DocumentPostingService {
     documentId: string,
     expectedVersion: number,
     userId: string,
+    membershipId?: string,
   ) {
     const handler = this.registry.getHandler(documentType);
     const repository = this.registry.getRepository(documentType);
@@ -60,6 +88,7 @@ export class DocumentPostingService {
     return this.prisma.runInTransaction(async (tx) => {
       const document = await repository.findById(tenantId, documentId, tx);
       if (!document) throw new NotFoundAppError(documentType, documentId);
+      await this.assertOrganizationAccess(tenantId, membershipId, documentType, document);
       if (document.version !== expectedVersion) throw new ConcurrencyConflictError();
 
       if (document.status === 'CANCELLED' || document.status === 'DELETION_MARKED') {
@@ -70,7 +99,7 @@ export class DocumentPostingService {
       }
 
       const businessDate = document.postingDate ?? document.documentDate;
-      await this.periods.assertDateIsOpen(tenantId, businessDate, document.organizationId ?? undefined);
+      await this.periods.assertDateIsOpen(tenantId, businessDate, document.organizationId ?? undefined, tx);
 
       try {
         await handler.validateForPosting(tenantId, document, tx);
@@ -190,18 +219,26 @@ export class DocumentPostingService {
     });
   }
 
-  async unpost(tenantId: string, documentType: string, documentId: string, expectedVersion: number, userId: string) {
+  async unpost(
+    tenantId: string,
+    documentType: string,
+    documentId: string,
+    expectedVersion: number,
+    userId: string,
+    membershipId?: string,
+  ) {
     const repository = this.registry.getRepository(documentType);
     const handler = this.registry.getHandler(documentType);
 
     return this.prisma.runInTransaction(async (tx) => {
       const document = await repository.findById(tenantId, documentId, tx);
       if (!document) throw new NotFoundAppError(documentType, documentId);
+      await this.assertOrganizationAccess(tenantId, membershipId, documentType, document);
       if (document.version !== expectedVersion) throw new ConcurrencyConflictError();
       if (document.postingStatus !== 'POSTED') throw new DocumentNotPostedError(documentId);
 
       const businessDate = document.postingDate ?? document.documentDate;
-      await this.periods.assertDateIsOpen(tenantId, businessDate, document.organizationId ?? undefined);
+      await this.periods.assertDateIsOpen(tenantId, businessDate, document.organizationId ?? undefined, tx);
 
       const deleted = await tx.registerMovement.deleteMany({
         where: { tenantId, recorderDocumentType: documentType, recorderDocumentId: documentId },
@@ -253,15 +290,30 @@ export class DocumentPostingService {
     });
   }
 
-  async cancel(tenantId: string, documentType: string, documentId: string, expectedVersion: number, userId: string) {
+  async cancel(
+    tenantId: string,
+    documentType: string,
+    documentId: string,
+    expectedVersion: number,
+    userId: string,
+    membershipId?: string,
+  ) {
     const repository = this.registry.getRepository(documentType);
 
     return this.prisma.runInTransaction(async (tx) => {
       const document = await repository.findById(tenantId, documentId, tx);
       if (!document) throw new NotFoundAppError(documentType, documentId);
+      await this.assertOrganizationAccess(tenantId, membershipId, documentType, document);
       if (document.version !== expectedVersion) throw new ConcurrencyConflictError();
       if (document.postingStatus === 'POSTED') {
         throw new ValidationAppError('Unpost the document before cancelling it');
+      }
+      // A cancelled (or deletion-marked) document is terminal in the
+      // lifecycle (ARCHITECTURE.md state machine) — cancelling it again
+      // must not silently re-stamp cancelledAt/cancelledBy and bump its
+      // version as if it were a new business event.
+      if (document.status === 'CANCELLED' || document.status === 'DELETION_MARKED') {
+        throw new ValidationAppError(`Cannot cancel a document in status ${document.status}`);
       }
 
       const result = await repository.applyStatusPatch(

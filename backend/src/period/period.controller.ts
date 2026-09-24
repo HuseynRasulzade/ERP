@@ -16,7 +16,10 @@ export class PeriodController {
     return this.periods.list(tenantId);
   }
 
-  @RequirePermissions(PermissionCodes.PERIODS_VIEW)
+  // Creating a period is period administration, not a read: it is what
+  // makes the period guard start governing a month, so it requires the
+  // same right as closing one (was periods.view — any viewer could create).
+  @RequirePermissions(PermissionCodes.PERIODS_CLOSE)
   @Post()
   create(@CurrentTenantId() tenantId: string, @Body() dto: CreatePeriodDto) {
     return this.periods.createPeriod(tenantId, dto);

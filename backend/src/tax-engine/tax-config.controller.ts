@@ -11,7 +11,9 @@ export class TaxConfigController {
     private readonly localization: AzTaxLocalizationService,
   ) {}
 
-  @RequirePermissions(PermissionCodes.TAX_CONFIG_VIEW)
+  // Writes (idempotently) the shared AZ legal configuration — a
+  // rule-activation action, not a read (was tax.config.view).
+  @RequirePermissions(PermissionCodes.TAX_RULE_ACTIVATE)
   @Post('localization/seed')
   seed() {
     return this.localization.ensureSeeded();

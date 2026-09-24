@@ -56,6 +56,10 @@ describe('Procurement (e2e)', () => {
     approverMembershipId = approverSetup.membershipId;
     const s2 = await setupTenant(`proc2-${run}@e2e.test`, `proc-t2-${run}`, 'PRO2');
     token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
+    // The shared AZ tax localization is global data; seed it here (idempotent)
+    // instead of relying on another suite having run first — on a fresh
+    // database this suite used to fail with 422s from the tax preview.
+    await auth1(request(app.getHttpServer()).post('/tax/localization/seed')).expect(201);
 
     const u = await auth1(request(app.getHttpServer()).post('/units-of-measure'))
       .send({ code: 'PCS8', name: 'Piece', symbol: 'pcs', unitType: 'QUANTITY' })

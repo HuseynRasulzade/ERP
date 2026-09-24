@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { SAFE_USER_FIELDS } from '../org-structure/organization-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConflictAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../audit/audit.service';
@@ -94,7 +95,8 @@ export class TenantService {
   listMembers(tenantId: string) {
     return this.prisma.tenantMembership.findMany({
       where: { tenantId },
-      include: { user: true, roles: { include: { role: true } } },
+      // Never the password hash: only display-safe user columns leave the API.
+      include: { user: { select: SAFE_USER_FIELDS }, roles: { include: { role: true } } },
     });
   }
 }

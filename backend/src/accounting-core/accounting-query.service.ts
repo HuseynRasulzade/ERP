@@ -14,6 +14,10 @@ export interface TrialBalanceRow {
   turnoverCredit: string;
   closingDebit: string;
   closingCredit: string;
+  /** Hierarchy metadata so a client can render/indent the rollup. */
+  parentAccountId: string | null;
+  /** True when this row's figures include child (sub)accounts. */
+  isGroup: boolean;
 }
 
 /**
@@ -38,12 +42,23 @@ export class AccountingQueryService {
   ): Promise<TrialBalanceRow[]> {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
 
+    // Only this tenant's accounts, ever — a guessed accountId from another
+    // tenant yields NOT_FOUND rather than that tenant's account metadata.
+    if (params.accountId) {
+      const root = await this.prisma.account.findFirst({ where: { id: params.accountId, tenantId }, select: { id: true } });
+      if (!root) throw new NotFoundAppError('Account', params.accountId);
+    }
     const accountIds = params.accountId
       ? await this.descendantIdsIncludingSelf(tenantId, params.accountId)
       : (await this.prisma.account.findMany({ where: { tenantId }, select: { id: true } })).map((a) => a.id);
 
-    const accounts = await this.prisma.account.findMany({ where: { id: { in: accountIds } }, orderBy: { code: 'asc' } });
+    const accounts = await this.prisma.account.findMany({
+      where: { tenantId, id: { in: accountIds } },
+      orderBy: { code: 'asc' },
+    });
 
+    // Aggregation happens in the database (spec section 113), grouped per
+    // account and side; nothing loads individual movements into memory.
     const opening = await this.prisma.accountingMovement.groupBy({
       by: ['accountId', 'side'],
       where: { tenantId, organizationId, accountId: { in: accountIds }, businessDate: { lt: params.fromDate } },
@@ -62,21 +77,76 @@ export class AccountingQueryService {
 
     const openingMap = groupToMap(opening);
     const turnoverMap = groupToMap(turnover);
+    const zero = () => ({ DEBIT: new Decimal(0), CREDIT: new Decimal(0) });
+
+    // Per-account own figures. Opening/closing are BALANCES (spec sections
+    // 68-69): the net of all prior movements expressed on its debit or
+    // credit side — never the gross sum of every historical debit and
+    // credit, which is a turnover, not an opening balance.
+    type Figures = { oD: Decimal; oC: Decimal; tD: Decimal; tC: Decimal; cD: Decimal; cC: Decimal };
+    const own = new Map<string, Figures>();
+    for (const account of accounts) {
+      const o = openingMap.get(account.id) ?? zero();
+      const t = turnoverMap.get(account.id) ?? zero();
+      const openingNet = o.DEBIT.minus(o.CREDIT);
+      const closingNet = openingNet.plus(t.DEBIT).minus(t.CREDIT);
+      own.set(account.id, {
+        oD: openingNet.gt(0) ? openingNet : new Decimal(0),
+        oC: openingNet.lt(0) ? openingNet.neg() : new Decimal(0),
+        tD: t.DEBIT,
+        tC: t.CREDIT,
+        cD: closingNet.gt(0) ? closingNet : new Decimal(0),
+        cC: closingNet.lt(0) ? closingNet.neg() : new Decimal(0),
+      });
+    }
+
+    // Hierarchy rollup (spec section 69): a parent account (e.g. 501 over
+    // 501-1) shows its own figures plus every descendant's, each child
+    // contributing its own expanded debit/credit balance — group totals
+    // derive from child accounts, the parent itself cannot be posted to.
+    const childrenOf = new Map<string, string[]>();
+    for (const account of accounts) {
+      if (account.parentAccountId && own.has(account.parentAccountId)) {
+        const list = childrenOf.get(account.parentAccountId) ?? [];
+        list.push(account.id);
+        childrenOf.set(account.parentAccountId, list);
+      }
+    }
+    const rolled = new Map<string, Figures>();
+    const rollup = (id: string, depth = 0): Figures => {
+      const cached = rolled.get(id);
+      if (cached) return cached;
+      const base = own.get(id)!;
+      const total: Figures = { ...base };
+      if (depth < 20) {
+        for (const childId of childrenOf.get(id) ?? []) {
+          const c = rollup(childId, depth + 1);
+          total.oD = total.oD.plus(c.oD);
+          total.oC = total.oC.plus(c.oC);
+          total.tD = total.tD.plus(c.tD);
+          total.tC = total.tC.plus(c.tC);
+          total.cD = total.cD.plus(c.cD);
+          total.cC = total.cC.plus(c.cC);
+        }
+      }
+      rolled.set(id, total);
+      return total;
+    };
 
     return accounts.map((account) => {
-      const o = openingMap.get(account.id) ?? { DEBIT: new Decimal(0), CREDIT: new Decimal(0) };
-      const t = turnoverMap.get(account.id) ?? { DEBIT: new Decimal(0), CREDIT: new Decimal(0) };
-      const net = o.DEBIT.minus(o.CREDIT).plus(t.DEBIT).minus(t.CREDIT);
+      const f = rollup(account.id);
       return {
         accountId: account.id,
         code: account.code,
         name: account.name,
-        openingDebit: o.DEBIT.toFixed(2),
-        openingCredit: o.CREDIT.toFixed(2),
-        turnoverDebit: t.DEBIT.toFixed(2),
-        turnoverCredit: t.CREDIT.toFixed(2),
-        closingDebit: net.gte(0) ? net.toFixed(2) : '0.00',
-        closingCredit: net.lt(0) ? net.neg().toFixed(2) : '0.00',
+        parentAccountId: account.parentAccountId,
+        isGroup: (childrenOf.get(account.id)?.length ?? 0) > 0,
+        openingDebit: f.oD.toFixed(2),
+        openingCredit: f.oC.toFixed(2),
+        turnoverDebit: f.tD.toFixed(2),
+        turnoverCredit: f.tC.toFixed(2),
+        closingDebit: f.cD.toFixed(2),
+        closingCredit: f.cC.toFixed(2),
       };
     });
   }

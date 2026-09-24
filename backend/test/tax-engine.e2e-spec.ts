@@ -41,6 +41,7 @@ describe('Tax Engine (e2e)', () => {
   let org1Id: string;
   let org2Id: string;
   let userId1: string;
+  let fx: { usdId: string; counterpartyId: string; bankAccountId: string; productId: string };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -82,6 +83,25 @@ describe('Tax Engine (e2e)', () => {
     return { token, userId, tenantId, orgId: orgRes.body.id };
   }
 
+  /** Real master-data rows to use as dimension values: the posting engine
+   * now enforces dimension reference integrity (Phase 4 spec section 30 —
+   * the value must exist, in this tenant/organization, with the right entity
+   * type), so arbitrary placeholder ids are rejected. */
+  async function dimensionFixtures(tenantId: string, organizationId: string, tag: string) {
+    const usd = await prisma.currency.findFirstOrThrow({ where: { code: 'USD' } });
+    const counterparty = await prisma.counterparty.create({
+      data: { tenantId, organizationId, counterpartyType: 'BOTH', code: `FX-CP-${tag}`, name: `Fixture counterparty ${tag}` },
+    });
+    const bankAccount = await prisma.bankAccount.create({
+      data: { tenantId, organizationId, bankName: 'Fixture Bank', accountName: `Fixture ${tag}`, iban: `AZ21NABZ${String(tag).replace(/\D/g, '').slice(-20).padStart(20, '0')}`, currencyId: usd.id },
+    });
+    const unit = await prisma.unitOfMeasure.create({ data: { tenantId, code: `FX-U-${tag}`, name: 'Fixture unit' } });
+    const product = await prisma.product.create({
+      data: { tenantId, organizationId, code: `FX-P-${tag}`, name: `Fixture product ${tag}`, baseUnitId: unit.id },
+    });
+    return { usdId: usd.id, counterpartyId: counterparty.id, bankAccountId: bankAccount.id, productId: product.id };
+  }
+
   function auth1(req: request.Test) {
     return req.set('Authorization', `Bearer ${token1}`).set('X-Tenant-Id', tenant1Id);
   }
@@ -93,6 +113,7 @@ describe('Tax Engine (e2e)', () => {
     it('creates two tenants, adopts their chart, and seeds AZ VAT localization idempotently', async () => {
       const s1 = await setupTenant(`tax1-${run}@e2e.test`, `tax-t1-${run}`, 'TXO1');
       token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId; userId1 = s1.userId;
+      fx = await dimensionFixtures(tenant1Id, org1Id, `${run}2`);
       const s2 = await setupTenant(`tax2-${run}@e2e.test`, `tax-t2-${run}`, 'TXO2');
       token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
 
@@ -381,14 +402,14 @@ describe('Tax Engine (e2e)', () => {
                 side: 'DEBIT',
                 amountBase: '118',
                 dimensions: [
-                  { dimensionCode: 'PARTNER', referenceId: 'cust-1' },
-                  { dimensionCode: 'COUNTERPARTY', referenceId: 'cust-1' },
-                  { dimensionCode: 'AGREEMENT', referenceId: 'agr-1' },
+                  { dimensionCode: 'PARTNER', referenceId: fx.counterpartyId },
+                  { dimensionCode: 'COUNTERPARTY', referenceId: fx.counterpartyId },
+                  { dimensionCode: 'AGREEMENT', referenceId: fx.counterpartyId },
                   { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: sourceDocumentId },
-                  { dimensionCode: 'CURRENCY', referenceId: 'usd' },
+                  { dimensionCode: 'CURRENCY', referenceId: fx.usdId },
                 ],
               },
-              { accountId: revenue.id, side: 'CREDIT', amountBase: '100', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'prod-1' }] },
+              { accountId: revenue.id, side: 'CREDIT', amountBase: '100', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: fx.productId }] },
               ...accountingLines,
             ],
           },
@@ -455,8 +476,8 @@ describe('Tax Engine (e2e)', () => {
           sourceDocumentType: 'TEST_SALE_CLOSED',
           sourceDocumentId: `closed-${run}`,
           lines: [
-            { accountId: receivable.id, side: 'DEBIT', amountBase: '10', dimensions: [{ dimensionCode: 'PARTNER', referenceId: 'c' }, { dimensionCode: 'COUNTERPARTY', referenceId: 'c' }, { dimensionCode: 'AGREEMENT', referenceId: 'a' }, { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: 'd' }, { dimensionCode: 'CURRENCY', referenceId: 'usd' }] },
-            { accountId: revenue.id, side: 'CREDIT', amountBase: '10', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'p' }] },
+            { accountId: receivable.id, side: 'DEBIT', amountBase: '10', dimensions: [{ dimensionCode: 'PARTNER', referenceId: fx.counterpartyId }, { dimensionCode: 'COUNTERPARTY', referenceId: fx.counterpartyId }, { dimensionCode: 'AGREEMENT', referenceId: fx.counterpartyId }, { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: 'd' }, { dimensionCode: 'CURRENCY', referenceId: fx.usdId }] },
+            { accountId: revenue.id, side: 'CREDIT', amountBase: '10', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: fx.productId }] },
           ],
         }),
       ).rejects.toMatchObject({ code: 'PERIOD_CLOSED' });

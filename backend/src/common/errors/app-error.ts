@@ -34,7 +34,10 @@ export const ErrorCode = {
   JOURNAL_ALREADY_POSTED: 'JOURNAL_ALREADY_POSTED',
   JOURNAL_NOT_POSTED: 'JOURNAL_NOT_POSTED',
   CURRENCY_REQUIRED: 'CURRENCY_REQUIRED',
+  CURRENCY_NOT_ALLOWED: 'CURRENCY_NOT_ALLOWED',
   QUANTITY_REQUIRED: 'QUANTITY_REQUIRED',
+  QUANTITY_NOT_ALLOWED: 'QUANTITY_NOT_ALLOWED',
+  ACCOUNT_DIMENSION_VALUE_INVALID: 'ACCOUNT_DIMENSION_VALUE_INVALID',
   POSTING_DUPLICATE: 'POSTING_DUPLICATE',
   REVERSAL_NOT_ALLOWED: 'REVERSAL_NOT_ALLOWED',
   INVALID_ACCOUNT_HIERARCHY: 'INVALID_ACCOUNT_HIERARCHY',
@@ -265,6 +268,49 @@ export class AccountDimensionRequiredError extends AppError {
   }
 }
 
+/** Phase 4 section 30: a dimension value must exist in the posting's
+ * tenant (and organization, for organization-scoped entities) and be of the
+ * entity type the dimension definition declares — never an arbitrary id. */
+export class AccountDimensionValueInvalidError extends AppError {
+  constructor(accountCode: string, dimensionCode: string, reason: string) {
+    super(
+      ErrorCode.ACCOUNT_DIMENSION_VALUE_INVALID,
+      `Account ${accountCode}: invalid value for dimension '${dimensionCode}' — ${reason}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class CurrencyRequiredError extends AppError {
+  constructor(accountCode: string) {
+    super(
+      ErrorCode.CURRENCY_REQUIRED,
+      `Account ${accountCode}: a transaction amount/exchange rate requires a transaction currency`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class CurrencyNotAllowedError extends AppError {
+  constructor(accountCode: string) {
+    super(
+      ErrorCode.CURRENCY_NOT_ALLOWED,
+      `Account ${accountCode} does not track foreign-currency amounts`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+export class QuantityNotAllowedError extends AppError {
+  constructor(accountCode: string) {
+    super(
+      ErrorCode.QUANTITY_NOT_ALLOWED,
+      `Account ${accountCode} does not track quantities`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
 export class AccountMappingNotFoundError extends AppError {
   constructor(mappingKey: string) {
     super(
@@ -316,6 +362,12 @@ export class ReversalNotAllowedError extends AppError {
 export class TaxRuleNotFoundError extends AppError {
   constructor(details: string) {
     super(ErrorCode.TAX_RULE_NOT_FOUND, `No applicable tax rule found: ${details}`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class TaxRateNotFoundError extends AppError {
+  constructor(details: string) {
+    super(ErrorCode.TAX_RATE_NOT_FOUND, `No applicable tax rate: ${details}`, HttpStatus.UNPROCESSABLE_ENTITY);
   }
 }
 
