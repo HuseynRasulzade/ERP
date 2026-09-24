@@ -299,6 +299,28 @@ valuation / COGS / layer / health / GL-reconciliation reports.
 
 Full write-up: [`backend/docs/INVENTORY_COSTING.md`](backend/docs/INVENTORY_COSTING.md);
 Phases 6-11 audit: [`backend/docs/AUDIT_PHASES_06_11.md`](backend/docs/AUDIT_PHASES_06_11.md).
+### Phase 17 — HR Core / Kadr uçotu
+
+Three separate identities: Physical Person → Employee (personnel number)
+→ Employment. One person can have several employments: parallel,
+secondary, in other organizations, or rehired. Department, position,
+staffing slot, manager, FTE, schedule, status and contract terms are
+stored as effective-dated, immutable history. Every "as of" question is
+answered from that history (`getEmploymentState`,
+`getEffectiveSegments`), never from current fields.
+
+Hire, rehire, transfer and termination are documents with preview,
+approval (segregation of duties), idempotent posting and controlled
+reversal. Supporting pieces:
+
+- staffing tables with FTE and headcount capacity control
+- circular-manager detection
+- leave, absence and suspension foundation
+- an HR outbox, including `HR_RECALCULATION_REQUIRED` for backdated changes
+- headcount, org chart, staffing, movement and expiry reports, plus HR health checks
+
+Full write-up and the Phase 18/19 data contract:
+[`backend/docs/PHASE17_HR_CORE.md`](backend/docs/PHASE17_HR_CORE.md).
 
 ### Frontend
 

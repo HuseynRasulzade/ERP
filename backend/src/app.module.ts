@@ -38,6 +38,7 @@ import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-invent
 import { InventoryCountModule } from './inventory-count/inventory-count.module';
 import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
+import { HrModule } from './hr/hr.module';
 
 @Module({
   imports: [
@@ -117,6 +118,11 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).
     CounterpartyContractsModule,
+
+    // Phase 17 — HR Core / Kadr uçotu: PhysicalPerson / Employee /
+    // Employment separation, effective-dated assignment/schedule/status
+    // history, hire/transfer/termination/rehire, staffing control.
+    HrModule,
 
     // Demo/reference document proving the framework end to end
     FoundationTestDocumentModule,
