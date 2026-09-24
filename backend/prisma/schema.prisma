@@ -4710,3 +4710,688 @@ model CounterpartyDocument {
   @@index([tenantId, ownerType, ownerId, active])
   @@map("counterparty_documents")
 }
+
+// ===== Phase 12 — Inventory Count / İnventarizasiya / Stocktaking =====
+//
+// Inventory Reconciliation Engine (docs/PHASE12_INVENTORY_COUNT.md). The
+// count process is modelled as a process aggregate: Plan (config + scope)
+// -> Session (execution attempt) -> immutable Snapshot -> Sheets/Tasks ->
+// Entries (+versions) -> Recounts -> Variances (+matches, decisions) ->
+// InventoryCountAdjustment documents (posted through the generic
+// document framework / InventoryMovementService / AccountingPostingEngine)
+// -> Reconciliation. References to master data owned by other phases
+// (tenant, organization, warehouse, location, product, batch, serial,
+// unit, user) are deliberately plain indexed id columns (soft references,
+// same convention as `ShipmentLine.sourceOrderLineId`) so this block adds
+// no back-relation fields to models other phases are editing in parallel.
+
+/// Inventory Count Plan (spec section 4) — the configuration + scope of a
+/// stocktake. `status`: DRAFT | IN_PROGRESS | CLOSED | CANCELLED.
+model InventoryCountPlan {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  organizationId    String    @map("organization_id")
+  branchId          String?   @map("branch_id")
+  documentNumber    String    @map("document_number")
+  planDate          DateTime  @map("plan_date") @db.Date
+  plannedStartAt    DateTime? @map("planned_start_at")
+  plannedEndAt      DateTime? @map("planned_end_at")
+  countType         String    @map("count_type") // FULL|PARTIAL|CYCLE|ANNUAL|AD_HOC|INVESTIGATION|RECOUNT
+  reason            String?
+  responsibleUserId String?   @map("responsible_user_id")
+  countManagerId    String?   @map("count_manager_id")
+  status            String    @default("DRAFT")
+
+  // Counting policies
+  blindCountEnabled    Boolean @default(true) @map("blind_count_enabled")
+  fullBlindCount       Boolean @default(false) @map("full_blind_count") // counter does not even see the expected item list
+  blindRecount         Boolean @default(true) @map("blind_recount") // recount counter does not see the original count
+  freezePolicy         String  @default("NO_FREEZE_WITH_MOVEMENT_TRACKING") @map("freeze_policy") // HARD_FREEZE|SOFT_FREEZE|NO_FREEZE_WITH_MOVEMENT_TRACKING
+  cutoffMode           String  @default("GLOBAL_SNAPSHOT_CUTOFF") @map("cutoff_mode") // GLOBAL_SNAPSHOT_CUTOFF|TASK_COMPLETION_CUTOFF|LOCATION_COUNT_TIMESTAMP
+  duplicateEntryPolicy String  @default("AGGREGATE") @map("duplicate_entry_policy") // AGGREGATE|LAST_COUNT|BLOCK_DUPLICATE
+  repeatedScanMode     String  @default("INCREMENT") @map("repeated_scan_mode") // INCREMENT|SEPARATE_ENTRIES
+  uncountedPolicy      String  @default("MARK_UNCOUNTED") @map("uncounted_policy") // MARK_UNCOUNTED|TREAT_AS_ZERO
+  requireFullCoverage  Boolean @default(false) @map("require_full_coverage") // sheet completion blocked while expected lines are uncounted
+
+  // Recount policy (spec sections 37-41)
+  recountPolicy             String   @default("NO_RECOUNT") @map("recount_policy") // NO_RECOUNT|RECOUNT_ALL_VARIANCES|RECOUNT_ABOVE_QUANTITY_THRESHOLD|RECOUNT_ABOVE_VALUE_THRESHOLD|RECOUNT_PERCENTAGE|MANUAL_SELECTION
+  recountQuantityThreshold  Decimal? @map("recount_quantity_threshold") @db.Decimal(18, 6)
+  recountValueThreshold     Decimal? @map("recount_value_threshold") @db.Decimal(18, 2)
+  recountPercentThreshold   Decimal? @map("recount_percent_threshold") @db.Decimal(9, 4)
+  maxRecountAttempts        Int      @default(2) @map("max_recount_attempts")
+  finalQuantityRule         String   @default("LATEST_RECOUNT") @map("final_quantity_rule") // LATEST_RECOUNT|CONSENSUS|SUPERVISOR_CONFIRMED|MANUAL_APPROVED
+  requireIndependentRecount Boolean  @default(false) @map("require_independent_recount")
+
+  // Tolerance (spec sections 42-43)
+  toleranceQuantity         Decimal? @map("tolerance_quantity") @db.Decimal(18, 6)
+  tolerancePercent          Decimal? @map("tolerance_percent") @db.Decimal(9, 4)
+  toleranceValue            Decimal? @map("tolerance_value") @db.Decimal(18, 2)
+  autoAcceptWithinTolerance Boolean  @default(false) @map("auto_accept_within_tolerance")
+
+  // Costing (spec sections 34-36)
+  surplusCostPolicy  String @default("CURRENT_WEIGHTED_AVERAGE") @map("surplus_cost_policy") // CURRENT_WEIGHTED_AVERAGE|LATEST_PURCHASE_COST|FIFO_REFERENCE|STANDARD_COST|MANUAL_APPROVED|ZERO_PENDING_VALUATION
+  shortageCostPolicy String @default("CURRENT_COST") @map("shortage_cost_policy") // CURRENT_COST|FIFO_LAYERS|LATEST_PURCHASE_COST
+  costingStrictness  String @default("STRICT") @map("costing_strictness") // STRICT|ALLOW_PENDING
+
+  // Posting / approval / close policies
+  locationMismatchPolicy            String   @default("LOCATION_TRANSFER") @map("location_mismatch_policy") // LOCATION_TRANSFER|ADJUST_STOCK|INVESTIGATION_REQUIRED
+  adjustmentDatePolicy              String   @default("SNAPSHOT_DATE") @map("adjustment_date_policy") // SNAPSHOT_DATE|COMPLETION_DATE|EXPLICIT_DATE
+  stalePolicy                       String   @default("BLOCK") @map("stale_policy") // BLOCK|RECALCULATE
+  approvalRequired                  Boolean  @default(true) @map("approval_required")
+  approvalThresholds                Json?    @map("approval_thresholds") // [{ upTo: number|null, stepTypes: string[] }]
+  criticalShortageValue             Decimal? @map("critical_shortage_value") @db.Decimal(18, 2)
+  forbidCounterApproval             Boolean  @default(true) @map("forbid_counter_approval")
+  forbidWarehouseKeeperSelfApproval Boolean  @default(true) @map("forbid_warehouse_keeper_self_approval")
+  varianceApprovalPolicyId          String?  @map("variance_approval_policy_id")
+
+  // Year-end (spec section 62)
+  financialYear            Int?    @map("financial_year")
+  yearEndCount             Boolean @default(false) @map("year_end_count")
+  mandatoryCloseDependency Boolean @default(false) @map("mandatory_close_dependency")
+
+  currentSessionId String? @map("current_session_id")
+  comment          String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  scopes   InventoryCountScope[]
+  sessions InventoryCountSession[]
+  team     InventoryCountTeamMember[]
+
+  @@unique([tenantId, documentNumber])
+  @@index([tenantId, organizationId, status])
+  @@index([tenantId, organizationId, planDate])
+  @@map("inventory_count_plans")
+}
+
+/// Scope rule (spec sections 5-6). A row either INCLUDEs or EXCLUDEs one
+/// dimension value. `revision` increments on every controlled scope
+/// revision; only `active` rows of the plan's current revision apply.
+model InventoryCountScope {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  planId    String   @map("plan_id")
+  ruleType  String   @default("INCLUDE") @map("rule_type") // INCLUDE|EXCLUDE
+  dimension String // BRANCH|WAREHOUSE|LOCATION|LOCATION_SUBTREE|PRODUCT|PRODUCT_CATEGORY|CHARACTERISTIC|BATCH|SERIAL|OWNERSHIP_TYPE|QUALITY_STATUS|INVENTORY_STATUS
+  valueId   String   @map("value_id")
+  revision  Int      @default(1)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  plan InventoryCountPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, planId, active])
+  @@map("inventory_count_scopes")
+}
+
+/// Count team (spec section 73). role: TEAM_LEAD|COUNTER|OBSERVER|FINANCE_REPRESENTATIVE|WAREHOUSE_REPRESENTATIVE
+model InventoryCountTeamMember {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  planId    String   @map("plan_id")
+  userId    String   @map("user_id")
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  plan InventoryCountPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, userId, role])
+  @@index([tenantId, userId])
+  @@map("inventory_count_teams")
+}
+
+/// Count Session (spec section 7) — one execution attempt of a plan.
+model InventoryCountSession {
+  id                           String    @id @default(uuid())
+  tenantId                     String    @map("tenant_id")
+  organizationId               String    @map("organization_id")
+  planId                       String    @map("inventory_count_plan_id")
+  sessionNumber                String    @map("session_number")
+  documentType                 String    @default("INVENTORY_COUNT_SESSION") @map("document_type")
+  status                       String    @default("READY") // DRAFT|READY|SNAPSHOT_CREATED|COUNTING|RECOUNT_REQUIRED|UNDER_REVIEW|PENDING_APPROVAL|APPROVED|POSTED|RECONCILED|CLOSED|CANCELLED
+  approvalStatus               String    @default("NOT_REQUIRED") @map("approval_status") // NOT_REQUIRED|PENDING|APPROVED|REJECTED
+  reconciliationStatus         String    @default("NOT_STARTED") @map("reconciliation_status")
+  freezePolicy                 String    @map("freeze_policy")
+  freezeActive                 Boolean   @default(false) @map("freeze_active")
+  blindCount                   Boolean   @map("blind_count")
+  accountingQuantityVisibility String    @default("HIDDEN") @map("accounting_quantity_visibility") // HIDDEN|VISIBLE
+  snapshotVersion              Int       @default(0) @map("snapshot_version")
+  scopeRevision                Int       @default(1) @map("scope_revision")
+  startedAt                    DateTime  @default(now()) @map("started_at")
+  startedBy                    String?   @map("started_by")
+  snapshotAt                   DateTime? @map("snapshot_at")
+  countCutoffAt                DateTime? @map("count_cutoff_at")
+  completedAt                  DateTime? @map("completed_at")
+  completedBy                  String?   @map("completed_by")
+  varianceCalculatedAt         DateTime? @map("variance_calculated_at")
+  calculationVersion           Int       @default(0) @map("calculation_version")
+  submittedAt                  DateTime? @map("submitted_at")
+  submittedBy                  String?   @map("submitted_by")
+  approvedAt                   DateTime? @map("approved_at")
+  approvedBy                   String?   @map("approved_by")
+  adjustmentDate               DateTime? @map("adjustment_date") @db.Date
+  postedAt                     DateTime? @map("posted_at")
+  reconciledAt                 DateTime? @map("reconciled_at")
+  closedAt                     DateTime? @map("closed_at")
+  closedBy                     String?   @map("closed_by")
+  cancelledAt                  DateTime? @map("cancelled_at")
+  cancelledBy                  String?   @map("cancelled_by")
+  cancelReason                 String?   @map("cancel_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  plan           InventoryCountPlan            @relation(fields: [planId], references: [id])
+  snapshotLines  InventoryCountSnapshotLine[]
+  sheets         InventoryCountSheet[]
+  entries        InventoryCountEntry[]
+  recounts       InventoryRecount[]
+  variances      InventoryVariance[]
+  adjustments    InventoryCountAdjustment[]
+  reconciliation InventoryCountReconciliation?
+  freezeLocks    InventoryCountFreezeLock[]
+  attachments    InventoryCountAttachment[]
+
+  @@unique([tenantId, sessionNumber])
+  @@index([tenantId, organizationId, status])
+  @@index([tenantId, planId])
+  @@index([tenantId, snapshotAt])
+  @@map("inventory_count_sessions")
+}
+
+/// Immutable authoritative stock snapshot (spec sections 8-10, 103). Rows
+/// are never updated; a controlled restart writes a new `snapshotVersion`.
+model InventoryCountSnapshotLine {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  sessionId           String   @map("session_id")
+  snapshotVersion     Int      @map("snapshot_version")
+  lineKey             String   @map("line_key")
+  organizationId      String   @map("organization_id")
+  warehouseId         String   @map("warehouse_id")
+  locationId          String?  @map("location_id")
+  productId           String   @map("product_id")
+  characteristicId    String?  @map("characteristic_id")
+  batchId             String?  @map("batch_id")
+  serialId            String?  @map("serial_id")
+  ownershipType       String   @map("ownership_type")
+  ownerCounterpartyId String?  @map("owner_counterparty_id")
+  stockStatus         String   @map("stock_status")
+  unitId              String   @map("unit_id") // product base unit
+  accountingQuantity  Decimal  @map("accounting_quantity") @db.Decimal(18, 6)
+  baseQuantity        Decimal  @map("base_quantity") @db.Decimal(18, 6)
+  unitCost            Decimal? @map("unit_cost") @db.Decimal(18, 6)
+  stockValue          Decimal? @map("stock_value") @db.Decimal(18, 2)
+  costingStatus       String?  @map("costing_status")
+  snapshotAt          DateTime @map("snapshot_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  session InventoryCountSession @relation(fields: [sessionId], references: [id])
+
+  @@unique([sessionId, snapshotVersion, lineKey])
+  @@index([tenantId, sessionId, warehouseId, locationId])
+  @@index([tenantId, productId])
+  @@index([tenantId, batchId])
+  @@index([tenantId, serialId])
+  @@map("inventory_count_snapshots")
+}
+
+/// Freeze lock (spec sections 11-14). One row per locked warehouse /
+/// location / product slice; `active=false` once released (never deleted).
+model InventoryCountFreezeLock {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  sessionId   String    @map("session_id")
+  warehouseId String    @map("warehouse_id")
+  locationId  String?   @map("location_id")
+  productId   String?   @map("product_id")
+  policy      String // HARD_FREEZE|SOFT_FREEZE
+  active      Boolean   @default(true)
+  activatedAt DateTime  @default(now()) @map("activated_at")
+  activatedBy String?   @map("activated_by")
+  releasedAt  DateTime? @map("released_at")
+  releasedBy  String?   @map("released_by")
+
+  session InventoryCountSession @relation(fields: [sessionId], references: [id])
+
+  @@index([tenantId, warehouseId, active])
+  @@index([tenantId, sessionId])
+  @@map("inventory_count_freeze_locks")
+}
+
+/// Count sheet (spec section 16).
+model InventoryCountSheet {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  sessionId      String    @map("session_id")
+  sheetNumber    String    @map("sheet_number")
+  warehouseId    String    @map("warehouse_id")
+  locationScope  String?   @map("location_scope") // location id (subtree root) or null = whole warehouse
+  assignedUserId String?   @map("assigned_user_id")
+  status         String    @default("OPEN") // OPEN|IN_PROGRESS|COMPLETED|CANCELLED
+  generatedAt    DateTime  @default(now()) @map("generated_at")
+  startedAt      DateTime? @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  completedBy    String?   @map("completed_by")
+  blindCount     Boolean   @map("blind_count")
+  sequence       Int       @default(0)
+  barcodeMode    String    @default("INCREMENT") @map("barcode_mode")
+  comment        String?
+  version        Int       @default(1)
+
+  session InventoryCountSession @relation(fields: [sessionId], references: [id])
+  tasks   InventoryCountTask[]
+  entries InventoryCountEntry[]
+
+  @@unique([sessionId, sheetNumber])
+  @@index([tenantId, sessionId, status])
+  @@index([tenantId, assignedUserId])
+  @@map("inventory_count_sheets")
+}
+
+/// Count task (spec section 17) — a sheet split by location/team.
+model InventoryCountTask {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  sessionId      String    @map("session_id")
+  sheetId        String    @map("sheet_id")
+  locationId     String?   @map("location_id")
+  assignedUserId String?   @map("assigned_user_id")
+  status         String    @default("OPEN") // OPEN|IN_PROGRESS|COMPLETED|CANCELLED
+  progress       Decimal   @default(0) @db.Decimal(9, 4)
+  startAt        DateTime? @map("start_at")
+  finishAt       DateTime? @map("finish_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  sheet   InventoryCountSheet   @relation(fields: [sheetId], references: [id])
+  entries InventoryCountEntry[]
+
+  @@index([tenantId, sheetId])
+  @@index([tenantId, assignedUserId])
+  @@map("inventory_count_tasks")
+}
+
+/// Physical count entry (spec sections 21-24, 29, 79-86). Never deleted:
+/// a change bumps `entryVersion` and writes an InventoryCountEntryVersion
+/// row; a correction of a wrong line sets `status=VOIDED` (with reason).
+/// `productId` null + `unknownItemDescription` = UnknownInventoryItem
+/// (spec section 83) awaiting supervisor review.
+model InventoryCountEntry {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  sessionId              String    @map("session_id")
+  sheetId                String    @map("sheet_id")
+  taskId                 String?   @map("task_id")
+  lineKey                String?   @map("line_key")
+  warehouseId            String    @map("warehouse_id")
+  locationId             String?   @map("location_id")
+  productId              String?   @map("product_id")
+  characteristicId       String?   @map("characteristic_id")
+  batchId                String?   @map("batch_id")
+  serialId               String?   @map("serial_id")
+  serialNumberText       String?   @map("serial_number_text")
+  ownershipType          String    @default("OWN") @map("ownership_type")
+  ownerCounterpartyId    String?   @map("owner_counterparty_id")
+  stockStatus            String    @default("AVAILABLE") @map("stock_status")
+  unitId                 String?   @map("unit_id")
+  countedQuantity        Decimal   @map("counted_quantity") @db.Decimal(18, 6)
+  conversionFactor       Decimal   @default(1) @map("conversion_factor") @db.Decimal(18, 6) // frozen historical factor counted unit -> base unit
+  baseQuantity           Decimal   @map("base_quantity") @db.Decimal(18, 6)
+  isExplicitZero         Boolean   @default(false) @map("is_explicit_zero")
+  countedAt              DateTime  @default(now()) @map("counted_at")
+  countedBy              String?   @map("counted_by")
+  entryMethod            String    @default("MANUAL") @map("entry_method") // MANUAL|BARCODE|IMPORT|MOBILE|API|SYSTEM_RECOUNT
+  barcode                String?
+  notes                  String?
+  evidenceAttachmentId   String?   @map("evidence_attachment_id")
+  entryVersion           Int       @default(1) @map("entry_version")
+  clientEntryId          String?   @map("client_entry_id")
+  status                 String    @default("ACTIVE") // ACTIVE|VOIDED|PENDING_REVIEW|REJECTED
+  unknownItemDescription String?   @map("unknown_item_description")
+  reviewedBy             String?   @map("reviewed_by")
+  reviewedAt             DateTime? @map("reviewed_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  session  InventoryCountSession        @relation(fields: [sessionId], references: [id])
+  sheet    InventoryCountSheet          @relation(fields: [sheetId], references: [id])
+  task     InventoryCountTask?          @relation(fields: [taskId], references: [id])
+  versions InventoryCountEntryVersion[]
+
+  @@unique([sessionId, clientEntryId])
+  @@index([tenantId, sessionId, lineKey])
+  @@index([tenantId, sessionId, serialId])
+  @@index([tenantId, productId])
+  @@index([tenantId, sessionId, countedAt])
+  @@map("inventory_count_entries")
+}
+
+/// Count entry change history (spec section 29): old/new, user, time, reason.
+model InventoryCountEntryVersion {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  entryId      String   @map("entry_id")
+  entryVersion Int      @map("entry_version")
+  changeType   String   @map("change_type") // CREATED|QUANTITY_CHANGED|SCAN_INCREMENT|VOIDED|REVIEWED
+  oldQuantity  Decimal? @map("old_quantity") @db.Decimal(18, 6)
+  newQuantity  Decimal? @map("new_quantity") @db.Decimal(18, 6)
+  oldBaseQty   Decimal? @map("old_base_quantity") @db.Decimal(18, 6)
+  newBaseQty   Decimal? @map("new_base_quantity") @db.Decimal(18, 6)
+  changedBy    String?  @map("changed_by")
+  changedAt    DateTime @default(now()) @map("changed_at")
+  reason       String?
+
+  entry InventoryCountEntry @relation(fields: [entryId], references: [id])
+
+  @@index([tenantId, entryId])
+  @@map("inventory_count_entry_versions")
+}
+
+/// Variance line (spec sections 31-33). One row per reconciled dimension
+/// key — never netted to product totals.
+model InventoryVariance {
+  id                         String    @id @default(uuid())
+  tenantId                   String    @map("tenant_id")
+  sessionId                  String    @map("session_id")
+  lineKey                    String    @map("line_key")
+  organizationId             String    @map("organization_id")
+  warehouseId                String    @map("warehouse_id")
+  locationId                 String?   @map("location_id")
+  productId                  String?   @map("product_id")
+  characteristicId           String?   @map("characteristic_id")
+  batchId                    String?   @map("batch_id")
+  serialId                   String?   @map("serial_id")
+  serialNumberText           String?   @map("serial_number_text")
+  ownershipType              String    @map("ownership_type")
+  ownerCounterpartyId        String?   @map("owner_counterparty_id")
+  stockStatus                String    @map("quality_status")
+  unitId                     String?   @map("unit_id")
+  accountingQuantity         Decimal   @map("accounting_quantity") @db.Decimal(18, 6) // original snapshot
+  postSnapshotInQuantity     Decimal   @default(0) @map("post_snapshot_in_quantity") @db.Decimal(18, 6)
+  postSnapshotOutQuantity    Decimal   @default(0) @map("post_snapshot_out_quantity") @db.Decimal(18, 6)
+  adjustedAccountingQuantity Decimal   @map("adjusted_accounting_quantity") @db.Decimal(18, 6)
+  countedQuantity            Decimal?  @map("counted_quantity") @db.Decimal(18, 6) // first count
+  physicalQuantity           Decimal?  @map("physical_quantity") @db.Decimal(18, 6) // final (after recounts / decisions)
+  quantityDifference         Decimal   @default(0) @map("quantity_difference") @db.Decimal(18, 6)
+  countStatus                String    @map("count_status") // COUNTED|ZERO_COUNT|UNCOUNTED
+  varianceType               String    @map("variance_type")
+  direction                  String    @default("NONE") // SURPLUS|SHORTAGE|NONE
+  matchedQuantity            Decimal   @default(0) @map("matched_quantity") @db.Decimal(18, 6) // part explained by a cross-dimension offset
+  cutoffAt                   DateTime? @map("cutoff_at")
+  unitCost                   Decimal?  @map("unit_cost") @db.Decimal(18, 6)
+  costSource                 String?   @map("cost_source")
+  costingStatus              String?   @map("costing_status") // RESOLVED|UNRESOLVED|PENDING_VALUATION
+  valueDifference            Decimal?  @map("value_difference") @db.Decimal(18, 2)
+  severity                   String    @default("NONE") // NONE|LOW|MEDIUM|HIGH|CRITICAL
+  withinTolerance            Boolean   @default(false) @map("within_tolerance")
+  resolutionStatus           String    @default("OPEN") @map("resolution_status") // OPEN|RECOUNT_REQUIRED|UNDER_INVESTIGATION|EXPLAINED|APPROVED|REJECTED|POSTED|AUTO_ACCEPTED|MATCHED
+  suggestedResolution        String?   @map("suggested_resolution")
+  recountStatus              String    @default("NONE") @map("recount_status") // NONE|PENDING|COMPLETED
+  recountAttempts            Int       @default(0) @map("recount_attempts")
+  reasonCode                 String?   @map("reason_code")
+  investigationNotes         String?   @map("investigation_notes")
+  approvedBy                 String?   @map("approved_by")
+  approvedAt                 DateTime? @map("approved_at")
+  calculationVersion         Int       @default(1) @map("calculation_version")
+  // Shortage responsible person (spec section 54)
+  responsibleEmployeeId      String?   @map("responsible_employee_id")
+  recoverableAmount          Decimal?  @map("recoverable_amount") @db.Decimal(18, 2)
+  recoveryStatus             String?   @map("recovery_status") // NOT_APPLICABLE|PENDING|RECOVERED|WAIVED
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+  version                    Int       @default(1)
+
+  session   InventoryCountSession       @relation(fields: [sessionId], references: [id])
+  decisions InventoryVarianceDecision[]
+  recounts  InventoryRecount[]
+
+  @@unique([sessionId, lineKey])
+  @@index([tenantId, sessionId, varianceType])
+  @@index([tenantId, sessionId, resolutionStatus])
+  @@index([tenantId, productId])
+  @@index([tenantId, warehouseId, locationId])
+  @@index([tenantId, batchId])
+  @@index([tenantId, serialId])
+  @@map("inventory_variances")
+}
+
+/// Cross-dimension offset between a shortage variance and a surplus
+/// variance of the same product (spec sections 26-28, 33, 50, 94).
+model InventoryVarianceMatch {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  sessionId          String   @map("session_id")
+  matchType          String   @map("match_type") // LOCATION_MISMATCH|BATCH_MISMATCH|QUALITY_STATUS_MISMATCH|SERIAL_MISMATCH|OWNERSHIP_MISMATCH
+  shortageVarianceId String   @map("shortage_variance_id")
+  surplusVarianceId  String   @map("surplus_variance_id")
+  quantity           Decimal  @db.Decimal(18, 6)
+  calculationVersion Int      @map("calculation_version")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, sessionId])
+  @@map("inventory_variance_matches")
+}
+
+/// Variance decision (spec section 49). Append-only: the latest row per
+/// variance is the effective decision; earlier rows are history.
+model InventoryVarianceDecision {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  varianceId         String    @map("variance_id")
+  finalPhysicalQty   Decimal?  @map("final_physical_qty") @db.Decimal(18, 6)
+  acceptedDifference Decimal?  @map("accepted_difference") @db.Decimal(18, 6)
+  resolutionType     String    @map("resolution_type") // ADJUST_STOCK|LOCATION_TRANSFER|STATUS_TRANSFER|BATCH_CORRECTION|SERIAL_CORRECTION|NO_ADJUSTMENT|SOURCE_DOCUMENT_CORRECTION|WRITE_OFF|SURPLUS_RECOGNITION
+  reasonCode         String?   @map("reason_code")
+  approvedCost       Decimal?  @map("approved_cost") @db.Decimal(18, 6)
+  decidedBy          String?   @map("decided_by")
+  approver           String?
+  approvedAt         DateTime? @map("approved_at")
+  isAutomatic        Boolean   @default(false) @map("is_automatic")
+  comment            String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  variance InventoryVariance @relation(fields: [varianceId], references: [id])
+
+  @@index([tenantId, varianceId])
+  @@map("inventory_variance_decisions")
+}
+
+/// Recount (spec sections 38-41). Never overwrites the original count.
+model InventoryRecount {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  sessionId        String    @map("session_id")
+  varianceId       String    @map("variance_id")
+  recountNumber    Int       @map("recount_number")
+  assignedUserId   String?   @map("assigned_user_id")
+  requestedBy      String?   @map("requested_by")
+  requestedAt      DateTime  @default(now()) @map("requested_at")
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  countedBy        String?   @map("counted_by")
+  physicalQuantity Decimal?  @map("physical_quantity") @db.Decimal(18, 6)
+  reason           String?
+  isAutomatic      Boolean   @default(false) @map("is_automatic")
+  resultStatus     String    @default("PENDING") @map("result_status") // PENDING|COMPLETED|CANCELLED
+  notes            String?
+
+  session  InventoryCountSession @relation(fields: [sessionId], references: [id])
+  variance InventoryVariance     @relation(fields: [varianceId], references: [id])
+
+  @@unique([varianceId, recountNumber])
+  @@index([tenantId, sessionId, resultStatus])
+  @@map("inventory_recounts")
+}
+
+/// Inventory count adjustment document (spec sections 51-58) — a full
+/// document-framework participant (`INVENTORY_COUNT_ADJUSTMENT`).
+/// `postingKey` (unique) makes create-adjustments idempotent.
+model InventoryCountAdjustment {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  sessionId      String         @map("session_id")
+  warehouseId    String         @map("warehouse_id")
+  documentType   String         @default("INVENTORY_COUNT_ADJUSTMENT") @map("document_type")
+  operationType  String         @map("operation_type") // INVENTORY_SURPLUS|INVENTORY_SHORTAGE|LOCATION_CORRECTION|STATUS_CORRECTION|BATCH_CORRECTION|SERIAL_CORRECTION
+  postingKey     String         @map("posting_key")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+  totalQuantity  Decimal        @default(0) @map("total_quantity") @db.Decimal(18, 6)
+  totalValue     Decimal?       @map("total_value") @db.Decimal(18, 2)
+  description    String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  postedAt     DateTime? @map("posted_at")
+  postedBy     String?   @map("posted_by")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelledBy  String?   @map("cancelled_by")
+  deletionMark Boolean   @default(false) @map("deletion_mark")
+  version      Int       @default(1)
+
+  session InventoryCountSession          @relation(fields: [sessionId], references: [id])
+  lines   InventoryCountAdjustmentLine[]
+
+  @@unique([tenantId, postingKey])
+  @@unique([tenantId, number])
+  @@index([tenantId, sessionId])
+  @@map("inventory_count_adjustments")
+}
+
+model InventoryCountAdjustmentLine {
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  adjustmentId          String   @map("adjustment_id")
+  position              Int      @default(0)
+  varianceId            String?  @map("variance_id")
+  counterVarianceId     String?  @map("counter_variance_id") // the surplus side of a correction pair
+  productId             String   @map("product_id")
+  unitId                String   @map("unit_id")
+  quantity              Decimal  @db.Decimal(18, 6) // always positive base quantity
+  batchId               String?  @map("batch_id")
+  toBatchId             String?  @map("to_batch_id")
+  serialId              String?  @map("serial_id")
+  toSerialId            String?  @map("to_serial_id")
+  locationId            String?  @map("location_id")
+  toLocationId          String?  @map("to_location_id")
+  stockStatus           String   @default("AVAILABLE") @map("stock_status")
+  toStockStatus         String?  @map("to_stock_status")
+  ownershipType         String   @default("OWN") @map("ownership_type")
+  ownerCounterpartyId   String?  @map("owner_counterparty_id")
+  expectedAdjustedQty   Decimal? @map("expected_adjusted_qty") @db.Decimal(18, 6) // approved adjusted accounting qty (stale check)
+  unitCost              Decimal? @map("unit_cost") @db.Decimal(18, 6)
+  amount                Decimal? @db.Decimal(18, 2)
+  costSource            String?  @map("cost_source")
+  costingStatus         String?  @map("costing_status")
+  approvedCost          Decimal? @map("approved_cost") @db.Decimal(18, 6)
+  reasonCode            String?  @map("reason_code")
+  responsibleEmployeeId String?  @map("responsible_employee_id")
+  recoverableAmount     Decimal? @map("recoverable_amount") @db.Decimal(18, 2)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  adjustment InventoryCountAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+
+  @@index([adjustmentId, position])
+  @@index([tenantId, varianceId])
+  @@map("inventory_count_adjustment_lines")
+}
+
+/// Reconciliation summary (spec sections 67-68, 95-97, 113).
+model InventoryCountReconciliation {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  sessionId               String    @unique @map("session_id")
+  snapshotTotalQty        Decimal   @default(0) @map("snapshot_total_qty") @db.Decimal(18, 6)
+  postSnapshotInQty       Decimal   @default(0) @map("post_snapshot_in_qty") @db.Decimal(18, 6)
+  postSnapshotOutQty      Decimal   @default(0) @map("post_snapshot_out_qty") @db.Decimal(18, 6)
+  adjustedAccountingQty   Decimal   @default(0) @map("adjusted_accounting_qty") @db.Decimal(18, 6)
+  physicalQty             Decimal   @default(0) @map("physical_qty") @db.Decimal(18, 6)
+  surplusQty              Decimal   @default(0) @map("surplus_qty") @db.Decimal(18, 6)
+  shortageQty             Decimal   @default(0) @map("shortage_qty") @db.Decimal(18, 6)
+  locationMismatchQty     Decimal   @default(0) @map("location_mismatch_qty") @db.Decimal(18, 6)
+  totalSurplusValue       Decimal   @default(0) @map("total_surplus_value") @db.Decimal(18, 2)
+  totalShortageValue      Decimal   @default(0) @map("total_shortage_value") @db.Decimal(18, 2)
+  netValueDifference      Decimal   @default(0) @map("net_value_difference") @db.Decimal(18, 2)
+  adjustmentDocumentCount Int       @default(0) @map("adjustment_document_count")
+  postedAdjustmentCount   Int       @default(0) @map("posted_adjustment_count")
+  unresolvedVarianceCount Int       @default(0) @map("unresolved_variance_count")
+  expectedFinalQty        Decimal?  @map("expected_final_qty") @db.Decimal(18, 6)
+  actualFinalQty          Decimal?  @map("actual_final_qty") @db.Decimal(18, 6)
+  quantityReconciled      Boolean   @default(false) @map("quantity_reconciled")
+  valueReconciled         Boolean   @default(false) @map("value_reconciled")
+  glReconciled            Boolean   @default(false) @map("gl_reconciled")
+  subledgerValueChange    Decimal?  @map("subledger_value_change") @db.Decimal(18, 2)
+  glInventoryChange       Decimal?  @map("gl_inventory_change") @db.Decimal(18, 2)
+  details                 Json?
+  status                  String    @default("NOT_STARTED") // NOT_STARTED|IN_PROGRESS|DIFFERENCES_FOUND|ADJUSTMENTS_PENDING|BALANCED|ERROR|CLOSED
+  reconciledAt            DateTime? @map("reconciled_at")
+  reconciledBy            String?   @map("reconciled_by")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  session InventoryCountSession @relation(fields: [sessionId], references: [id])
+
+  @@map("inventory_count_reconciliations")
+}
+
+/// Configurable variance reason catalog (spec section 45).
+model InventoryCountReasonCode {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  code        String
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, code])
+  @@map("inventory_count_reason_codes")
+}
+
+/// Attachment metadata (spec section 71) for a session or one variance.
+model InventoryCountAttachment {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  sessionId   String   @map("session_id")
+  varianceId  String?  @map("variance_id")
+  kind        String // PHOTO|SIGNED_COUNT_SHEET|INCIDENT_REPORT|INVESTIGATION_DOCUMENT|EMPLOYEE_EXPLANATION|SCANNED_FORM|OTHER
+  fileName    String   @map("file_name")
+  storageKey  String?  @map("storage_key")
+  description String?
+  uploadedBy  String?  @map("uploaded_by")
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
+
+  session InventoryCountSession @relation(fields: [sessionId], references: [id])
+
+  @@index([tenantId, sessionId])
+  @@map("inventory_count_attachments")
+}
+
+/// Transactional outbox for domain events (spec section 105) — written in
+/// the same transaction as the state change it describes.
+model InventoryCountEvent {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  sessionId   String?   @map("session_id")
+  planId      String?   @map("plan_id")
+  eventType   String    @map("event_type")
+  payload     Json?
+  occurredAt  DateTime  @default(now()) @map("occurred_at")
+  publishedAt DateTime? @map("published_at")
+
+  @@index([tenantId, publishedAt])
+  @@index([tenantId, sessionId])
+  @@map("inventory_count_events")
+}

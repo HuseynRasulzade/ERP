@@ -298,6 +298,20 @@ full organization management area (tabbed: General, Branches,
 Departments-as-tree, Warehouses, Cashboxes, Bank Accounts, Accounting
 Policy, Tax Profile, Access).
 
+### Phase 12 — Inventory Count / İnventarizasiya
+
+Stocktaking as a reconciliation process (`backend/src/inventory-count/`):
+count plan + configurable scope, immutable versioned stock snapshot from the
+movement register, HARD/SOFT/no-freeze movement control (a guard on the
+Phase 10 movement writer), count sheets/tasks, blind count, barcode / CSV /
+unit-converted entries, batch / serial / location / status / ownership
+variances (never netted), recounts, tolerance + auto-accept, investigation
+and reason codes, value-tiered approval via the approvals foundation,
+automatic choice of correction vs surplus/shortage adjustment documents
+(`INVENTORY_COUNT_ADJUSTMENT`, posted with movements + cost + balanced GL),
+stale/period/idempotency controls, and quantity/value/GL reconciliation
+before close. See `backend/docs/PHASE12_INVENTORY_COUNT.md`.
+
 ## Test coverage
 
 | Suite | Count | Covers |

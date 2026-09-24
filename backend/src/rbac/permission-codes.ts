@@ -295,6 +295,23 @@ export const PermissionCodes = {
   INVENTORY_UNPOST: 'inventory.unpost',
   INVENTORY_PERIOD_OVERRIDE: 'inventory.period_override',
   INVENTORY_MANUAL_ADJUSTMENT: 'inventory.manual_adjustment',
+
+  // Phase 12 — Inventory Count / Stocktaking (spec section 75)
+  INVENTORY_COUNT_VIEW: 'inventory_count.view',
+  INVENTORY_COUNT_CREATE: 'inventory_count.create',
+  INVENTORY_COUNT_START: 'inventory_count.start',
+  INVENTORY_COUNT_CREATE_SNAPSHOT: 'inventory_count.create_snapshot',
+  INVENTORY_COUNT_FREEZE: 'inventory_count.freeze',
+  INVENTORY_COUNT_ENTER: 'inventory_count.enter',
+  INVENTORY_COUNT_RECOUNT: 'inventory_count.recount',
+  INVENTORY_COUNT_REVIEW: 'inventory_count.review',
+  INVENTORY_COUNT_APPROVE: 'inventory_count.approve',
+  INVENTORY_COUNT_POST_ADJUSTMENT: 'inventory_count.post_adjustment',
+  INVENTORY_COUNT_CANCEL: 'inventory_count.cancel',
+  INVENTORY_COUNT_VIEW_ACCOUNTING_QTY: 'inventory_count.view_accounting_qty',
+  INVENTORY_COUNT_VIEW_COST: 'inventory_count.view_cost',
+  INVENTORY_COUNT_OVERRIDE_VARIANCE: 'inventory_count.override_variance',
+  INVENTORY_COUNT_CLOSE: 'inventory_count.close',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -567,4 +584,20 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.INVENTORY_UNPOST, module: 'inventory', description: 'Unpost inventory documents' },
   { code: PermissionCodes.INVENTORY_PERIOD_OVERRIDE, module: 'inventory', description: 'Post inventory documents into a closed period' },
   { code: PermissionCodes.INVENTORY_MANUAL_ADJUSTMENT, module: 'inventory', description: 'Manually adjust stock outside the normal document flow' },
+
+  { code: PermissionCodes.INVENTORY_COUNT_VIEW, module: 'inventory_count', description: 'View inventory count plans, sessions and reports' },
+  { code: PermissionCodes.INVENTORY_COUNT_CREATE, module: 'inventory_count', description: 'Create/edit inventory count plans and scope' },
+  { code: PermissionCodes.INVENTORY_COUNT_START, module: 'inventory_count', description: 'Start an inventory count session' },
+  { code: PermissionCodes.INVENTORY_COUNT_CREATE_SNAPSHOT, module: 'inventory_count', description: 'Take the authoritative stock snapshot of a count session' },
+  { code: PermissionCodes.INVENTORY_COUNT_FREEZE, module: 'inventory_count', description: 'Freeze/unfreeze stock movements in a count scope' },
+  { code: PermissionCodes.INVENTORY_COUNT_ENTER, module: 'inventory_count', description: 'Enter physical count quantities' },
+  { code: PermissionCodes.INVENTORY_COUNT_RECOUNT, module: 'inventory_count', description: 'Request and perform recounts' },
+  { code: PermissionCodes.INVENTORY_COUNT_REVIEW, module: 'inventory_count', description: 'Review variances, record reasons and decisions' },
+  { code: PermissionCodes.INVENTORY_COUNT_APPROVE, module: 'inventory_count', description: 'Approve inventory count variances' },
+  { code: PermissionCodes.INVENTORY_COUNT_POST_ADJUSTMENT, module: 'inventory_count', description: 'Create and post inventory count adjustments' },
+  { code: PermissionCodes.INVENTORY_COUNT_CANCEL, module: 'inventory_count', description: 'Cancel or reopen an inventory count session' },
+  { code: PermissionCodes.INVENTORY_COUNT_VIEW_ACCOUNTING_QTY, module: 'inventory_count', description: 'See accounting (book) quantities during counting' },
+  { code: PermissionCodes.INVENTORY_COUNT_VIEW_COST, module: 'inventory_count', description: 'See unit costs and variance values' },
+  { code: PermissionCodes.INVENTORY_COUNT_OVERRIDE_VARIANCE, module: 'inventory_count', description: 'Override final physical quantity / surplus cost of a variance' },
+  { code: PermissionCodes.INVENTORY_COUNT_CLOSE, module: 'inventory_count', description: 'Reconcile and close an inventory count session' },
 ];

@@ -32,6 +32,20 @@ export interface RecordMovementInput {
 }
 
 /**
+ * Optional pre-write hook (extension seam, added by Phase 12 Inventory
+ * Count). A guard runs inside the caller's transaction immediately before
+ * a movement row is inserted and may throw an AppError to veto the write
+ * (e.g. an inventory count HARD_FREEZE on the stock slice) — the whole
+ * posting transaction then rolls back. Guards are registered at module
+ * init by the module that owns them; this service never knows who they are.
+ */
+export interface InventoryMovementGuard {
+  beforeRecord(tenantId: string, input: RecordMovementInput, tx: PrismaTransactionClient): Promise<void>;
+  /** Optional: veto an unpost's removal of a document's movements. */
+  beforeDelete?(tenantId: string, registrarDocumentType: string, registrarDocumentId: string, tx: PrismaTransactionClient): Promise<void>;
+}
+
+/**
  * InventoryMovementService — the writer half of the Stock Truth Engine
  * (spec sections 3-4, 55). Every write to `InventoryMovement` goes
  * through here; nothing else in this codebase is allowed to insert a row
@@ -44,6 +58,13 @@ export interface RecordMovementInput {
  */
 @Injectable()
 export class InventoryMovementService {
+  private readonly guards: InventoryMovementGuard[] = [];
+
+  /** Registers a pre-write guard (see `InventoryMovementGuard`). */
+  registerGuard(guard: InventoryMovementGuard): void {
+    if (!this.guards.includes(guard)) this.guards.push(guard);
+  }
+
   /**
    * Postgres session-scoped advisory lock keyed to
    * (tenant, warehouse, product[, batch]) — serializes concurrent posts
@@ -59,6 +80,7 @@ export class InventoryMovementService {
   }
 
   async recordMovement(tenantId: string, input: RecordMovementInput, tx: PrismaTransactionClient) {
+    for (const guard of this.guards) await guard.beforeRecord(tenantId, input, tx);
     return tx.inventoryMovement.create({
       data: {
         tenantId,
@@ -90,6 +112,7 @@ export class InventoryMovementService {
    * deleted-and-recreated on repost, same as every other register in
    * this codebase (RegisterMovement's own convention). */
   async deleteMovementsFor(tenantId: string, registrarDocumentType: string, registrarDocumentId: string, tx: PrismaTransactionClient) {
+    for (const guard of this.guards) if (guard.beforeDelete) await guard.beforeDelete(tenantId, registrarDocumentType, registrarDocumentId, tx);
     return tx.inventoryMovement.deleteMany({ where: { tenantId, registrarDocumentType, registrarDocumentId } });
   }
 }
