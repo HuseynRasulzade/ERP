@@ -35,6 +35,7 @@ import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
+import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 
 @Module({
@@ -102,6 +103,11 @@ import { CounterpartyContractsModule } from './counterparty-contracts/counterpar
     // Engine every other module reads from, plus WarehouseTransfer,
     // InternalConsumption, InventoryAdjustment, InventoryStatusTransfer).
     WarehouseInventoryModule,
+
+    // Inventory Costing Engine (docx spec Phase 11 — FIFO/weighted-average
+    // costing subledger, COGS, landed cost, backdated recalculation,
+    // period finalization; see docs/INVENTORY_COSTING.md).
+    InventoryCostingModule,
 
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).

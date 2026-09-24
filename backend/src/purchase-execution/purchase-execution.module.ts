@@ -8,6 +8,7 @@ import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
 import { SalesExecutionModule } from '../sales-execution/sales-execution.module';
 import { WarehouseInventoryModule } from '../warehouse-inventory/warehouse-inventory.module';
+import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 
 import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 
@@ -60,7 +61,7 @@ import { PurchaseInvoiceApprovalPlanProvider } from './purchase-invoice-approval
  * mappers covering the spec's core document chains (section 25).
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule, InventoryCostingModule],
   controllers: [GoodsReceiptController, PurchaseInvoiceController, PurchaseReturnController, AdditionalPurchaseCostController, PurchaseExecutionQueriesController],
   providers: [
     PurchaseFulfillmentService,

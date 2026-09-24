@@ -14,6 +14,7 @@ import { InventoryLedgerService } from './inventory-ledger.service';
 import { ReservationService } from '../sales-preorder/reservation.service';
 import { OrderFulfillmentService } from '../sales-preorder/order-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
  * Posting handler for Shipment (spec sections 3, 12-18). Deliberately
@@ -40,6 +41,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     private readonly reservations: ReservationService,
     private readonly fulfillment: OrderFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -117,14 +119,19 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
         const warehouse = await tx.warehouse.findFirst({ where: { id: warehouseId, tenantId } });
         const serialIds = await this.batchSerial.issueSerials(tenantId, shipment.organizationId, line.productId, warehouseId, warehouse?.code ?? warehouseId, SHIPMENT_TYPE, line.id, tx);
         for (const serialId of serialIds) {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceLineId: line.id, batchId: line.batchId, serialId },
             tx,
           );
+          await this.costing.consumeCost(
+            tenantId,
+            { organizationId: shipment.organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: '1', effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceDocumentLineId: line.id, movementType: 'ISSUE' },
+            tx,
+          );
         }
       } else {
-        await this.inventory.recordMovement(
+        const movement = await this.inventory.recordMovement(
           tenantId,
           {
             productId: line.productId,
@@ -137,6 +144,17 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
             sourceLineId: line.id,
             batchId: line.batchId,
           },
+          tx,
+        );
+        // Inventory Costing Engine (Phase 11, spec section 24): determines
+        // the FIFO/weighted-average cost of this stock-out at the physical
+        // event itself — the COGS journal line itself is still posted later,
+        // at Sales Invoice time (CostingService.getShipmentLineCost reads
+        // this consumption back), matching this platform's existing "no GL
+        // consequence on Shipment" boundary (spec section 123).
+        await this.costing.consumeCost(
+          tenantId,
+          { organizationId: shipment.organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: SHIPMENT_TYPE, sourceDocumentId: shipment.id, sourceDocumentLineId: line.id, movementType: 'ISSUE' },
           tx,
         );
       }
@@ -179,6 +197,7 @@ export class ShipmentPostingHandler implements DocumentPostingHandler {
     const shipment = await tx.shipment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
     if (!shipment) return;
 
+    await this.costing.reverseConsumption(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, SHIPMENT_TYPE, shipment.id, tx);
     for (const line of shipment.lines) {
       await this.batchSerial.undoIssuedSerials(tenantId, SHIPMENT_TYPE, [line.id], line.warehouseId ?? shipment.warehouseId, tx);

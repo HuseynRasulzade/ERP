@@ -12,6 +12,7 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { InventoryLedgerService } from '../sales-execution/inventory-ledger.service';
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
  * Posting handler for GoodsReceipt (spec sections 3-5). Real physical
@@ -39,6 +40,7 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -109,16 +111,31 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
         // that the receipt is actually posting.
         const serialIds = await this.batchSerial.receiveSerials(tenantId, organizationId, line.productId, warehouseId, undefined, GOODS_RECEIPT_TYPE, line.id, tx);
         for (const serialId of serialIds) {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId, quantity: '1', movementType: 'RECEIPT', businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceLineId: line.id, batchId: line.batchId, serialId },
             tx,
           );
+          await this.costing.receiveCost(
+            tenantId,
+            { organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: '1', unitCost: line.price.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, movementType: 'RECEIPT' },
+            tx,
+          );
         }
       } else {
-        await this.inventory.recordMovement(
+        const movement = await this.inventory.recordMovement(
           tenantId,
           { productId: line.productId, warehouseId, quantity: line.quantity.toString(), movementType: 'RECEIPT', businessDate, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceLineId: line.id, batchId: line.batchId },
+          tx,
+        );
+        // Inventory Costing Engine (Phase 11): opens a FIFO layer / feeds
+        // the weighted-average pool at the receipt's own price — spec
+        // section 17's default input source when no other cost is known
+        // yet. A complete no-op when the organization has no costing
+        // policy configured (see InventoryCostingService docstring).
+        await this.costing.receiveCost(
+          tenantId,
+          { organizationId, productId: line.productId, warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), unitCost: line.price.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: GOODS_RECEIPT_TYPE, sourceDocumentId: receipt.id, sourceDocumentLineId: line.id, movementType: 'RECEIPT' },
           tx,
         );
       }
@@ -197,6 +214,10 @@ export class GoodsReceiptPostingHandler implements DocumentPostingHandler {
     const dependentReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalGoodsReceiptId: document.id, postingStatus: 'POSTED' } });
     if (dependentReturn) throw new GoodsReceiptHasDownstreamLinksError('a posted Purchase Return references this receipt — unpost it first');
 
+    for (const lineId of receiptLineIds) {
+      await this.costing.removeCostForReceiptLine(tenantId, lineId, tx);
+    }
+    await this.costing.removeCostMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, GOODS_RECEIPT_TYPE, document.id, tx);
     await this.batchSerial.undoReceivedSerials(tenantId, GOODS_RECEIPT_TYPE, receiptLineIds, tx);
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: GOODS_RECEIPT_TYPE, targetDocumentId: document.id, relationType: RelationTypes.SUPPLIER_ORDER_TO_RECEIPT } });

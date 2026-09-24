@@ -15,6 +15,7 @@ import { InventoryLedgerService } from '../sales-execution/inventory-ledger.serv
 import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -51,6 +52,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -193,20 +195,34 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
       for (const line of ret.lines) {
         const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, PURCHASE_RETURN_TYPE, line.id, tx);
 
+        // Purchase-return-to-supplier (spec section 28): consume the exact
+        // originating receipt layer when known, never blind FIFO order.
+        const sourceLayer = line.sourceReceiptLineId ? await this.costing.findLayerByReceiptLine(tenantId, line.sourceReceiptLineId, tx) : null;
+
         if (capturedSerials.length > 0) {
           const warehouse = await tx.warehouse.findFirst({ where: { id: ret.warehouseId, tenantId } });
           const serialIds = await this.batchSerial.issueSerials(tenantId, organizationId, line.productId, ret.warehouseId, warehouse?.code ?? ret.warehouseId, PURCHASE_RETURN_TYPE, line.id, tx);
           for (const serialId of serialIds) {
-            await this.inventory.recordMovement(
+            const movement = await this.inventory.recordMovement(
               tenantId,
               { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
               tx,
             );
+            await this.costing.consumeCost(
+              tenantId,
+              { organizationId, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, quantity: '1', effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, movementType: 'ISSUE', preferSourceLayerId: sourceLayer?.id },
+              tx,
+            );
           }
         } else {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId: ret.warehouseId, quantity: line.quantity.toString(), movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId },
+            tx,
+          );
+          await this.costing.consumeCost(
+            tenantId,
+            { organizationId, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, movementType: 'ISSUE', preferSourceLayerId: sourceLayer?.id },
             tx,
           );
         }
@@ -235,6 +251,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.reverseConsumption(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     const ret = await tx.purchaseReturn.findFirst({ where: { id: document.id, tenantId } });
     if (ret?.warehouseId) {

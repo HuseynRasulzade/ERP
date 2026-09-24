@@ -10,9 +10,10 @@ import { StockAvailabilityService } from './stock-availability.service';
 import { AccountingMappingService } from '../accounting-core/accounting-mapping.service';
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 /**
- * Posting handler for InventoryAdjustment (spec sections 17, 42, 77) —
+ * Posting handler for InventoryAdjustment (spec sections 17, 34, 42, 77) —
  * write-off, surplus, and opening balance consolidated into one document
  * type via `adjustmentType` (disclosed simplification of the spec's three
  * separate concepts, see docs/WAREHOUSE_INVENTORY.md):
@@ -26,11 +27,15 @@ import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
  *                       separate axis entirely.
  *
  * A financial consequence (Dr/Cr Inventory against Other Operating
- * Expense/Income) is posted ONLY when every line carries an explicit
- * `costReference` — with no costing engine yet (Phase 11), there is
- * nothing else to derive a monetary amount from, and this handler never
- * fabricates one (same convention as InternalConsumptionPostingHandler).
- * OPENING_BALANCE never posts accounting regardless of `costReference`.
+ * Expense/Income) is posted PER LINE (never one lumped total across
+ * possibly-different products — account 205 requires an exact PRODUCT
+ * dimension). `costReference` (spec section 34: manual override needs its
+ * own special permission/audit — enforced at the DTO/service layer, not
+ * duplicated here) wins when a line carries one; otherwise WRITE_OFF asks
+ * the Inventory Costing Engine for the line's actual FIFO/weighted-average
+ * cost, and SURPLUS receives at the current pool cost. Either path is a
+ * no-op (never a fabricated cost) when no costing policy is configured or
+ * no cost can be derived. OPENING_BALANCE never posts accounting.
  */
 @Injectable()
 export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler {
@@ -41,6 +46,7 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
     private readonly movements: InventoryMovementService,
     private readonly availability: StockAvailabilityService,
     private readonly mappings: AccountingMappingService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -81,11 +87,12 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
     const businessDate = document.postingDate ?? document.documentDate;
     const isOut = adjustment.adjustmentType === 'WRITE_OFF';
 
+    const lines: AccountingPostingLineInput[] = [];
     for (const line of adjustment.lines) {
       const product = await tx.product.findFirst({ where: { id: line.productId, tenantId } });
       if (!product) throw new ValidationAppError('Adjustment line references an unknown product');
 
-      await this.movements.recordMovement(
+      const movement = await this.movements.recordMovement(
         tenantId,
         {
           organizationId,
@@ -104,43 +111,103 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
         },
         tx,
       );
+
+      if (adjustment.adjustmentType === 'OPENING_BALANCE') continue;
+
+      // The cost register is always updated from the real engine (never
+      // skipped just because a manual `costReference` was given) so the
+      // quantity/cost-layer reconciliation health check (spec section 64)
+      // never drifts. A manual `costReference` (spec section 34 — special
+      // permission/audit, enforced at the DTO/service layer) can still
+      // override what amount the JOURNAL itself posts for a WRITE_OFF;
+      // for SURPLUS it instead sets the unit cost the engine receives at,
+      // so subledger and GL always agree exactly.
+      let lineTotal: Decimal | null = null;
+      if (isOut) {
+        const outcome = await this.costing.consumeCost(
+          tenantId,
+          {
+            organizationId,
+            productId: line.productId,
+            warehouseId: adjustment.warehouseId,
+            batchId: line.batchId,
+            quantity: line.quantity.toString(),
+            effectiveDate: businessDate,
+            sourceInventoryMovementId: movement.id,
+            sourceDocumentType: INVENTORY_ADJUSTMENT_TYPE,
+            sourceDocumentId: adjustment.id,
+            sourceDocumentLineId: line.id,
+            movementType: 'WRITE_OFF',
+          },
+          tx,
+        );
+        lineTotal = line.costReference != null ? new Decimal(line.costReference.toString()) : (outcome?.totalCost ?? null);
+      } else {
+        const unitCost =
+          line.costReference != null
+            ? new Decimal(line.costReference.toString()).div(line.quantity.toString())
+            : await this.costing.getUnitCost(tenantId, organizationId, line.productId, adjustment.warehouseId, businessDate, tx);
+        if (unitCost && unitCost.gt(0)) {
+          const outcome = await this.costing.receiveCost(
+            tenantId,
+            {
+              organizationId,
+              productId: line.productId,
+              warehouseId: adjustment.warehouseId,
+              batchId: line.batchId,
+              quantity: line.quantity.toString(),
+              unitCost: unitCost.toString(),
+              effectiveDate: businessDate,
+              sourceInventoryMovementId: movement.id,
+              sourceDocumentType: INVENTORY_ADJUSTMENT_TYPE,
+              sourceDocumentId: adjustment.id,
+              sourceDocumentLineId: line.id,
+              movementType: 'SURPLUS',
+            },
+            tx,
+          );
+          lineTotal = outcome?.totalCost ?? null;
+        }
+      }
+
+      if (lineTotal === null || lineTotal.lte(0)) continue;
+
+      let inventory;
+      let counterAccount;
+      try {
+        inventory = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
+        counterAccount = await this.mappings.resolve(tenantId, organizationId, isOut ? MappingKeys.OTHER_OPERATING_EXPENSE : MappingKeys.OTHER_OPERATING_INCOME, businessDate, tx);
+      } catch {
+        continue;
+      }
+
+      if (isOut) {
+        lines.push(
+          { accountId: counterAccount.id, side: 'DEBIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory write-off — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: line.productId }] },
+          { accountId: inventory.id, side: 'CREDIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory decrease — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
+        );
+      } else {
+        lines.push(
+          { accountId: inventory.id, side: 'DEBIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory surplus — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
+          { accountId: counterAccount.id, side: 'CREDIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory increase — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: line.productId }] },
+        );
+      }
     }
 
-    if (adjustment.adjustmentType === 'OPENING_BALANCE') return null;
-    if (adjustment.lines.some((l) => l.costReference == null)) return null;
-
-    let inventory;
-    let counterAccount;
-    try {
-      inventory = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
-      counterAccount = await this.mappings.resolve(
-        tenantId,
-        organizationId,
-        isOut ? MappingKeys.OTHER_OPERATING_EXPENSE : MappingKeys.OTHER_OPERATING_INCOME,
-        businessDate,
-        tx,
-      );
-    } catch {
-      return null;
-    }
-
-    const total = adjustment.lines.reduce((s, l) => s.plus(new Decimal(l.costReference!.toString())), new Decimal(0));
-    if (total.lte(0)) return null;
-
-    const lines: AccountingPostingLineInput[] = isOut
-      ? [
-          { accountId: counterAccount.id, side: 'DEBIT', amountBase: total, description: `Inventory write-off — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: adjustment.lines[0].productId }] },
-          { accountId: inventory.id, side: 'CREDIT', amountBase: total, description: `Inventory decrease — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
-        ]
-      : [
-          { accountId: inventory.id, side: 'DEBIT', amountBase: total, description: `Inventory surplus — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
-          { accountId: counterAccount.id, side: 'CREDIT', amountBase: total, description: `Inventory increase — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: adjustment.lines[0].productId }] },
-        ];
-
+    if (lines.length === 0) return null;
     return { description: `Inventory adjustment ${adjustment.number ?? adjustment.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    const adjustment = await tx.inventoryAdjustment.findFirst({ where: { id: document.id, tenantId }, include: { lines: true } });
+    if (adjustment?.adjustmentType === 'WRITE_OFF') {
+      await this.costing.reverseConsumption(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx);
+    } else if (adjustment?.adjustmentType === 'SURPLUS') {
+      for (const line of adjustment.lines) {
+        await this.costing.removeCostForReceiptLine(tenantId, line.id, tx);
+      }
+      await this.costing.removeCostMovementsFor(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx);
+    }
     await this.movements.deleteMovementsFor(tenantId, INVENTORY_ADJUSTMENT_TYPE, document.id, tx);
   }
 }

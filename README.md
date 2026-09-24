@@ -47,8 +47,11 @@ consequence (a Sales Invoice, a Manual Operation), adopt the chart and
 seed VAT localization once per tenant:
 `POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
-Tests: `cd backend && npm test && npm run test:e2e` — 180 tests, all
-passing (3 unit + 177 e2e against a real Postgres instance).
+Tests: `cd backend && npm test && npm run test:e2e` — 269 tests against a
+real Postgres instance (3 unit + 266 e2e), all passing when run serially
+(`--runInBand`); the parallel default (`maxWorkers: 2`) can occasionally
+starve one Postgres connection under this repo's own local dev setup,
+independent of any specific test's correctness.
 
 ---
 
@@ -268,6 +271,29 @@ computed live, snapshotted on demand.
 
 Full write-up: [`backend/docs/PURCHASE_EXECUTION.md`](backend/docs/PURCHASE_EXECUTION.md).
 
+### Inventory Costing Engine
+
+A second, separate subledger on top of Phase 10's quantity register:
+`InventoryCostingPolicy` (effective-dated, per organization) drives a
+`FIFOCostingStrategy`/`WeightedAverageCostingStrategy` pair behind one
+`InventoryCostingService` dispatcher. FIFO cost layers with full
+consumption traceability, a weighted-average pool computed live from a
+signed cost-movement register (no mutable "average cost" field anywhere),
+real `Dr COGS / Cr Inventory` posting at Sales Invoice time (reading the
+Shipment's own already-computed consumption), Additional Purchase Cost
+capitalization split between on-hand inventory and already-sold COGS,
+Sales Return restoring the original sale's cost, Purchase Return
+consuming the exact source receipt layer, Warehouse Transfer value
+preservation, real GL activation for Internal Consumption/Inventory
+Adjustment write-off/surplus, backdated-receipt FIFO recalculation
+(generates a reviewable `InventoryCostAdjustment` document), negative-stock
+costing policy, and costing-period finalization/reopen as a second gate
+alongside Accounting Core's own periods. No costing policy configured for
+an organization = a complete no-op, so every earlier phase's test suite is
+unaffected. No frontend UI yet.
+
+Full write-up: [`backend/docs/INVENTORY_COSTING.md`](backend/docs/INVENTORY_COSTING.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -296,6 +322,7 @@ Policy, Tax Profile, Access).
 | `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
 | `backend/test/purchase-execution.e2e-spec.ts` | 8 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, tenant isolation |
 | `backend/test/warehouse-inventory.e2e-spec.ts` | 7 | Instant warehouse transfer (source decrease + destination increase in one post), negative-stock-blocked transfer, two-step transfer (ship ⇒ IN_TRANSIT, partial receive, over-receive rejection, unpost blocked after any receive), internal consumption physical decrease, inventory adjustment write-off/surplus, inventory status transfer (quantity unchanged, only status moves), tenant isolation |
+| `backend/test/inventory-costing.e2e-spec.ts` | 13 | FIFO basic + partial consumption, Weighted Average (moving), COGS posted at Sales Invoice time from the Shipment's own consumption, Additional Purchase Cost split between on-hand inventory and already-sold COGS, Sales Return restoring the original sale's cost even after a cheaper receipt arrives, Purchase Return consuming the exact source layer, Warehouse Transfer value preservation, backdated FIFO recalculation generating and posting a reviewable cost adjustment (idempotent on re-run), negative-stock costing at LAST_KNOWN_COST, costing period finalization (blocked pending recalculation, blocks further posting once finalized, released by reopen), health reporting, tenant isolation of the costing policy |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -343,11 +370,20 @@ All run against a real PostgreSQL instance — no mocked database.
   changes and zero test regressions. WarehouseTransfer (instant/two-step/
   internal-location), InternalConsumption, InventoryAdjustment (write-off/
   surplus/opening-balance), InventoryStatusTransfer, plus Stock Balance/
-  Stock Card/Batch/Serial/Negative-Stock/Min-Max reporting. No costing
-  engine yet, so InternalConsumption/InventoryAdjustment never fabricate
-  an accounting entry (Phase 11's job); no batch/serial auto-capture
+  Stock Card/Batch/Serial/Negative-Stock/Min-Max reporting. InternalConsumption/
+  InventoryAdjustment now post a real accounting entry too, once Phase 11's
+  costing engine landed (see below); no batch/serial auto-capture
   wiring into Goods Receipt/Shipment yet; boolean negative-stock policy,
   not the spec's 3-state enum — see docs/WAREHOUSE_INVENTORY.md for the
   full list. No frontend UI yet.
-- **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
-  started. Later phases building on this foundation.
+- **Inventory Costing Engine** — ✅ done, tested, documented. FIFO cost
+  layers + Weighted Average (moving/periodic), real COGS at Sales Invoice
+  time, Additional Purchase Cost on-hand/COGS split, Sales/Purchase Return
+  cost restoration, Warehouse Transfer value preservation, backdated FIFO
+  recalculation with a reviewable cost-adjustment document, negative-stock
+  costing policy, and costing-period finalization/reopen. No costing
+  policy configured for an organization is a complete no-op — every
+  earlier phase's tests are unaffected. No frontend UI yet — see
+  docs/INVENTORY_COSTING.md for the full list of disclosed simplifications.
+- **Payroll, Banking, Fixed Assets, ...** — not started. Later phases
+  building on this foundation.

@@ -10,6 +10,7 @@ import { AccountingPostingLineInput } from '../accounting-core/accounting-postin
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { TaxCalculationService } from '../tax-engine/tax-calculation.service';
 import { TaxRegisterService } from '../tax-engine/tax-register.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -18,13 +19,16 @@ const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
  * Allocates `totalCost` across its `targetLines` (each a GoodsReceiptLine)
  * by the chosen method and writes one `PurchaseCostAllocation` row per
  * target — the handoff Phase 11 Costing reads (spec section 12: "Allocation
- * nəticəsi inventory costing layer-a ötürülməlidir").
+ * nəticəsi inventory costing layer-a ötürülməlidir") via
+ * `InventoryCostingService.applyCostDelta`, which is also what may now
+ * split each allocation between Inventory (on-hand) and COGS
+ * (already-consumed) — see that method's docstring.
  *
- * Capitalized-to-inventory model only (disclosed simplification — see
- * class docstring on the Prisma model): always
- *   Dr Inventory (GOODS_INVENTORY)   totalCost (net)
- *   Dr Recoverable Input VAT         if taxable
- *   Cr Accounts Payable (531)        gross — to the cost supplier
+ * Capitalized-to-inventory-or-COGS model only (disclosed simplification —
+ * see class docstring on the Prisma model): always
+ *   Dr Inventory (GOODS_INVENTORY) / COGS   totalCost (net), per the split
+ *   Dr Recoverable Input VAT                if taxable
+ *   Cr Accounts Payable (531)               gross — to the cost supplier
  * never the expense-recognition alternative the spec also allows.
  */
 @Injectable()
@@ -36,6 +40,7 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     private readonly mappings: AccountingMappingService,
     private readonly taxCalculation: TaxCalculationService,
     private readonly taxRegister: TaxRegisterService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -64,7 +69,7 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     const organizationId = cost.organizationId;
     const businessDate = document.postingDate ?? document.documentDate;
 
-    const weights: { targetId: string; goodsReceiptLineId: string; productId: string; warehouseId: string | null; weight: Decimal }[] = [];
+    const weights: { targetId: string; goodsReceiptLineId: string; productId: string; warehouseId: string | null; batchId: string | null; weight: Decimal }[] = [];
     for (const t of cost.targetLines) {
       const grLine = t.goodsReceiptLine;
       let weight: Decimal;
@@ -92,7 +97,7 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
         default:
           weight = new Decimal(1);
       }
-      weights.push({ targetId: t.id, goodsReceiptLineId: grLine.id, productId: grLine.productId, warehouseId: grLine.warehouseId ?? grLine.goodsReceipt.warehouseId, weight });
+      weights.push({ targetId: t.id, goodsReceiptLineId: grLine.id, productId: grLine.productId, warehouseId: grLine.warehouseId ?? grLine.goodsReceipt.warehouseId, batchId: grLine.batchId, weight });
     }
 
     const totalWeight = weights.reduce((s, w) => s.plus(w.weight), new Decimal(0));
@@ -126,14 +131,50 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
     const inventory = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
     const payable = await this.mappings.resolve(tenantId, organizationId, MappingKeys.SUPPLIER_PAYABLE, businessDate, tx);
 
-    // One DEBIT line per allocation target (spec section 12's handoff row
-    // per product) — account 205 requires a PRODUCT dimension, so a
-    // single lump-sum line across possibly-different products would be
-    // invalid even when there is only one target.
-    const lines: AccountingPostingLineInput[] = allocations.map((a) => {
+    // One (or two) DEBIT line(s) per allocation target (spec section 12's
+    // handoff row per product) — account 205 requires a PRODUCT dimension,
+    // so a single lump-sum line across possibly-different products would
+    // be invalid even when there is only one target. The Inventory Costing
+    // Engine (Phase 11, spec sections 18-19) may split each allocation
+    // between the still-on-hand quantity (stays on Inventory) and the
+    // already-consumed quantity (a COGS adjustment instead) — never dumped
+    // entirely onto current stock when part of the receipt already sold. A
+    // complete no-op split (100% to Inventory) when no costing policy is
+    // configured for this organization.
+    const lines: AccountingPostingLineInput[] = [];
+    for (const a of allocations) {
       const target = weights.find((w) => w.goodsReceiptLineId === a.goodsReceiptLineId);
-      return { accountId: inventory.id, side: 'DEBIT' as const, amountBase: a.amount, description: `Additional purchase cost capitalized — ${cost.number ?? cost.id}`, dimensions: [{ dimensionCode: 'PRODUCT', referenceId: a.productId }, ...(target?.warehouseId ? [{ dimensionCode: 'WAREHOUSE', referenceId: target.warehouseId }] : [])] };
-    });
+      const dimensions = [{ dimensionCode: 'PRODUCT', referenceId: a.productId }, ...(target?.warehouseId ? [{ dimensionCode: 'WAREHOUSE', referenceId: target.warehouseId }] : [])];
+
+      const split = await this.costing.applyCostDelta(
+        tenantId,
+        {
+          organizationId,
+          productId: a.productId,
+          warehouseId: target?.warehouseId,
+          batchId: target?.batchId,
+          sourceReceiptLineId: a.goodsReceiptLineId,
+          amount: a.amount,
+          effectiveDate: businessDate,
+          sourceDocumentType: ADDITIONAL_PURCHASE_COST_TYPE,
+          sourceDocumentId: cost.id,
+          sourceDocumentLineId: a.goodsReceiptLineId,
+          componentType: cost.costType,
+        },
+        tx,
+      );
+
+      const onHandAmount = split?.onHandAmount ?? a.amount;
+      const cogsAmount = split?.cogsAmount ?? new Decimal(0);
+
+      if (onHandAmount.gt(0)) {
+        lines.push({ accountId: inventory.id, side: 'DEBIT', amountBase: onHandAmount, description: `Additional purchase cost capitalized — ${cost.number ?? cost.id}`, dimensions });
+      }
+      if (cogsAmount.gt(0)) {
+        const cogs = await this.mappings.resolve(tenantId, organizationId, MappingKeys.COGS, businessDate, tx);
+        lines.push({ accountId: cogs.id, side: 'DEBIT', amountBase: cogsAmount, description: `Additional purchase cost — already-sold portion — ${cost.number ?? cost.id}`, dimensions });
+      }
+    }
 
     let grossTotal = totalCost;
     if (cost.taxRate.gt(0)) {
@@ -170,6 +211,7 @@ export class AdditionalPurchaseCostPostingHandler implements DocumentPostingHand
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.reverseCostDelta(tenantId, ADDITIONAL_PURCHASE_COST_TYPE, document.id, tx);
     await tx.purchaseCostAllocation.deleteMany({ where: { tenantId, additionalPurchaseCostId: document.id } });
   }
 }

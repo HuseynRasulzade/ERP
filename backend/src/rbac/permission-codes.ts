@@ -295,6 +295,19 @@ export const PermissionCodes = {
   INVENTORY_UNPOST: 'inventory.unpost',
   INVENTORY_PERIOD_OVERRIDE: 'inventory.period_override',
   INVENTORY_MANUAL_ADJUSTMENT: 'inventory.manual_adjustment',
+
+  // Inventory Costing Engine (docx spec Phase 11, section 97)
+  INVENTORY_COST_VIEW: 'inventory_cost.view',
+  INVENTORY_COST_VIEW_LAYERS: 'inventory_cost.view_layers',
+  INVENTORY_COST_VIEW_COGS: 'inventory_cost.view_cogs',
+  INVENTORY_COST_VIEW_ACCOUNTING: 'inventory_cost.view_accounting',
+  INVENTORY_COST_VIEW_ERRORS: 'inventory_cost.view_errors',
+  INVENTORY_COST_MANAGE_POLICY: 'inventory_cost.manage_policy',
+  INVENTORY_COST_RECALCULATE: 'inventory_cost.recalculate',
+  INVENTORY_COST_FINALIZE: 'inventory_cost.finalize',
+  INVENTORY_COST_REOPEN: 'inventory_cost.reopen',
+  INVENTORY_COST_ADJUST: 'inventory_cost.adjust',
+  INVENTORY_COST_MANUAL_OVERRIDE: 'inventory_cost.manual_override',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -567,4 +580,15 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.INVENTORY_UNPOST, module: 'inventory', description: 'Unpost inventory documents' },
   { code: PermissionCodes.INVENTORY_PERIOD_OVERRIDE, module: 'inventory', description: 'Post inventory documents into a closed period' },
   { code: PermissionCodes.INVENTORY_MANUAL_ADJUSTMENT, module: 'inventory', description: 'Manually adjust stock outside the normal document flow' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW, module: 'inventory_cost', description: 'View inventory valuation and unit costs' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_LAYERS, module: 'inventory_cost', description: 'View FIFO cost layers and consumption traceability' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_COGS, module: 'inventory_cost', description: 'View COGS reports' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_ACCOUNTING, module: 'inventory_cost', description: 'View costing-generated accounting entries' },
+  { code: PermissionCodes.INVENTORY_COST_VIEW_ERRORS, module: 'inventory_cost', description: 'View the costing error register' },
+  { code: PermissionCodes.INVENTORY_COST_MANAGE_POLICY, module: 'inventory_cost', description: 'Configure the inventory costing policy for an organization' },
+  { code: PermissionCodes.INVENTORY_COST_RECALCULATE, module: 'inventory_cost', description: 'Trigger inventory cost recalculation' },
+  { code: PermissionCodes.INVENTORY_COST_FINALIZE, module: 'inventory_cost', description: 'Finalize inventory costing for a period' },
+  { code: PermissionCodes.INVENTORY_COST_REOPEN, module: 'inventory_cost', description: 'Reopen a finalized inventory costing period' },
+  { code: PermissionCodes.INVENTORY_COST_ADJUST, module: 'inventory_cost', description: 'Create/post manual inventory cost adjustments' },
+  { code: PermissionCodes.INVENTORY_COST_MANUAL_OVERRIDE, module: 'inventory_cost', description: 'Override a computed cost with a manual value' },
 ];

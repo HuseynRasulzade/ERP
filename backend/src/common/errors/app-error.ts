@@ -109,6 +109,12 @@ export const ErrorCode = {
   TRANSFER_ALREADY_RECEIVED: 'TRANSFER_ALREADY_RECEIVED',
   TRANSFER_RECEIVE_EXCEEDS_SHIPPED: 'TRANSFER_RECEIVE_EXCEEDS_SHIPPED',
   INVENTORY_UNPOST_DEPENDENCY: 'INVENTORY_UNPOST_DEPENDENCY',
+
+  // Inventory Costing Engine (docx spec Phase 11)
+  NO_ELIGIBLE_COST_LAYER: 'NO_ELIGIBLE_COST_LAYER',
+  COSTING_PERIOD_FINALIZED: 'COSTING_PERIOD_FINALIZED',
+  COSTING_FINALIZATION_BLOCKED: 'COSTING_FINALIZATION_BLOCKED',
+  COST_LAYER_BALANCE_INVALID: 'COST_LAYER_BALANCE_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -700,5 +706,33 @@ export class TransferReceiveExceedsShippedError extends AppError {
 export class InventoryUnpostDependencyError extends AppError {
   constructor(reason: string) {
     super(ErrorCode.INVENTORY_UNPOST_DEPENDENCY, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class NoEligibleCostLayerError extends AppError {
+  constructor(costingKey: string) {
+    super(ErrorCode.NO_ELIGIBLE_COST_LAYER, `No eligible FIFO cost layer with remaining quantity for costing key ${costingKey}`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class CostingPeriodFinalizedError extends AppError {
+  constructor(year: number, month: number) {
+    super(ErrorCode.COSTING_PERIOD_FINALIZED, `Inventory costing period ${year}-${String(month).padStart(2, '0')} is finalized — reopen it before posting cost-affecting documents into it`, HttpStatus.CONFLICT);
+  }
+}
+
+export class CostingFinalizationBlockedError extends AppError {
+  constructor(reason: string) {
+    super(ErrorCode.COSTING_FINALIZATION_BLOCKED, reason, HttpStatus.CONFLICT);
+  }
+}
+
+export class CostLayerBalanceInvalidError extends AppError {
+  constructor(costingKey: string, quantityRegister: string, costLayerRegister: string) {
+    super(
+      ErrorCode.COST_LAYER_BALANCE_INVALID,
+      `Quantity/cost-layer mismatch for ${costingKey}: quantity register ${quantityRegister} vs cost layer remaining quantity ${costLayerRegister}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
   }
 }
