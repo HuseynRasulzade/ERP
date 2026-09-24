@@ -218,4 +218,183 @@ describe('Inventory Count / Reconciliation Engine (e2e)', () => {
       expect(Number(lines[0].accountingQuantity)).toBeCloseTo(25, 6);
     });
   });
+
+  describe('Session / Sheet / Entry lifecycle (Task #10)', () => {
+    async function driveSessionToCounting(warehouseId: string) {
+      const plan = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/plans`))
+        .send({ planDate: '2026-04-01', countType: 'FULL', scopes: [{ warehouseId }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/plans/${plan.body.id}/mark-ready`)).send({ expectedVersion: plan.body.version }).expect(201);
+
+      const session = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions`))
+        .send({ inventoryCountPlanId: plan.body.id })
+        .expect(201);
+      expect(session.body.status).toBe('DRAFT');
+      expect(session.body.sessionNumber).toMatch(/^ICS/);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/snapshot`)).expect(201);
+
+      const sheets = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/sheets/generate`)).send({}).expect(201);
+      expect(sheets.body.length).toBeGreaterThan(0);
+
+      const begun = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/begin-counting`)).expect(201);
+      expect(begun.body.status).toBe('COUNTING');
+
+      return { planId: plan.body.id, sessionId: session.body.id as string, sheetId: sheets.body[0].id as string };
+    }
+
+    it('runs the full happy path: start -> snapshot -> sheets -> blind entry submission -> correction -> complete', async () => {
+      const warehouseId = await makeWarehouse(`WH-SESS1-${run}`);
+      const product = await makeProduct(`SESS-P1-${run}`);
+      await postGoodsReceipt(warehouseId, product, 20, 4, '2026-03-01');
+
+      const { sessionId, sheetId } = await driveSessionToCounting(warehouseId);
+
+      const entry = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId: product, unitId, countedQuantity: 18 })
+        .expect(201);
+      expect(entry.body.countedQuantity).toBe('18');
+      expect(entry.body.entryVersion).toBe(1);
+      // Blind count: nothing in the entry response reveals the accounting quantity.
+      expect(JSON.stringify(entry.body)).not.toMatch(/accountingQuantity/);
+
+      // A second submission for the exact same tuple is a correction, not
+      // a duplicate — the prior value is preserved in its version history.
+      const corrected = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId: product, unitId, countedQuantity: 19, reason: 'recount by hand' })
+        .expect(201);
+      expect(corrected.body.id).toBe(entry.body.id);
+      expect(corrected.body.countedQuantity).toBe('19');
+      expect(corrected.body.entryVersion).toBe(2);
+
+      const versions = await prisma.inventoryCountEntryVersion.findMany({ where: { tenantId: tenant1Id, entryId: entry.body.id } });
+      expect(versions).toHaveLength(1);
+      expect(Number(versions[0].oldQuantity)).toBeCloseTo(18, 6);
+      expect(Number(versions[0].newQuantity)).toBeCloseTo(19, 6);
+
+      // Supervisor-only comparison surfaces the book quantity the blind
+      // entry endpoint never exposed.
+      const compare = await auth1(request(app.getHttpServer()).get(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries/compare`)).expect(200);
+      const compared = compare.body.find((c: any) => c.entry.id === entry.body.id);
+      expect(Number(compared.accountingQuantity)).toBeCloseTo(20, 6);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/complete`)).expect(201);
+      const completedSession = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/complete`)).expect(201);
+      expect(completedSession.body.status).toBe('UNDER_REVIEW');
+    });
+
+    it('converts a counted quantity to the base unit via a configured unit conversion', async () => {
+      const box = await auth1(request(app.getHttpServer()).post('/units-of-measure')).send({ code: `BOX-${run}`, name: 'Box', symbol: 'box', unitType: 'QUANTITY' }).expect(201);
+      await auth1(request(app.getHttpServer()).post('/unit-conversions')).send({ fromUnitId: box.body.id, toUnitId: unitId, factor: 12 }).expect(201);
+
+      const warehouseId = await makeWarehouse(`WH-SESS2-${run}`);
+      const product = await makeProduct(`SESS-P2-${run}`);
+      await postGoodsReceipt(warehouseId, product, 24, 4, '2026-03-01');
+      const { sessionId, sheetId } = await driveSessionToCounting(warehouseId);
+
+      const entry = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId: product, unitId: box.body.id, countedQuantity: 2 })
+        .expect(201);
+      expect(entry.body.countedQuantity).toBe('2');
+      expect(Number(entry.body.baseQuantity)).toBeCloseTo(24, 6);
+    });
+
+    it('requires serial numbers for a serial-tracked product and rejects a serial counted twice in the same session', async () => {
+      const warehouseId = await makeWarehouse(`WH-SESS3-${run}`);
+      const p = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/products`))
+        .send({ code: `SESS-SER-${run}`, name: `SESS-SER-${run}`, productType: 'GOODS', baseUnitId: unitId, serialTrackingMode: 'REQUIRED' })
+        .expect(201);
+      const productId = p.body.id;
+
+      const gr = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: '2026-03-01', lines: [{ productId, unitId, quantity: 2, price: 100, serialNumbers: [`SN-A-${run}`, `SN-B-${run}`] }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/documents/GOODS_RECEIPT/${gr.body.id}/post`)).send({ expectedVersion: gr.body.version }).expect(201);
+
+      const { sessionId, sheetId } = await driveSessionToCounting(warehouseId);
+
+      const missingSerials = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId, unitId, countedQuantity: 2 });
+      expect(missingSerials.status).toBe(400);
+      expect(missingSerials.body.message).toMatch(/requires serial numbers/);
+
+      const ok = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId, unitId, countedQuantity: 2, serialNumbers: [`SN-A-${run}`, `SN-B-${run}`] })
+        .expect(201);
+      expect(ok.body.serials).toHaveLength(2);
+
+      // A second product entry in the SAME session trying to claim one of
+      // those exact serials again is rejected (spec section 24).
+      const otherProduct = await makeProduct(`SESS-SER2-${run}`);
+      const dup = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId: otherProduct, unitId, countedQuantity: 1, serialNumbers: [`SN-A-${run}`] });
+      expect(dup.status).toBe(422);
+    });
+
+    it('requires a batch for a batch-tracked product', async () => {
+      const warehouseId = await makeWarehouse(`WH-SESS4-${run}`);
+      const p = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/products`))
+        .send({ code: `SESS-BATCH-${run}`, name: `SESS-BATCH-${run}`, productType: 'GOODS', baseUnitId: unitId, batchTrackingMode: 'REQUIRED' })
+        .expect(201);
+      const productId = p.body.id;
+
+      const gr = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/goods-receipts`))
+        .send({ counterpartyId: supplierId, warehouseId, documentDate: '2026-03-01', lines: [{ productId, unitId, quantity: 10, price: 5, batchNumber: `BATCH-${run}` }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/documents/GOODS_RECEIPT/${gr.body.id}/post`)).send({ expectedVersion: gr.body.version }).expect(201);
+      const batch = await prisma.batch.findFirst({ where: { tenantId: tenant1Id, productId, batchNumber: `BATCH-${run}` } });
+
+      const { sessionId, sheetId } = await driveSessionToCounting(warehouseId);
+
+      const noBatch = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId, unitId, countedQuantity: 10 });
+      expect(noBatch.status).toBe(400);
+
+      const withBatch = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId, unitId, countedQuantity: 10, batchId: batch!.id })
+        .expect(201);
+      expect(withBatch.body.batchId).toBe(batch!.id);
+    });
+
+    it('a retried submission with the same clientEntryId is a no-op, not a second correction', async () => {
+      const warehouseId = await makeWarehouse(`WH-SESS5-${run}`);
+      const product = await makeProduct(`SESS-P5-${run}`);
+      await postGoodsReceipt(warehouseId, product, 5, 2, '2026-03-01');
+      const { sessionId, sheetId } = await driveSessionToCounting(warehouseId);
+
+      const clientEntryId = `mobile-${run}`;
+      const first = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId: product, unitId, countedQuantity: 5, clientEntryId })
+        .expect(201);
+
+      const retried = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${sessionId}/sheets/${sheetId}/entries`))
+        .send({ warehouseId, productId: product, unitId, countedQuantity: 999, clientEntryId })
+        .expect(201);
+      expect(retried.body.id).toBe(first.body.id);
+      expect(retried.body.countedQuantity).toBe('5');
+      expect(retried.body.entryVersion).toBe(1);
+    });
+
+    it('cannot begin counting without generated sheets, and cannot complete a session with an incomplete sheet', async () => {
+      const warehouseId = await makeWarehouse(`WH-SESS6-${run}`);
+      const product = await makeProduct(`SESS-P6-${run}`);
+      await postGoodsReceipt(warehouseId, product, 3, 1, '2026-03-01');
+
+      const plan = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/plans`))
+        .send({ planDate: '2026-04-01', countType: 'FULL', scopes: [{ warehouseId }] })
+        .expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/plans/${plan.body.id}/mark-ready`)).send({ expectedVersion: plan.body.version }).expect(201);
+      const session = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions`)).send({ inventoryCountPlanId: plan.body.id }).expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/snapshot`)).expect(201);
+
+      const tooEarly = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/begin-counting`));
+      expect(tooEarly.status).toBe(400);
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/sheets/generate`)).send({}).expect(201);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/begin-counting`)).expect(201);
+
+      const tooSoon = await auth1(request(app.getHttpServer()).post(`/organizations/${orgId}/inventory-count/sessions/${session.body.id}/complete`));
+      expect(tooSoon.status).toBe(400);
+    });
+  });
 });
