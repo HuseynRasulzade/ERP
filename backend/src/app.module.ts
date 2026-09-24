@@ -20,6 +20,7 @@ import { PeriodModule } from './period/period.module';
 import { AuditModule } from './audit/audit.module';
 import { SettingsModule } from './settings/settings.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
+import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { DocumentFrameworkModule } from './document-framework/document-framework.module';
 import { DocumentLinkModule } from './document-link/document-link.module';
 import { FoundationTestDocumentModule } from './foundation-test-document/foundation-test-document.module';
@@ -118,6 +119,8 @@ import { HrModule } from './hr/hr.module';
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).
     CounterpartyContractsModule,
+    // Fixed Assets / Əsas vəsaitlər (docx spec Phase 16).
+    FixedAssetsModule,
 
     // Phase 17 — HR Core / Kadr uçotu: PhysicalPerson / Employee /
     // Employment separation, effective-dated assignment/schedule/status

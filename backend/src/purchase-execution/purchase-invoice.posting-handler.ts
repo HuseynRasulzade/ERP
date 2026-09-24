@@ -15,6 +15,7 @@ import { AccountingMappingService } from '../accounting-core/accounting-mapping.
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
+import { FixedAssetsIntegrationService } from '../fixed-assets/fixed-assets-integration.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 const EXPENSE_LIKE_TYPES = ['SERVICE', 'EXPENSE', 'FIXED_ASSET', 'PREPAYMENT', 'OTHER'];
@@ -53,6 +54,7 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     private readonly mappings: AccountingMappingService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly costing: InventoryCostingService,
+    private readonly fixedAssets: FixedAssetsIntegrationService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -148,13 +150,22 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     const inventoryAccount = await this.mappings.resolve(tenantId, organizationId, MappingKeys.GOODS_INVENTORY, businessDate, tx);
     const adminExpense = await this.mappings.resolve(tenantId, organizationId, MappingKeys.ADMIN_EXPENSE, businessDate, tx);
     const payable = await this.mappings.resolve(tenantId, organizationId, MappingKeys.SUPPLIER_PAYABLE, businessDate, tx);
+    const faLines = invoice.lines.filter((l) => l.lineType === 'FIXED_ASSET' && !l.expenseAccountId);
+    if (faLines.length > 0) await this.fixedAssets.prepare(tenantId);
+    const faCip = faLines.length > 0 ? await this.mappings.resolve(tenantId, organizationId, MappingKeys.FA_CIP, businessDate, tx) : adminExpense;
 
     const debitLines: AccountingPostingLineInput[] = [];
     for (const [i, line] of invoice.lines.entries()) {
       let net = taxResults[i].taxableBase;
       let accountId: string;
       const dimensions: AccountingPostingLineInput['dimensions'] = [];
-      if (EXPENSE_LIKE_TYPES.includes(line.lineType)) {
+      if (line.lineType === 'FIXED_ASSET' && !line.expenseAccountId) {
+        // Phase 16: a fixed-asset purchase is NOT expensed — it lands on the
+        // CIP / acquisition-clearing account and becomes an acquisition
+        // candidate for a capitalization decision (never an asset directly).
+        accountId = faCip.id;
+        if (line.departmentId) dimensions.push({ dimensionCode: 'DEPARTMENT', referenceId: line.departmentId });
+      } else if (EXPENSE_LIKE_TYPES.includes(line.lineType)) {
         accountId = line.expenseAccountId ?? adminExpense.id;
         if (line.departmentId) dimensions.push({ dimensionCode: 'DEPARTMENT', referenceId: line.departmentId });
       } else if (line.goodsReceiptLineId) {
@@ -237,6 +248,23 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
       }
     }
 
+    if (faLines.length > 0) {
+      await this.fixedAssets.onPurchaseInvoicePosted(tx, {
+        tenantId,
+        organizationId,
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.number,
+        invoiceDate: businessDate,
+        supplierId: invoice.counterpartyId,
+        currencyId,
+        userId: document.postedBy ?? document.createdBy,
+        lines: faLines.map((line) => {
+          const r = taxResults[invoice.lines.indexOf(line)];
+          return { lineId: line.id, productId: line.productId, description: line.description ?? `Purchase invoice ${invoice.number ?? invoice.id} line ${line.position + 1}`, quantity: line.quantity.toString(), netAmount: r.taxableBase, taxAmount: r.taxAmount, nonRecoverableTaxAmount: r.nonrecoverableAmount };
+        }),
+      });
+    }
+
     await tx.supplierPayable.create({
       data: { tenantId, organizationId, counterpartyId: invoice.counterpartyId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: invoice.id, currencyId, invoiceAmount: grossTotal.toString(), dueDate: invoice.dueDate },
     });
@@ -254,6 +282,7 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     const activeReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalPurchaseInvoiceId: document.id, postingStatus: 'POSTED' } });
     if (activeReturn) throw new PurchaseInvoiceHasReturnsError(document.id);
 
+    await this.fixedAssets.onPurchaseInvoiceUnposted(tx, tenantId, document.id);
     await tx.supplierPayable.deleteMany({ where: { tenantId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: document.id } });
     const receiptLineIds = (await tx.purchaseInvoiceLine.findMany({ where: { tenantId, purchaseInvoiceId: document.id, goodsReceiptLineId: { not: null } }, select: { goodsReceiptLineId: true } })).map((l) => l.goodsReceiptLineId!);
     await this.costing.onIncomingValueChanged(tenantId, receiptLineIds, { type: PURCHASE_INVOICE_TYPE, id: document.id, reason: 'LATE_INVOICE_DIFFERENCE', direction: 'UNPOSTING' }, tx, document.postedBy ?? document.createdBy ?? 'system');
