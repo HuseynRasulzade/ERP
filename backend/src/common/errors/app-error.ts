@@ -824,6 +824,9 @@ export class ReservationInsufficientStockError extends AppError {
       `Available stock is ${available} units, requested reservation quantity is ${requested} units`,
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
+  }
+}
+
 /** HR Core (Phase 17) business-rule failure — always carries a specific
  * code and a human-readable, date-bearing message (spec section 126). */
 export class HrRuleError extends AppError {
