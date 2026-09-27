@@ -316,8 +316,13 @@ describe('Inventory Count (e2e)', () => {
       const { sessionId, sheets } = await setupSession({ productId, blindCountEnabled: true });
 
       const entry = await submitEntry(sessionId, sheets[0].id, { productId, countedQuantity: 40 });
-      expect(entry.body).not.toHaveProperty('accountingQuantity');
-      expect(JSON.stringify(entry.body)).not.toContain('50');
+      // Entry submission is structurally incapable of returning the book
+      // quantity (InventoryCountEntryService never reads the snapshot) —
+      // assert on the known response keys rather than a raw substring
+      // search, since a random UUID can coincidentally contain "50".
+      expect(Object.keys(entry.body).sort()).toEqual(
+        ['barcode', 'baseQuantity', 'batchId', 'countedAt', 'countedBy', 'countedQuantity', 'clientEntryId', 'entryMethod', 'entryVersion', 'id', 'locationId', 'notes', 'ownershipType', 'productId', 'qualityStatus', 'serials', 'sessionId', 'sheetId', 'tenantId', 'unitId', 'voided', 'warehouseId'].sort(),
+      );
     });
   });
 
