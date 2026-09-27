@@ -10,6 +10,8 @@ import { SalesExecutionModule } from '../sales-execution/sales-execution.module'
 import { WarehouseInventoryModule } from '../warehouse-inventory/warehouse-inventory.module';
 import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 import { InventoryFreezeModule } from '../inventory-count/inventory-freeze.module';
+import { SettlementModule } from '../settlement/settlement.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 
@@ -62,7 +64,7 @@ import { PurchaseInvoiceApprovalPlanProvider } from './purchase-invoice-approval
  * mappers covering the spec's core document chains (section 25).
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule, InventoryCostingModule, InventoryFreezeModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, TaxEngineModule, AccountingCoreModule, SalesExecutionModule, WarehouseInventoryModule, ApprovalsModule, InventoryCostingModule, InventoryFreezeModule, SettlementModule, CurrencyModule],
   controllers: [GoodsReceiptController, PurchaseInvoiceController, PurchaseReturnController, AdditionalPurchaseCostController, PurchaseExecutionQueriesController],
   providers: [
     PurchaseFulfillmentService,

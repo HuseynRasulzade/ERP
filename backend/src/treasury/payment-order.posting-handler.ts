@@ -9,6 +9,9 @@ import { AccountingPostingLineInput } from '../accounting-core/accounting-postin
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { RequestContextService } from '../common/context/request-context.service';
 import { PAYMENT_ORDER_TYPE } from './payment-order.repository';
+import { PaymentAllocationService } from '../settlement/payment-allocation.service';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
+import { PURCHASE_INVOICE_TYPE } from '../purchase-execution/purchase-invoice.repository';
 
 /**
  * Posting handler for PaymentOrder. Posting IS the "Bank Ödənişi" event —
@@ -27,6 +30,8 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     private readonly prisma: PrismaService,
     private readonly mappings: AccountingMappingService,
     private readonly requestContext: RequestContextService,
+    private readonly settlementAllocations: PaymentAllocationService,
+    private readonly settlementMovements: SettlementMovementService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -141,6 +146,25 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     // everything onto one invoice.
     const matchedTotal = invoiceAmounts.reduce((sum, a) => sum.plus(a.amount), new Decimal(0));
     const advanceAmount = amount.minus(matchedTotal);
+
+    // Settlement Subledger (docx spec Phase 13) — additive alongside the
+    // legacy SupplierPayable.paidAmount update above. Reuses this
+    // handler's own already-computed per-invoice split (spec section 20:
+    // "One payment → multiple invoices") instead of re-deriving it.
+    for (const { purchaseInvoiceId, amount: lineAmount } of invoiceAmounts) {
+      await this.settlementAllocations.allocateToDocument(
+        tenantId,
+        { organizationId, counterpartyId: order.counterpartyId, role: 'SUPPLIER', paymentDocumentType: PAYMENT_ORDER_TYPE, paymentDocumentId: order.id, paymentCurrencyId: currencyId, paymentDate: businessDate, paymentAmount: lineAmount, targetSourceDocumentType: PURCHASE_INVOICE_TYPE, targetSourceDocumentId: purchaseInvoiceId, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+        tx,
+      );
+    }
+    if (advanceAmount.gt(0)) {
+      await this.settlementMovements.createAdvance(
+        tenantId,
+        { organizationId, counterpartyId: order.counterpartyId, role: 'SUPPLIER', sourceDocumentType: PAYMENT_ORDER_TYPE, sourceDocumentId: order.id, effectiveDate: businessDate, currencyId, amount: advanceAmount, baseAmount: advanceAmount, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+        tx,
+      );
+    }
     const debitLines: AccountingPostingLineInput[] = invoiceAmounts.map(({ purchaseInvoiceId, amount: lineAmount }) => ({
       accountId: payableAccount.id,
       side: 'DEBIT',

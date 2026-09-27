@@ -13,6 +13,9 @@ import { AccountingMappingService } from '../accounting-core/accounting-mapping.
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { PurchaseFulfillmentService, RelationTypes } from './purchase-fulfillment.service';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
+import { CurrencyService } from '../currency/currency.service';
+import { InvoiceHasSettlementsError } from '../common/errors/app-error';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 const EXPENSE_LIKE_TYPES = ['SERVICE', 'EXPENSE', 'FIXED_ASSET', 'PREPAYMENT', 'OTHER'];
@@ -50,6 +53,8 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
     private readonly fulfillment: PurchaseFulfillmentService,
+    private readonly settlementMovements: SettlementMovementService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -214,6 +219,21 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
       data: { tenantId, organizationId, counterpartyId: invoice.counterpartyId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: invoice.id, currencyId, invoiceAmount: grossTotal.toString(), dueDate: invoice.dueDate },
     });
 
+    // Settlement Subledger (docx spec Phase 13) — additive alongside the
+    // SupplierPayable row above.
+    const supplierForDueDate = await tx.counterparty.findFirst({ where: { id: invoice.counterpartyId, tenantId } });
+    const defaultDueDate = invoice.dueDate ?? (supplierForDueDate?.paymentTerms ? new Date(businessDate.getTime() + supplierForDueDate.paymentTerms * 86_400_000) : businessDate);
+    const baseCurrencyId =
+      (await tx.organization.findUnique({ where: { id: organizationId } }))?.baseCurrencyId ??
+      (await tx.tenant.findUnique({ where: { id: tenantId } }))?.baseCurrencyId ??
+      currencyId;
+    const invoiceBaseAmount = await this.convertToBase(tenantId, currencyId, baseCurrencyId, grossTotal, invoice.exchangeRate, businessDate, tx);
+    await this.settlementMovements.createPayable(
+      tenantId,
+      { organizationId, counterpartyId: invoice.counterpartyId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: invoice.id, sourceDocumentNumber: invoice.number, sourceDate: businessDate, currencyId, grossAmount: grossTotal, baseAmount: invoiceBaseAmount, defaultDueDate, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+      tx,
+    );
+
     await tx.purchaseInvoice.update({ where: { id: invoice.id }, data: { taxPointDate, amountDue: grossTotal.toString() } });
 
     return { description: `Purchase invoice ${invoice.number ?? invoice.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
@@ -223,7 +243,25 @@ export class PurchaseInvoicePostingHandler implements DocumentPostingHandler {
     const activeReturn = await tx.purchaseReturn.findFirst({ where: { tenantId, originalPurchaseInvoiceId: document.id, postingStatus: 'POSTED' } });
     if (activeReturn) throw new PurchaseInvoiceHasReturnsError(document.id);
 
+    if (await this.settlementMovements.hasActiveAllocations(tenantId, PURCHASE_INVOICE_TYPE, document.id, tx)) {
+      throw new InvoiceHasSettlementsError(document.id);
+    }
+
     await tx.supplierPayable.deleteMany({ where: { tenantId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: document.id } });
+    await this.settlementMovements.removeExposureFor(tenantId, PURCHASE_INVOICE_TYPE, document.id, tx);
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: PURCHASE_INVOICE_TYPE, targetDocumentId: document.id, relationType: { in: [RelationTypes.RECEIPT_TO_INVOICE, RelationTypes.SUPPLIER_ORDER_TO_INVOICE] } } });
+  }
+
+  private async convertToBase(tenantId: string, currencyId: string, baseCurrencyId: string, amount: Decimal, invoiceExchangeRate: Decimal | null, businessDate: Date, tx: PrismaTransactionClient): Promise<Decimal> {
+    if (currencyId === baseCurrencyId) return amount;
+    if (invoiceExchangeRate) return amount.times(invoiceExchangeRate.toString()).toDecimalPlaces(2);
+    const [currency, baseCurrency] = await Promise.all([tx.currency.findUnique({ where: { id: currencyId } }), tx.currency.findUnique({ where: { id: baseCurrencyId } })]);
+    if (!currency || !baseCurrency) return amount;
+    try {
+      const rate = await this.currencyService.resolveRate({ tenantId, currencyCode: currency.code, baseCurrencyCode: baseCurrency.code, businessDate });
+      return amount.times(rate.rate.toString()).toDecimalPlaces(2);
+    } catch {
+      return amount;
+    }
   }
 }

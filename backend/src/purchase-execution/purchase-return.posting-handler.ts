@@ -15,6 +15,8 @@ import { InventoryLedgerService } from '../sales-execution/inventory-ledger.serv
 import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
+import { CurrencyService } from '../currency/currency.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -51,6 +53,8 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly fulfillment: PurchaseFulfillmentService,
     private readonly batchSerial: BatchSerialService,
+    private readonly settlementMovements: SettlementMovementService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -101,6 +105,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     let netTotal = new Decimal(0);
     let taxTotal = new Decimal(0);
     let grossTotal = new Decimal(0);
+    let invoicePortionGross = new Decimal(0);
 
     if (invoiceLines.length > 0) {
       const taxResults: TaxLineResult[] = [];
@@ -154,6 +159,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
       netTotal = netTotal.plus(invNet);
       grossTotal = grossTotal.plus(invGross);
       taxTotal = taxTotal.plus(invGross.minus(invNet));
+      invoicePortionGross = invGross;
 
       lines.push(
         { accountId: payable.id, side: 'DEBIT', amountBase: invGross, description: `Purchase return (post-invoice) — ${ret.number ?? ret.id}`, dimensions: [{ dimensionCode: 'PARTNER', referenceId: ret.counterpartyId }, { dimensionCode: 'COUNTERPARTY', referenceId: ret.counterpartyId }, { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: ret.id }, { dimensionCode: 'CURRENCY', referenceId: currencyId }] },
@@ -184,6 +190,22 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
           ],
         },
         { accountId: inventory.id, side: 'CREDIT', amountBase: grniNet, description: `Inventory decrease — return ${ret.number ?? ret.id}`, dimensions: [{ dimensionCode: 'PRODUCT', referenceId: receiptOnlyLines[0].productId }, { dimensionCode: 'WAREHOUSE', referenceId: ret.warehouseId! }] },
+      );
+    }
+
+    // Settlement Subledger (docx spec Phase 13, sections 36-37) — only the
+    // post-invoice portion (invGross) reduces AP; a pre-invoice return has
+    // no payable yet to reduce.
+    if (invoiceLines.length > 0 && ret.originalPurchaseInvoiceId) {
+      const baseCurrencyId =
+        (await tx.organization.findUnique({ where: { id: organizationId } }))?.baseCurrencyId ??
+        (await tx.tenant.findUnique({ where: { id: tenantId } }))?.baseCurrencyId ??
+        currencyId;
+      const baseAmount = currencyId === baseCurrencyId ? invoicePortionGross : await this.convertToBase(tenantId, currencyId, baseCurrencyId, invoicePortionGross, businessDate, tx);
+      await this.settlementMovements.reducePayable(
+        tenantId,
+        { organizationId, counterpartyId: ret.counterpartyId, sourceDocumentType: PURCHASE_INVOICE_TYPE, sourceDocumentId: ret.originalPurchaseInvoiceId, reasonDocumentType: PURCHASE_RETURN_TYPE, reasonDocumentId: ret.id, effectiveDate: businessDate, amount: invoicePortionGross, baseAmount, currencyId, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+        tx,
       );
     }
 
@@ -242,5 +264,17 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
       await this.batchSerial.undoIssuedSerials(tenantId, PURCHASE_RETURN_TYPE, lineIds, ret.warehouseId, tx);
     }
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: PURCHASE_RETURN_TYPE, targetDocumentId: document.id } });
+    await this.settlementMovements.reverseMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
+  }
+
+  private async convertToBase(tenantId: string, currencyId: string, baseCurrencyId: string, amount: Decimal, businessDate: Date, tx: PrismaTransactionClient): Promise<Decimal> {
+    const [currency, baseCurrency] = await Promise.all([tx.currency.findUnique({ where: { id: currencyId } }), tx.currency.findUnique({ where: { id: baseCurrencyId } })]);
+    if (!currency || !baseCurrency) return amount;
+    try {
+      const rate = await this.currencyService.resolveRate({ tenantId, currencyCode: currency.code, baseCurrencyCode: baseCurrency.code, businessDate });
+      return amount.times(rate.rate.toString()).toDecimalPlaces(2);
+    } catch {
+      return amount;
+    }
   }
 }

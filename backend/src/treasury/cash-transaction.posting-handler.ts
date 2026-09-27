@@ -8,6 +8,10 @@ import { AccountingMappingService } from '../accounting-core/accounting-mapping.
 import { AccountingPostingLineInput } from '../accounting-core/accounting-posting-engine.service';
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { CASH_TRANSACTION_TYPE } from './cash-transaction.repository';
+import { PaymentAllocationService } from '../settlement/payment-allocation.service';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
+import { SALES_INVOICE_TYPE } from '../sales-documents/sales-invoice.repository';
+import { PURCHASE_INVOICE_TYPE } from '../purchase-execution/purchase-invoice.repository';
 
 /**
  * Posting handler for CashTransaction (Kassa mədaxil/məxaric). Posting IS
@@ -33,6 +37,8 @@ export class CashTransactionPostingHandler implements DocumentPostingHandler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mappings: AccountingMappingService,
+    private readonly settlementAllocations: PaymentAllocationService,
+    private readonly settlementMovements: SettlementMovementService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -123,6 +129,29 @@ export class CashTransactionPostingHandler implements DocumentPostingHandler {
       await this.applyToSupplierPayable(tenantId, txn.sourcePurchaseInvoiceId, amount, tx);
     }
 
+    // Settlement Subledger (docx spec Phase 13) — additive alongside the
+    // legacy paidAmount update above. Named-invoice payments allocate
+    // against that invoice's own open item(s); an unnamed payment becomes
+    // a customer/supplier advance rather than being lost (spec section 22).
+    if (currencyId && (txn.category === 'CUSTOMER_PAYMENT' || txn.category === 'SUPPLIER_PAYMENT') && txn.counterpartyId) {
+      const role = txn.category === 'CUSTOMER_PAYMENT' ? 'CUSTOMER' : 'SUPPLIER';
+      const targetInvoiceType = txn.category === 'CUSTOMER_PAYMENT' ? SALES_INVOICE_TYPE : PURCHASE_INVOICE_TYPE;
+      const targetInvoiceId = txn.category === 'CUSTOMER_PAYMENT' ? txn.sourceSalesInvoiceId : txn.sourcePurchaseInvoiceId;
+      if (targetInvoiceId) {
+        await this.settlementAllocations.allocateToDocument(
+          tenantId,
+          { organizationId, counterpartyId: txn.counterpartyId, role, paymentDocumentType: CASH_TRANSACTION_TYPE, paymentDocumentId: txn.id, paymentCurrencyId: currencyId, paymentDate: businessDate, paymentAmount: amount, targetSourceDocumentType: targetInvoiceType, targetSourceDocumentId: targetInvoiceId, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+          tx,
+        );
+      } else {
+        await this.settlementMovements.createAdvance(
+          tenantId,
+          { organizationId, counterpartyId: txn.counterpartyId, role, sourceDocumentType: CASH_TRANSACTION_TYPE, sourceDocumentId: txn.id, effectiveDate: businessDate, currencyId, amount, baseAmount: amount, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+          tx,
+        );
+      }
+    }
+
     return { description: `Cash transaction ${txn.number ?? txn.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
   }
 
@@ -140,6 +169,8 @@ export class CashTransactionPostingHandler implements DocumentPostingHandler {
     if (txn.category === 'SUPPLIER_PAYMENT' && txn.sourcePurchaseInvoiceId) {
       await this.applyToSupplierPayable(tenantId, txn.sourcePurchaseInvoiceId, amount.neg(), tx);
     }
+
+    await this.settlementAllocations.reverseForPaymentDocument(tenantId, txn.organizationId, CASH_TRANSACTION_TYPE, txn.id, document.postedBy ?? document.createdBy ?? undefined, tx);
   }
 
   private async applyToSettlementObligation(tenantId: string, salesInvoiceId: string, delta: Decimal, tx: PrismaTransactionClient) {

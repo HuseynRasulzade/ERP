@@ -339,6 +339,24 @@ export const PermissionCodes = {
   INVENTORY_COUNT_RECONCILE: 'inventory_count.reconcile',
   INVENTORY_COUNT_CLOSE: 'inventory_count.close',
   INVENTORY_COUNT_CANCEL: 'inventory_count.cancel',
+
+  // Counterparty Settlement Engine (docx spec Phase 13)
+  SETTLEMENT_VIEW: 'settlement.view',
+  SETTLEMENT_VIEW_ALL: 'settlement.view_all',
+  SETTLEMENT_ALLOCATE: 'settlement.allocate',
+  SETTLEMENT_AUTO_ALLOCATE: 'settlement.auto_allocate',
+  SETTLEMENT_REVERSE_ALLOCATION: 'settlement.reverse_allocation',
+  SETTLEMENT_APPLY_ADVANCE: 'settlement.apply_advance',
+  SETTLEMENT_CREATE_ADJUSTMENT: 'settlement.create_adjustment',
+  SETTLEMENT_APPROVE_ADJUSTMENT: 'settlement.approve_adjustment',
+  SETTLEMENT_WRITE_OFF: 'settlement.write_off',
+  SETTLEMENT_OFFSET: 'settlement.offset',
+  SETTLEMENT_RECONCILE: 'settlement.reconcile',
+  SETTLEMENT_VIEW_FX: 'settlement.view_fx',
+  SETTLEMENT_OVERRIDE_FX: 'settlement.override_fx',
+  SETTLEMENT_VIEW_ACCOUNTING: 'settlement.view_accounting',
+  SETTLEMENT_OVERRIDE_CONTRACT: 'settlement.override_contract',
+  SETTLEMENT_PERIOD_OVERRIDE: 'settlement.period_override',
 } as const;
 
 export const ALL_PERMISSION_CODES: { code: string; module: string; description: string }[] = [
@@ -652,4 +670,21 @@ export const ALL_PERMISSION_CODES: { code: string; module: string; description: 
   { code: PermissionCodes.INVENTORY_COUNT_RECONCILE, module: 'inventory_count', description: 'Run and view count reconciliation' },
   { code: PermissionCodes.INVENTORY_COUNT_CLOSE, module: 'inventory_count', description: 'Close a completed count session' },
   { code: PermissionCodes.INVENTORY_COUNT_CANCEL, module: 'inventory_count', description: 'Cancel a count plan or session' },
+
+  { code: PermissionCodes.SETTLEMENT_VIEW, module: 'settlement', description: 'View settlement open items, balances, and reports' },
+  { code: PermissionCodes.SETTLEMENT_VIEW_ALL, module: 'settlement', description: 'View settlement data across all counterparties/organizations' },
+  { code: PermissionCodes.SETTLEMENT_ALLOCATE, module: 'settlement', description: 'Manually allocate a payment against open items' },
+  { code: PermissionCodes.SETTLEMENT_AUTO_ALLOCATE, module: 'settlement', description: 'Trigger automatic payment allocation' },
+  { code: PermissionCodes.SETTLEMENT_REVERSE_ALLOCATION, module: 'settlement', description: 'Reverse a payment allocation' },
+  { code: PermissionCodes.SETTLEMENT_APPLY_ADVANCE, module: 'settlement', description: 'Apply a customer/supplier advance to an open item' },
+  { code: PermissionCodes.SETTLEMENT_CREATE_ADJUSTMENT, module: 'settlement', description: 'Create a manual debt adjustment' },
+  { code: PermissionCodes.SETTLEMENT_APPROVE_ADJUSTMENT, module: 'settlement', description: 'Approve and post a debt adjustment' },
+  { code: PermissionCodes.SETTLEMENT_WRITE_OFF, module: 'settlement', description: 'Write off a receivable/payable balance' },
+  { code: PermissionCodes.SETTLEMENT_OFFSET, module: 'settlement', description: 'Create and post an AR/AP offset (netting)' },
+  { code: PermissionCodes.SETTLEMENT_RECONCILE, module: 'settlement', description: 'Generate and confirm counterparty reconciliation statements' },
+  { code: PermissionCodes.SETTLEMENT_VIEW_FX, module: 'settlement', description: 'View realized FX detail on settlement allocations' },
+  { code: PermissionCodes.SETTLEMENT_OVERRIDE_FX, module: 'settlement', description: 'Manually override an exchange rate used in settlement' },
+  { code: PermissionCodes.SETTLEMENT_VIEW_ACCOUNTING, module: 'settlement', description: 'View the accounting/GL side of settlement documents' },
+  { code: PermissionCodes.SETTLEMENT_OVERRIDE_CONTRACT, module: 'settlement', description: 'Reclassify an open item to a different contract or counterparty' },
+  { code: PermissionCodes.SETTLEMENT_PERIOD_OVERRIDE, module: 'settlement', description: 'Post a settlement adjustment into a locked period' },
 ];

@@ -103,19 +103,40 @@ export class NumberingService {
       const year = businessDate.getUTCFullYear();
       const month = businessDate.getUTCMonth() + 1;
 
+      // A backdated document (an earlier year/month than the highest
+      // period already recorded) must never rewind the cursor — doing so
+      // would reset next_number back to 1 and collide with numbers
+      // already handed out for the recorded (later) period. Only a
+      // business date at or after the recorded high-water mark is treated
+      // as entering a genuinely new period.
+      const currentYear = sequence.current_year;
+      const currentMonth = sequence.current_month;
+      const isAtOrAfterRecordedPeriod =
+        currentYear === null ||
+        (sequence.reset_policy === 'YEARLY'
+          ? year >= currentYear
+          : year * 12 + month >= currentYear * 12 + (currentMonth ?? 1));
+
       const needsReset =
-        (sequence.reset_policy === 'YEARLY' && sequence.current_year !== year) ||
-        (sequence.reset_policy === 'MONTHLY' &&
-          (sequence.current_year !== year || sequence.current_month !== month));
+        isAtOrAfterRecordedPeriod &&
+        ((sequence.reset_policy === 'YEARLY' && currentYear !== year) ||
+          (sequence.reset_policy === 'MONTHLY' && (currentYear !== year || currentMonth !== month)));
 
       const allocated = needsReset ? 1n : sequence.next_number;
       const nextStored = allocated + 1n;
 
+      // Likewise, only advance the recorded period forward; a backdated
+      // allocation still consumes the next running number (keeping
+      // formatted numbers unique) but leaves current_year/current_month
+      // at whatever forward period was already recorded.
+      const recordedYear = isAtOrAfterRecordedPeriod ? year : currentYear;
+      const recordedMonth = isAtOrAfterRecordedPeriod ? month : currentMonth;
+
       await client.$executeRawUnsafe(
         `UPDATE number_sequences SET next_number = $1, current_year = $2, current_month = $3 WHERE id = $4`,
         nextStored,
-        year,
-        month,
+        recordedYear,
+        recordedMonth,
         sequence.id,
       );
 

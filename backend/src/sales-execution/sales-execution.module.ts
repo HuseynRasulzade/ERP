@@ -10,6 +10,8 @@ import { SalesPreorderModule } from '../sales-preorder/sales-preorder.module';
 import { WarehouseInventoryModule } from '../warehouse-inventory/warehouse-inventory.module';
 import { InventoryCostingModule } from '../inventory-costing/inventory-costing.module';
 import { InventoryFreezeModule } from '../inventory-count/inventory-freeze.module';
+import { SettlementModule } from '../settlement/settlement.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { CostingService } from './costing.service';
@@ -53,6 +55,8 @@ import { SalesReturnController } from './sales-return.controller';
     WarehouseInventoryModule,
     InventoryCostingModule,
     InventoryFreezeModule,
+    SettlementModule,
+    CurrencyModule,
   ],
   controllers: [ShipmentController, SalesReturnController],
   providers: [

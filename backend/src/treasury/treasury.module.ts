@@ -7,6 +7,8 @@ import { OrgStructureModule } from '../org-structure/org-structure.module';
 import { AccountingCoreModule } from '../accounting-core/accounting-core.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
+import { SettlementModule } from '../settlement/settlement.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 import { PaymentRequestService } from './payment-request.service';
 import { PaymentRequestController } from './payment-request.controller';
@@ -40,7 +42,7 @@ import { CashFlowReportController } from './cash-flow-report.controller';
  * posts), matching PurchaseRequirement's shape.
  */
 @Module({
-  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule, ApprovalsModule],
+  imports: [DocumentFrameworkModule, NumberingModule, AuditModule, OrgStructureModule, AccountingCoreModule, ApprovalsModule, SettlementModule, CurrencyModule],
   controllers: [PaymentRequestController, PaymentOrderController, CashTransactionController, BankReconciliationController, BankController, CashFlowReportController],
   providers: [
     PaymentRequestService,

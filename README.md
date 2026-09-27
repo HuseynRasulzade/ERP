@@ -291,6 +291,30 @@ and the count.
 
 Full write-up: [`backend/docs/INVENTORY_COUNT.md`](backend/docs/INVENTORY_COUNT.md).
 
+### Counterparty Settlement Engine
+
+A real subledger for what Sales/Purchase Invoice, Sales/Purchase Return,
+Cash Transaction, and Payment Order all touch today only through mutable
+`SettlementObligation`/`SupplierPayable` fields. `SettlementMovement` is
+the append-only source of truth (never updated, only inserted);
+`SettlementOpenItem` is a rebuildable balance projection over it, one row
+per source document (or per payment-schedule installment when the order
+behind the invoice has one), concurrency-safe via an advisory lock
+acquired *before* its remaining balance is read. `PaymentAllocationService`
+settles a payment against one or many open items (manual, FIFO-auto, or
+consuming an existing advance), computing realized FX from the open
+item's own historical unit base rate — never the payment's current rate —
+so a payment in a different rate environment than its invoice still nets
+to the right base-currency gain/loss. Also: AR/AP offset (nets a
+counterparty's own receivable against its own payable), debt
+write-off/increase/reclassification (creator can never approve their own
+adjustment), due-date ageing (never document-date, always the remaining
+balance, advances excluded), a callable credit-exposure interface, and a
+live settlement health check. Built additively — every existing consumer
+of the legacy fields keeps working unchanged.
+
+Full write-up: [`backend/docs/SETTLEMENT.md`](backend/docs/SETTLEMENT.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -320,6 +344,7 @@ Policy, Tax Profile, Access).
 | `backend/test/purchase-execution.e2e-spec.ts` | 8 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, tenant isolation |
 | `backend/test/warehouse-inventory.e2e-spec.ts` | 7 | Instant warehouse transfer (source decrease + destination increase in one post), negative-stock-blocked transfer, two-step transfer (ship ⇒ IN_TRANSIT, partial receive, over-receive rejection, unpost blocked after any receive), internal consumption physical decrease, inventory adjustment write-off/surplus, inventory status transfer (quantity unchanged, only status moves), tenant isolation |
 | `backend/test/inventory-count.e2e-spec.ts` | 13 | Zero-variance count with no adjustment, shortage/surplus full lifecycle (variance ⇒ decide ⇒ approve ⇒ post ⇒ reconcile), blind count, post-snapshot movement reconciliation under NO_FREEZE, location and batch mismatch surfaced even at a net-zero product total, serial mismatch at matching quantity, recount (original preserved, final approved count wins), HARD_FREEZE blocking an unrelated posting, uncounted vs. explicit zero, idempotent adjustment posting, stale-reconciliation block under a concurrent movement, tenant isolation |
+| `backend/test/settlement.e2e-spec.ts` | 17 | Basic receivable + full payment, partial payment, multiple payments accumulating to zero, one payment auto-allocated FIFO across multiple invoices, customer/supplier advances incl. partial application, overpayment becoming a customer advance, sales return after full payment producing a credit position, AR/AP offset, write-off with segregation of duties (self-approval rejected), due-date ageing on the remaining balance only, realized FX on full and partial foreign-currency payments, concurrent over-allocation safety, invoice-unpost blocked by an active allocation, counterparty reconciliation statement, tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -373,5 +398,21 @@ All run against a real PostgreSQL instance — no mocked database.
   wiring into Goods Receipt/Shipment yet; boolean negative-stock policy,
   not the spec's 3-state enum — see docs/WAREHOUSE_INVENTORY.md for the
   full list. No frontend UI yet.
+- **Inventory Count / Reconciliation Engine** — ✅ done, tested,
+  documented. Variance never collapses to a per-product net; reuses
+  Phase 10's existing `InventoryAdjustment`/`WarehouseTransfer`/
+  `InventoryStatusTransfer` documents rather than a fourth posting
+  mechanism; see docs/INVENTORY_COUNT.md for the full list of disclosed
+  simplifications (no counter-vs-approver enforcement beyond the
+  permission gate, latest-recount-wins, no printable sheets/offline sync).
+- **Counterparty Settlement Engine** — ✅ done, tested, documented. A real
+  append-only `SettlementMovement` ledger + rebuildable `SettlementOpenItem`
+  projection, built additively alongside the legacy
+  `SettlementObligation`/`SupplierPayable` fields every other module still
+  reads. Realized FX is computed and stored but not yet posted to GL;
+  cross-currency settlement is blocked rather than converted; credit
+  exposure is a callable interface Sales Pre-Order/Execution don't call
+  yet; AR/AP-vs-GL health check is a placeholder — see
+  docs/SETTLEMENT.md.
 - **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
   started. Later phases building on this foundation.

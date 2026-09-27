@@ -17,6 +17,9 @@ import { AccountingPostingLineInput } from '../accounting-core/accounting-postin
 import { MappingKeys } from '../accounting-core/accounting-dimension-codes';
 import { CostingService } from '../sales-execution/costing.service';
 import { SHIPMENT_TYPE } from '../sales-execution/shipment.repository';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
+import { CurrencyService } from '../currency/currency.service';
+import { InvoiceHasSettlementsError } from '../common/errors/app-error';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -58,6 +61,8 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
     private readonly taxRegister: TaxRegisterService,
     private readonly mappings: AccountingMappingService,
     private readonly costing: CostingService,
+    private readonly settlementMovements: SettlementMovementService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async validateForPosting(
@@ -297,6 +302,29 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
       },
     });
 
+    // Settlement Subledger (docx spec Phase 13) — additive alongside the
+    // SettlementObligation row above (kept unchanged for every existing
+    // consumer). Splits into the source order's own payment-schedule
+    // installments when one exists (spec section 15), scaled to THIS
+    // invoice's own gross total.
+    const counterpartyForDueDate = await tx.counterparty.findFirst({ where: { id: invoice.counterpartyId, tenantId } });
+    const defaultDueDate = counterpartyForDueDate?.paymentTerms ? new Date(businessDate.getTime() + counterpartyForDueDate.paymentTerms * 86_400_000) : businessDate;
+    const scheduleLines = await this.resolvePaymentSchedule(tenantId, invoice.lines, tx);
+    // Same org->tenant fallback chain as currencyId's own resolution above
+    // (lines 154-162) — an org without its own baseCurrencyId still has
+    // the tenant's, and that (not the invoice's own currency) is what FX
+    // conversion is against.
+    const baseCurrencyId =
+      (await tx.organization.findUnique({ where: { id: organizationId } }))?.baseCurrencyId ??
+      (await tx.tenant.findUnique({ where: { id: tenantId } }))?.baseCurrencyId ??
+      currencyId;
+    const invoiceBaseAmount = await this.convertToBase(tenantId, currencyId, baseCurrencyId, grossTotal, invoice.exchangeRate, businessDate, tx);
+    await this.settlementMovements.createReceivable(
+      tenantId,
+      { organizationId, counterpartyId: invoice.counterpartyId, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: invoice.id, sourceDocumentNumber: invoice.number, sourceDate: businessDate, currencyId, grossAmount: grossTotal, baseAmount: invoiceBaseAmount, defaultDueDate, scheduleLines, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+      tx,
+    );
+
     await tx.salesInvoice.update({
       where: { id: invoice.id },
       data: { taxPointDate, amountDue: grossTotal.toString() },
@@ -317,7 +345,15 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
     });
     if (activeReturn) throw new InvoiceHasReturnsError(document.id);
 
+    // Settlement unpost dependency (spec section 89): never unpost while a
+    // payment allocation is still active against this invoice's own open
+    // items — the user must reverse the allocation first.
+    if (await this.settlementMovements.hasActiveAllocations(tenantId, SALES_INVOICE_TYPE, document.id, tx)) {
+      throw new InvoiceHasSettlementsError(document.id);
+    }
+
     await tx.settlementObligation.deleteMany({ where: { tenantId, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: document.id } });
+    await this.settlementMovements.removeExposureFor(tenantId, SALES_INVOICE_TYPE, document.id, tx);
     await tx.documentLineLink.deleteMany({
       where: { tenantId, targetDocumentType: SALES_INVOICE_TYPE, targetDocumentId: document.id, relationType: { in: ['ORDER_TO_INVOICE', 'SHIPMENT_TO_INVOICE'] } },
     });
@@ -326,6 +362,33 @@ export class SalesInvoicePostingHandler implements DocumentPostingHandler {
   private async resolveOrderIdForLine(tx: PrismaTransactionClient, tenantId: string, salesOrderLineId: string): Promise<string | null> {
     const line = await tx.salesOrderLine.findFirst({ where: { id: salesOrderLineId, tenantId } });
     return line?.salesOrderId ?? null;
+  }
+
+  /** Splits the invoice's own gross total across its source order's
+   * `OrderPaymentSchedule` (spec section 15), proportioned by each
+   * installment's own share of the order total — `SettlementMovementService`
+   * further rescales this to the invoice's own (possibly partial) total. */
+  private async resolvePaymentSchedule(tenantId: string, lines: Array<{ sourceOrderLineId: string | null }>, tx: PrismaTransactionClient) {
+    const orderLineId = lines.find((l) => l.sourceOrderLineId)?.sourceOrderLineId;
+    if (!orderLineId) return undefined;
+    const orderLine = await tx.salesOrderLine.findFirst({ where: { id: orderLineId, tenantId } });
+    if (!orderLine) return undefined;
+    const schedule = await tx.orderPaymentSchedule.findMany({ where: { tenantId, salesOrderId: orderLine.salesOrderId }, orderBy: { sequence: 'asc' } });
+    if (schedule.length === 0) return undefined;
+    return schedule.map((s) => ({ sequence: s.sequence, dueDate: s.dueDate, amount: s.amount.toString() }));
+  }
+
+  private async convertToBase(tenantId: string, currencyId: string, baseCurrencyId: string, amount: Decimal, invoiceExchangeRate: Decimal | null, businessDate: Date, tx: PrismaTransactionClient): Promise<Decimal> {
+    if (currencyId === baseCurrencyId) return amount;
+    if (invoiceExchangeRate) return amount.times(invoiceExchangeRate.toString()).toDecimalPlaces(2);
+    const [currency, baseCurrency] = await Promise.all([tx.currency.findUnique({ where: { id: currencyId } }), tx.currency.findUnique({ where: { id: baseCurrencyId } })]);
+    if (!currency || !baseCurrency) return amount;
+    try {
+      const rate = await this.currencyService.resolveRate({ tenantId, currencyCode: currency.code, baseCurrencyCode: baseCurrency.code, businessDate });
+      return amount.times(rate.rate.toString()).toDecimalPlaces(2);
+    } catch {
+      return amount; // no rate on file — no fabricated conversion
+    }
   }
 
   private async buildCogsLines(

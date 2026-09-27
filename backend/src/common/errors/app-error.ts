@@ -124,6 +124,12 @@ export const ErrorCode = {
   COUNT_RECOUNT_PENDING: 'COUNT_RECOUNT_PENDING',
   COUNT_RECONCILIATION_STALE: 'COUNT_RECONCILIATION_STALE',
   COUNT_ADJUSTMENT_COSTING_UNRESOLVED: 'COUNT_ADJUSTMENT_COSTING_UNRESOLVED',
+
+  SETTLEMENT_ALLOCATION_EXCEEDS_REMAINING: 'SETTLEMENT_ALLOCATION_EXCEEDS_REMAINING',
+  SETTLEMENT_CROSS_CURRENCY_BLOCKED: 'SETTLEMENT_CROSS_CURRENCY_BLOCKED',
+  SETTLEMENT_COUNTERPARTY_MISMATCH: 'SETTLEMENT_COUNTERPARTY_MISMATCH',
+  SETTLEMENT_CROSS_COUNTERPARTY_OFFSET_BLOCKED: 'SETTLEMENT_CROSS_COUNTERPARTY_OFFSET_BLOCKED',
+  SETTLEMENT_CONCURRENT_ALLOCATION: 'SETTLEMENT_CONCURRENT_ALLOCATION',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -785,5 +791,35 @@ export class CountReconciliationStaleError extends AppError {
 export class CountAdjustmentCostingUnresolvedError extends AppError {
   constructor(productId: string) {
     super(ErrorCode.COUNT_ADJUSTMENT_COSTING_UNRESOLVED, `Shortage adjustment cannot be costed because inventory costing for product ${productId} is unresolved`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class AllocationAmountExceedsError extends AppError {
+  constructor(sourceRef: string, remaining: string, requested: string) {
+    super(ErrorCode.SETTLEMENT_ALLOCATION_EXCEEDS_REMAINING, `${sourceRef} has only ${remaining} outstanding; allocation of ${requested} is not allowed`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class AllocationCrossCurrencyBlockedError extends AppError {
+  constructor() {
+    super(ErrorCode.SETTLEMENT_CROSS_CURRENCY_BLOCKED, 'This settlement cannot be allocated because cross-currency settlement is disabled', HttpStatus.CONFLICT);
+  }
+}
+
+export class SettlementCounterpartyMismatchError extends AppError {
+  constructor() {
+    super(ErrorCode.SETTLEMENT_COUNTERPARTY_MISMATCH, 'Payment and invoice belong to different counterparties', HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+export class OffsetCrossCounterpartyBlockedError extends AppError {
+  constructor() {
+    super(ErrorCode.SETTLEMENT_CROSS_COUNTERPARTY_OFFSET_BLOCKED, 'Cross-counterparty offset is disabled by default — a controlled operation with special permission is required', HttpStatus.CONFLICT);
+  }
+}
+
+export class SettlementConcurrentAllocationError extends AppError {
+  constructor() {
+    super(ErrorCode.SETTLEMENT_CONCURRENT_ALLOCATION, 'This open item was modified concurrently — reload and retry the allocation', HttpStatus.CONFLICT);
   }
 }

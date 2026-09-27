@@ -20,6 +20,8 @@ import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 import { SHIPMENT_TYPE } from './shipment.repository';
+import { SettlementMovementService } from '../settlement/settlement-movement.service';
+import { CurrencyService } from '../currency/currency.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -56,6 +58,8 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     private readonly inventory: InventoryLedgerService,
     private readonly batchSerial: BatchSerialService,
     private readonly costing: InventoryCostingService,
+    private readonly settlementMovements: SettlementMovementService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -190,6 +194,23 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
       },
     ];
 
+    // Settlement Subledger (docx spec Phase 13, sections 34-35) — reduces
+    // the original invoice's own open item(s); allowed to go negative on
+    // the last item touched when the return exceeds what remains (a real
+    // customer credit position), never blocked and never hidden.
+    if (ret.originalSalesInvoiceId) {
+      const baseCurrencyId =
+        (await tx.organization.findUnique({ where: { id: organizationId } }))?.baseCurrencyId ??
+        (await tx.tenant.findUnique({ where: { id: tenantId } }))?.baseCurrencyId ??
+        currencyId;
+      const baseAmount = currencyId === baseCurrencyId ? grossTotal : await this.convertToBase(tenantId, currencyId, baseCurrencyId, grossTotal, businessDate, tx);
+      await this.settlementMovements.reduceReceivable(
+        tenantId,
+        { organizationId, counterpartyId: ret.counterpartyId, sourceDocumentType: SALES_INVOICE_TYPE, sourceDocumentId: ret.originalSalesInvoiceId, reasonDocumentType: SALES_RETURN_TYPE, reasonDocumentId: ret.id, effectiveDate: businessDate, amount: grossTotal, baseAmount, currencyId, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+        tx,
+      );
+    }
+
     if (ret.returnType === 'PHYSICAL_RETURN' && ret.warehouseId) {
       for (const line of ret.lines) {
         const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, SALES_RETURN_TYPE, line.id, tx);
@@ -291,5 +312,17 @@ export class SalesReturnPostingHandler implements DocumentPostingHandler {
     await this.costing.removeCostMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
     await this.batchSerial.undoReturnedSerials(tenantId, SALES_RETURN_TYPE, lineIds, tx);
+    await this.settlementMovements.reverseMovementsFor(tenantId, SALES_RETURN_TYPE, document.id, tx);
+  }
+
+  private async convertToBase(tenantId: string, currencyId: string, baseCurrencyId: string, amount: Decimal, businessDate: Date, tx: PrismaTransactionClient): Promise<Decimal> {
+    const [currency, baseCurrency] = await Promise.all([tx.currency.findUnique({ where: { id: currencyId } }), tx.currency.findUnique({ where: { id: baseCurrencyId } })]);
+    if (!currency || !baseCurrency) return amount;
+    try {
+      const rate = await this.currencyService.resolveRate({ tenantId, currencyCode: currency.code, baseCurrencyCode: baseCurrency.code, businessDate });
+      return amount.times(rate.rate.toString()).toDecimalPlaces(2);
+    } catch {
+      return amount;
+    }
   }
 }

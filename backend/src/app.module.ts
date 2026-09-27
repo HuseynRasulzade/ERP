@@ -38,6 +38,7 @@ import { TreasuryModule } from './treasury/treasury.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
 import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
 import { InventoryCountModule } from './inventory-count/inventory-count.module';
+import { SettlementModule } from './settlement/settlement.module';
 import { CounterpartyContractsModule } from './counterparty-contracts/counterparty-contracts.module';
 import { PrintFormsModule } from './print-forms/print-forms.module';
 
@@ -122,6 +123,7 @@ import { PrintFormsModule } from './print-forms/print-forms.module';
     // top of Phase 10/11's stock and valuation truth; see
     // docs/INVENTORY_COUNT.md).
     InventoryCountModule,
+    SettlementModule,
 
     // "Kontragentlər" — counterparty contracts, amendments, and document
     // attachments (extends Phase 3's CounterpartyPricingModule).

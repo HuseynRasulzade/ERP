@@ -180,6 +180,15 @@ model Tenant {
   inventoryCountAdjustmentLinks InventoryCountAdjustmentLink[]
   inventoryCountReconciliations InventoryCountReconciliation[]
 
+  // Counterparty Settlement Engine (docx spec Phase 13)
+  settlementMovements         SettlementMovement[]
+  settlementOpenItems         SettlementOpenItem[]
+  settlementAllocations       SettlementAllocation[]
+  settlementOffsets           SettlementOffset[]
+  debtAdjustments             DebtAdjustment[]
+  settlementReconciliations   SettlementReconciliation[]
+  settlementBalanceSnapshots  SettlementBalanceSnapshot[]
+
   @@map("tenants")
 }
 
@@ -297,6 +306,15 @@ model Organization {
   // Inventory Count / Reconciliation Engine (docx spec Phase 12)
   inventoryCountPlans    InventoryCountPlan[]
   inventoryCountSessions InventoryCountSession[]
+
+  // Counterparty Settlement Engine (docx spec Phase 13)
+  settlementMovements         SettlementMovement[]
+  settlementOpenItems         SettlementOpenItem[]
+  settlementAllocations       SettlementAllocation[]
+  settlementOffsets           SettlementOffset[]
+  debtAdjustments             DebtAdjustment[]
+  settlementReconciliations   SettlementReconciliation[]
+  settlementBalanceSnapshots  SettlementBalanceSnapshot[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1620,6 +1638,15 @@ model Counterparty {
   PaymentRequest               PaymentRequest[]
   PaymentOrder                 PaymentOrder[]
   CashTransaction              CashTransaction[]
+
+  // Counterparty Settlement Engine (docx spec Phase 13)
+  settlementMovementsAsCounterparty     SettlementMovement[]       @relation("SettlementMovementCounterparty")
+  settlementOpenItemsAsCounterparty     SettlementOpenItem[]       @relation("SettlementOpenItemCounterparty")
+  settlementAllocationsAsCounterparty   SettlementAllocation[]     @relation("SettlementAllocationCounterparty")
+  settlementOffsetsAsCounterparty       SettlementOffset[]         @relation("SettlementOffsetCounterparty")
+  debtAdjustmentsAsCounterparty         DebtAdjustment[]           @relation("DebtAdjustmentCounterparty")
+  settlementReconciliationsAsCounterparty SettlementReconciliation[] @relation("SettlementReconciliationCounterparty")
+  settlementBalanceSnapshotsAsCounterparty SettlementBalanceSnapshot[] @relation("SettlementBalanceSnapshotCounterparty")
 
   @@unique([organizationId, code])
   @@unique([organizationId, taxId])
@@ -3823,6 +3850,327 @@ model SupplierPayable {
   @@index([organizationId, counterpartyId, status])
   @@map("supplier_payables")
 }
+
+// ============================================================================
+// COUNTERPARTY SETTLEMENT ENGINE (docx spec Phase 13)
+//
+// A genuine, additive rebuild of AR/AP alongside the pre-existing
+// SettlementObligation/SupplierPayable mutable running-totals above (kept
+// unchanged — nothing reads them differently, no existing test breaks).
+// Those single-invoice, single-currency, no-open-item rows remain a
+// legacy convenience view; this is the new authoritative subledger.
+// See backend/docs/SETTLEMENT.md.
+//
+// Never a per-product net, never a per-invoice mutable field: debitor/
+// creditor debt is the audit-able RESULT of immutable SettlementMovement
+// rows — SettlementOpenItem is a rebuildable projection over them (spec
+// section 6: "Bu entity projection ola bilər. Authoritative movement-lər
+// settlement register-da qalmalıdır").
+// ============================================================================
+
+/// Immutable settlement ledger (spec section 4) — every AR/AP-affecting
+/// event (accrual, allocation, advance, offset, write-off, FX, opening
+/// balance) writes exactly one row here and it is NEVER updated or
+/// deleted afterward; a correction is always a new, opposite-signed row
+/// (`reversalOfMovementId` traces it back). `amount`/`baseAmount` are
+/// SIGNED (positive increases the counterparty's exposure in that
+/// direction, negative decreases it) — spec section 5's own semantic
+/// movement types carry the business meaning; GL debit/credit is a
+/// completely separate axis handled by `AccountingPostingEngine`.
+model SettlementMovement {
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  organizationId        String   @map("organization_id")
+  branchId              String?  @map("branch_id")
+  counterpartyId        String   @map("counterparty_id")
+  counterpartyRole      String   @map("counterparty_role") // CUSTOMER | SUPPLIER
+  contractId            String?  @map("contract_id")
+  settlementDimensionType String @default("BY_DOCUMENT") @map("settlement_dimension_type")
+  openItemId            String?  @map("open_item_id")
+  currencyId            String?  @map("currency_id")
+  dueDate               DateTime? @map("due_date") @db.Date
+  movementType          String   @map("movement_type") // spec section 5 enum
+  amount                Decimal  @db.Decimal(18, 2) // transaction currency, signed
+  baseAmount            Decimal  @map("base_amount") @db.Decimal(18, 2) // base/accounting currency, signed
+  exchangeRate          Decimal? @map("exchange_rate") @db.Decimal(24, 10)
+  sourceDocumentType    String   @map("source_document_type")
+  sourceDocumentId      String   @map("source_document_id")
+  sourceDocumentLineId  String?  @map("source_document_line_id")
+  reversalOfMovementId  String?  @map("reversal_of_movement_id")
+  effectiveDate         DateTime @map("effective_date") @db.Date
+  postingDate           DateTime @map("posting_date") @db.Date
+  description           String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty          @relation("SettlementMovementCounterparty", fields: [counterpartyId], references: [id])
+  openItem     SettlementOpenItem?   @relation(fields: [openItemId], references: [id])
+
+  @@index([tenantId, organizationId, counterpartyId])
+  @@index([tenantId, openItemId])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([tenantId, effectiveDate])
+  @@map("settlement_movements")
+}
+
+/// Open-item projection (spec sections 6-7) — one row per source document,
+/// or per `OrderPaymentSchedule` installment when the source order has
+/// one (spec section 15). Rebuildable from `SettlementMovement` at any
+/// time; never the authoritative source itself.
+model SettlementOpenItem {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  organizationId       String    @map("organization_id")
+  counterpartyId       String    @map("counterparty_id")
+  counterpartyRole     String    @map("counterparty_role") // CUSTOMER | SUPPLIER
+  itemType             String    @default("RECEIVABLE") @map("item_type") // RECEIVABLE|PAYABLE|CUSTOMER_ADVANCE|SUPPLIER_ADVANCE
+  contractId           String?   @map("contract_id")
+  sourceDocumentType   String    @map("source_document_type")
+  sourceDocumentId     String    @map("source_document_id")
+  sourceDocumentNumber String?   @map("source_document_number")
+  scheduleLineSequence Int?      @map("schedule_line_sequence") // which OrderPaymentSchedule installment, if any
+  sourceDate           DateTime  @map("source_date") @db.Date
+  dueDate              DateTime? @map("due_date") @db.Date
+  currencyId           String?   @map("currency_id")
+  originalAmount       Decimal   @map("original_amount") @db.Decimal(18, 2)
+  originalBaseAmount   Decimal   @map("original_base_amount") @db.Decimal(18, 2)
+  allocatedAmount      Decimal   @default(0) @map("allocated_amount") @db.Decimal(18, 2)
+  allocatedBaseAmount  Decimal   @default(0) @map("allocated_base_amount") @db.Decimal(18, 2)
+  remainingAmount      Decimal   @map("remaining_amount") @db.Decimal(18, 2)
+  remainingBaseAmount  Decimal   @map("remaining_base_amount") @db.Decimal(18, 2)
+  status               String    @default("OPEN") // OPEN|PARTIALLY_SETTLED|SETTLED|DISPUTED|ON_HOLD|WRITTEN_OFF|CANCELLED (OVERDUE computed live)
+  disputedAmount       Decimal   @default(0) @map("disputed_amount") @db.Decimal(18, 2)
+  blockedForPayment    Boolean   @default(false) @map("blocked_for_payment")
+  collectionStatus     String    @default("NORMAL") @map("collection_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty         @relation("SettlementOpenItemCounterparty", fields: [counterpartyId], references: [id])
+  movements    SettlementMovement[]
+  allocations  SettlementAllocation[] @relation("AllocationTargetOpenItem")
+  sourceAllocations SettlementAllocation[] @relation("AllocationSourceOpenItem")
+  debtAdjustmentLines DebtAdjustmentLine[]
+  offsetLines  SettlementOffsetLine[]
+
+  @@index([tenantId, organizationId, counterpartyId, status])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@index([tenantId, itemType, status])
+  @@index([tenantId, dueDate])
+  @@map("settlement_open_items")
+}
+
+/// Links a payment (or an existing advance/credit open item) to the open
+/// item it settles (spec section 16). `sourceOpenItemId` is set only when
+/// the funds being applied come from an existing ADVANCE/credit open item
+/// (`ADVANCE_APPLICATION`/`OFFSET` types) rather than a fresh payment
+/// document. Never physically deleted on reversal — `reversedAt`/status
+/// preserve history (spec section 33).
+model SettlementAllocation {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  paymentDocumentType   String?   @map("payment_document_type")
+  paymentDocumentId     String?   @map("payment_document_id")
+  paymentLineId         String?   @map("payment_line_id")
+  counterpartyId        String    @map("counterparty_id")
+  contractId            String?   @map("contract_id")
+  targetOpenItemId      String    @map("target_open_item_id")
+  sourceOpenItemId      String?   @map("source_open_item_id")
+  allocationDate        DateTime  @map("allocation_date") @db.Date
+  paymentCurrencyId     String?   @map("payment_currency_id")
+  settlementCurrencyId  String?   @map("settlement_currency_id")
+  paymentAmount         Decimal   @map("payment_amount") @db.Decimal(18, 2)
+  settlementAmount      Decimal   @map("settlement_amount") @db.Decimal(18, 2)
+  baseCurrencyAmount    Decimal   @map("base_currency_amount") @db.Decimal(18, 2)
+  exchangeRate          Decimal?  @map("exchange_rate") @db.Decimal(24, 10)
+  realizedFxAmount      Decimal   @default(0) @map("realized_fx_amount") @db.Decimal(18, 2)
+  allocationType        String    @map("allocation_type") // MANUAL|AUTOMATIC|ADVANCE_APPLICATION|OFFSET|RETURN|CREDIT_NOTE|DEBT_ADJUSTMENT|SYSTEM_RECONCILIATION
+  status                String    @default("ACTIVE") @map("status") // ACTIVE|REVERSED
+  createdBy             String?   @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  reversedAt            DateTime? @map("reversed_at")
+  reversedBy            String?   @map("reversed_by")
+
+  tenant         Tenant              @relation(fields: [tenantId], references: [id])
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  counterparty   Counterparty        @relation("SettlementAllocationCounterparty", fields: [counterpartyId], references: [id])
+  targetOpenItem SettlementOpenItem  @relation("AllocationTargetOpenItem", fields: [targetOpenItemId], references: [id])
+  sourceOpenItem SettlementOpenItem? @relation("AllocationSourceOpenItem", fields: [sourceOpenItemId], references: [id])
+
+  @@index([tenantId, organizationId, counterpartyId])
+  @@index([tenantId, targetOpenItemId])
+  @@index([tenantId, paymentDocumentType, paymentDocumentId])
+  @@map("settlement_allocations")
+}
+
+/// Netting a counterparty's own AR against its own AP (spec sections
+/// 41-44). Cross-counterparty netting is out of scope (default-blocked
+/// per spec section 43 — no override path built).
+model SettlementOffset {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  counterpartyId String    @map("counterparty_id")
+  number         String?
+  offsetDate     DateTime  @map("offset_date") @db.Date
+  currencyId     String?   @map("currency_id")
+  amount         Decimal   @db.Decimal(18, 2)
+  reason         String?
+  status         String    @default("DRAFT") // DRAFT|POSTED|CANCELLED
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  postedAt       DateTime? @map("posted_at")
+  postedBy       String?   @map("posted_by")
+  version        Int       @default(1)
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty         @relation("SettlementOffsetCounterparty", fields: [counterpartyId], references: [id])
+  lines        SettlementOffsetLine[]
+
+  @@map("settlement_offsets")
+}
+
+model SettlementOffsetLine {
+  id                 String @id @default(uuid())
+  tenantId           String @map("tenant_id")
+  settlementOffsetId String @map("settlement_offset_id")
+  openItemId         String @map("open_item_id")
+  side               String // RECEIVABLE | PAYABLE
+  amount             Decimal @db.Decimal(18, 2)
+
+  settlementOffset SettlementOffset   @relation(fields: [settlementOffsetId], references: [id], onDelete: Cascade)
+  openItem         SettlementOpenItem @relation(fields: [openItemId], references: [id])
+
+  @@index([settlementOffsetId])
+  @@map("settlement_offset_lines")
+}
+
+/// Universal manual settlement correction (spec sections 40, 45-48,
+/// 96-98) — write-off, increase/decrease, reclassification, counterparty
+/// transfer, all via one `operationType` axis (the same consolidation
+/// InventoryAdjustment used in Phase 10, rather than N separate document
+/// classes). Requires `SETTLEMENT_CREATE_ADJUSTMENT` to create and
+/// `SETTLEMENT_APPROVE_ADJUSTMENT` (a distinct permission) to post.
+model DebtAdjustment {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  counterpartyId String    @map("counterparty_id")
+  number         String?
+  documentDate   DateTime  @map("document_date") @db.Date
+  operationType  String    @map("operation_type") // RECEIVABLE_INCREASE|RECEIVABLE_DECREASE|PAYABLE_INCREASE|PAYABLE_DECREASE|DEBT_WRITE_OFF|CREDIT_RECLASSIFICATION|CONTRACT_TRANSFER|COUNTERPARTY_TRANSFER|OFFSET|OTHER
+  reasonCode     String?   @map("reason_code")
+  status         String    @default("DRAFT") // DRAFT|PENDING_APPROVAL|APPROVED|POSTED|REJECTED|CANCELLED
+  description    String?
+
+  createdBy  String?   @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  approvedBy String?   @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+  postedBy   String?   @map("posted_by")
+  postedAt   DateTime? @map("posted_at")
+  version    Int       @default(1)
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty         @relation("DebtAdjustmentCounterparty", fields: [counterpartyId], references: [id])
+  lines        DebtAdjustmentLine[]
+
+  @@map("debt_adjustments")
+}
+
+model DebtAdjustmentLine {
+  id               String  @id @default(uuid())
+  tenantId         String  @map("tenant_id")
+  debtAdjustmentId String  @map("debt_adjustment_id")
+  openItemId       String? @map("open_item_id")
+  targetContractId String? @map("target_contract_id") // CREDIT_RECLASSIFICATION / CONTRACT_TRANSFER destination
+  targetCounterpartyId String? @map("target_counterparty_id") // COUNTERPARTY_TRANSFER destination
+  amount           Decimal @db.Decimal(18, 2)
+  description      String?
+
+  debtAdjustment DebtAdjustment      @relation(fields: [debtAdjustmentId], references: [id], onDelete: Cascade)
+  openItem       SettlementOpenItem? @relation(fields: [openItemId], references: [id])
+
+  @@index([debtAdjustmentId])
+  @@map("debt_adjustment_lines")
+}
+
+/// Counterparty reconciliation statement (spec sections 62-67). Lines
+/// are never stored — they are always the counterparty's own
+/// `SettlementMovement` rows for the period, computed live (same
+/// "authoritative register, rebuildable view" principle as everything
+/// else in this phase).
+model SettlementReconciliation {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  counterpartyId        String    @map("counterparty_id")
+  contractId            String?   @map("contract_id")
+  periodStart           DateTime  @map("period_start") @db.Date
+  periodEnd             DateTime  @map("period_end") @db.Date
+  currencyId             String?  @map("currency_id")
+  openingBalance         Decimal  @default(0) @map("opening_balance") @db.Decimal(18, 2)
+  debitTurnover          Decimal  @default(0) @map("debit_turnover") @db.Decimal(18, 2)
+  creditTurnover         Decimal  @default(0) @map("credit_turnover") @db.Decimal(18, 2)
+  closingBalance         Decimal  @default(0) @map("closing_balance") @db.Decimal(18, 2)
+  status                 String   @default("DRAFT") // DRAFT|GENERATED|SENT|COUNTERPARTY_CONFIRMED|DIFFERENCE_FOUND|ADJUSTMENT_REQUIRED|RECONCILED|CANCELLED
+  confirmedByUs          Boolean  @default(false) @map("confirmed_by_us")
+  confirmedByCounterparty Boolean @default(false) @map("confirmed_by_counterparty")
+  theirBalance           Decimal? @map("their_balance") @db.Decimal(18, 2)
+  differenceReason       String?  @map("difference_reason")
+  signedDate             DateTime? @map("signed_date") @db.Date
+  notes                  String?
+
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty @relation("SettlementReconciliationCounterparty", fields: [counterpartyId], references: [id])
+
+  @@index([tenantId, organizationId, counterpartyId])
+  @@map("settlement_reconciliations")
+}
+
+/// Optional period-end cache (spec section 145, 81) — a rebuildable
+/// balance snapshot, never the source of truth.
+model SettlementBalanceSnapshot {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  organizationId    String   @map("organization_id")
+  counterpartyId    String   @map("counterparty_id")
+  contractId        String?  @map("contract_id")
+  currencyId        String?  @map("currency_id")
+  asOfDate          DateTime @map("as_of_date") @db.Date
+  receivable        Decimal  @default(0) @db.Decimal(18, 2)
+  payable           Decimal  @default(0) @db.Decimal(18, 2)
+  customerAdvance   Decimal  @default(0) @map("customer_advance") @db.Decimal(18, 2)
+  supplierAdvance   Decimal  @default(0) @map("supplier_advance") @db.Decimal(18, 2)
+  overdueReceivable Decimal  @default(0) @map("overdue_receivable") @db.Decimal(18, 2)
+  overduePayable    Decimal  @default(0) @map("overdue_payable") @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty @relation("SettlementBalanceSnapshotCounterparty", fields: [counterpartyId], references: [id])
+
+  @@index([tenantId, organizationId, counterpartyId, asOfDate])
+  @@map("settlement_balance_snapshots")
+}
+
+/// Payment allocation reversal (spec section 33) — a controlled reverse of
+/// an existing allocation MAY also require reversing FX; kept as an audit
+/// entry rather than a new table, since `SettlementAllocation.status`/
+/// `reversedAt` already carry it.
 
 /// Payment Request (Ödəniş Tələbi) — formalizes "this approved Purchase
 /// Invoice needs paying", created only from an invoice with an OPEN
