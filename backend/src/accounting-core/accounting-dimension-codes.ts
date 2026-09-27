@@ -19,9 +19,13 @@ export const DimensionCodes = {
   PRODUCT_CHARACTERISTIC: 'PRODUCT_CHARACTERISTIC',
   CURRENCY: 'CURRENCY',
   SETTLEMENT_DOCUMENT: 'SETTLEMENT_DOCUMENT',
+  // Cash Desk Control Engine (docx spec Phase 15) — the accountable
+  // ResponsiblePerson an advance/shortage receivable is tracked against.
+  EMPLOYEE: 'EMPLOYEE',
 } as const;
 
-export type DimensionCode = (typeof DimensionCodes)[keyof typeof DimensionCodes];
+export type DimensionCode =
+  (typeof DimensionCodes)[keyof typeof DimensionCodes];
 
 /** Reference-entity type recorded on each dimension value (spec section 30
  * "never store arbitrary entity IDs without type enforcement") — deliberately
@@ -42,6 +46,7 @@ export const DIMENSION_REFERENCE_ENTITY_TYPE: Record<string, string> = {
   [DimensionCodes.PRODUCT_CHARACTERISTIC]: 'PRODUCT',
   [DimensionCodes.CURRENCY]: 'CURRENCY',
   [DimensionCodes.SETTLEMENT_DOCUMENT]: 'SETTLEMENT_DOCUMENT',
+  [DimensionCodes.EMPLOYEE]: 'RESPONSIBLE_PERSON',
 };
 
 /**
@@ -86,6 +91,11 @@ export const MappingKeys = {
   BANK_INTEREST_INCOME: 'BANK_INTEREST_INCOME',
   BANK_FX_GAIN: 'BANK_FX_GAIN',
   BANK_FX_LOSS: 'BANK_FX_LOSS',
+  // Cash Desk Control Engine (docx spec Phase 15)
+  ACCOUNTABLE_PERSON_RECEIVABLE: 'ACCOUNTABLE_PERSON_RECEIVABLE',
+  CASH_SHORTAGE_LOSS: 'CASH_SHORTAGE_LOSS',
+  CASH_SURPLUS_INCOME: 'CASH_SURPLUS_INCOME',
+  CASH_IN_TRANSIT: 'CASH_IN_TRANSIT',
 } as const;
 
 export type MappingKey = (typeof MappingKeys)[keyof typeof MappingKeys];

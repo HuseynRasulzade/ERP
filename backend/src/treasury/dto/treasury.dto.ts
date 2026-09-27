@@ -120,6 +120,30 @@ export class UpdatePaymentOrderDto {
   bankReference?: string;
 }
 
+const CASH_TRANSACTION_CATEGORIES = [
+  'CUSTOMER_PAYMENT',
+  'SUPPLIER_PAYMENT',
+  'OTHER_INCOME',
+  'OTHER_EXPENSE',
+  // docx spec Phase 15, sections 10-11 — full receipt/expense operation
+  // type catalog (spec sections 10-11), same category field either
+  // direction reuses.
+  'CUSTOMER_ADVANCE',
+  'SUPPLIER_ADVANCE',
+  'EMPLOYEE_ADVANCE',
+  'EMPLOYEE_ADVANCE_RETURN',
+  'SALARY_PAYMENT',
+  'PETTY_CASH_EXPENSE',
+  'CASH_SHORTAGE',
+  'CASH_SURPLUS',
+  'LOAN_RECEIPT',
+  'LOAN_REPAYMENT',
+  'OWNER_CONTRIBUTION',
+  'REFUND_TO_CUSTOMER',
+  'BANK_WITHDRAWAL',
+  'CASH_TO_BANK',
+] as const;
+
 export class CreateCashTransactionDto {
   @IsDateString()
   documentDate!: string;
@@ -130,16 +154,11 @@ export class CreateCashTransactionDto {
   @IsIn(['RECEIPT', 'PAYMENT'])
   direction!: 'RECEIPT' | 'PAYMENT';
 
-  @IsIn([
-    'CUSTOMER_PAYMENT',
-    'SUPPLIER_PAYMENT',
-    'OTHER_INCOME',
-    'OTHER_EXPENSE',
-  ])
-  category!:
-    'CUSTOMER_PAYMENT' | 'SUPPLIER_PAYMENT' | 'OTHER_INCOME' | 'OTHER_EXPENSE';
+  @IsIn(CASH_TRANSACTION_CATEGORIES)
+  category!: (typeof CASH_TRANSACTION_CATEGORIES)[number];
 
-  /** Required for CUSTOMER_PAYMENT/SUPPLIER_PAYMENT, ignored otherwise. */
+  /** Required for CUSTOMER_PAYMENT/SUPPLIER_PAYMENT/*_ADVANCE, ignored
+   * otherwise. */
   @IsOptional()
   @IsString()
   counterpartyId?: string;
@@ -162,6 +181,19 @@ export class CreateCashTransactionDto {
   @IsString()
   sourceSalesInvoiceId?: string;
 
+  /** The cashier this document is recorded against — when set, validated
+   * against CashierAssignment at posting (docx spec Phase 15 section 7).
+   * Omit to skip that check entirely. */
+  @IsOptional()
+  @IsString()
+  cashierId?: string;
+
+  /** Required for EMPLOYEE_ADVANCE/EMPLOYEE_ADVANCE_RETURN — the
+   * accountable ResponsiblePerson (spec sections 27-32). */
+  @IsOptional()
+  @IsString()
+  employeeId?: string;
+
   /** SUPPLIER_PAYMENT only: the Purchase Invoice this payment clears —
    * same idea as sourceSalesInvoiceId, mirrored for the AP side. */
   @IsOptional()
@@ -179,14 +211,8 @@ export class UpdateCashTransactionDto {
   documentDate?: string;
 
   @IsOptional()
-  @IsIn([
-    'CUSTOMER_PAYMENT',
-    'SUPPLIER_PAYMENT',
-    'OTHER_INCOME',
-    'OTHER_EXPENSE',
-  ])
-  category?:
-    'CUSTOMER_PAYMENT' | 'SUPPLIER_PAYMENT' | 'OTHER_INCOME' | 'OTHER_EXPENSE';
+  @IsIn(CASH_TRANSACTION_CATEGORIES)
+  category?: (typeof CASH_TRANSACTION_CATEGORIES)[number];
 
   @IsOptional()
   @IsString()
@@ -199,6 +225,14 @@ export class UpdateCashTransactionDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  cashierId?: string;
+
+  @IsOptional()
+  @IsString()
+  employeeId?: string;
 }
 
 export class SetPaymentAllocationLineDto {

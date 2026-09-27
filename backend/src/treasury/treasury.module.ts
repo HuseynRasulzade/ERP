@@ -9,6 +9,7 @@ import { ApprovalsModule } from '../approvals/approvals.module';
 import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
 import { SettlementModule } from '../settlement/settlement.module';
 import { CurrencyModule } from '../currency/currency.module';
+import { CashDeskModule } from '../cash-desk/cash-desk.module';
 
 import { PaymentRequestService } from './payment-request.service';
 import { PaymentRequestController } from './payment-request.controller';
@@ -84,6 +85,7 @@ import { TreasuryPlanningController } from './treasury-planning.controller';
     ApprovalsModule,
     SettlementModule,
     CurrencyModule,
+    CashDeskModule,
   ],
   controllers: [
     PaymentRequestController,

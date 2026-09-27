@@ -339,6 +339,35 @@ with no deterministic sort order at all.
 
 Full write-up: [`backend/docs/TREASURY.md`](backend/docs/TREASURY.md).
 
+### Cash Desk Engine
+
+Extends Phase 14's existing `Cashbox`/`CashTransaction` foundation rather
+than duplicating it with new document types — the same `CashTransaction`
+now carries the full spec category catalog (18 categories), an optional
+`cashierId` (checked against `CashierAssignment` at posting, opt-in) and
+`employeeId` (for `EMPLOYEE_ADVANCE`/`EMPLOYEE_ADVANCE_RETURN`). Book
+balance is always computed live from the immutable
+`CASH_MOVEMENT_REGISTER` register (never a mutable field, the same Stock
+Truth Engine principle reused for bank balances in Phase 14), with a
+concurrency-safe negative-balance block (`NEVER`/`ALLOWED` per cash desk,
+advisory-locked before the balance is read). `CashDeskTransfer` mirrors
+WarehouseTransfer's own INSTANT/TWO_STEP pattern for cash-to-cash moves,
+including partial multi-step receives each posting under their own
+suffixed `sourceDocumentId` to avoid the posting engine's per-document
+duplicate-entry guard. `CashPhysicalCount` → `CashCountAdjustment` is the
+only path a denomination-count difference ever reaches the book/GL
+(surplus/shortage/charged-to-cashier), feeding into a
+`CashDeskDailyClose`/`CashierHandover` gate that mirrors Phase 14's own
+bank-reconciliation-period close. A live health check (book-vs-GL per
+cash desk, stale unresolved differences, stuck transfers) and a
+Cash Book/Balance/Turnover/Difference/Transfer reporting set round it
+out. Along the way, found and fixed a real gap in
+`ChartOfAccountsService`: adding a new account/dimension/mapping to an
+already-adopted chart used to be silently invisible to every existing
+tenant — now backfilled idempotently instead of short-circuiting.
+
+Full write-up: [`backend/docs/CASH_DESK.md`](backend/docs/CASH_DESK.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -371,6 +400,7 @@ Policy, Tax Profile, Access).
 | `backend/test/settlement.e2e-spec.ts` | 17 | Basic receivable + full payment, partial payment, multiple payments accumulating to zero, one payment auto-allocated FIFO across multiple invoices, customer/supplier advances incl. partial application, overpayment becoming a customer advance, sales return after full payment producing a credit position, AR/AP offset, write-off with segregation of duties (self-approval rejected), due-date ageing on the remaining balance only, realized FX on full and partial foreign-currency payments, concurrent over-allocation safety, invoice-unpost blocked by an active allocation, counterparty reconciliation statement, tenant isolation |
 | `backend/test/treasury.e2e-spec.ts` | 5 | Purchase Invoice ⇒ Payment Request ⇒ Payment Order requiring FINANCE approval, segregation of duties (approver ≠ executor), counterparty-bank-account-change re-check at posting, reconciliation against a bank statement amount, accounting-entries viewer |
 | `backend/test/treasury-bank-operations.e2e-spec.ts` | 16 | Incoming bank payment posting (named invoice + unnamed advance), internal transfer with a separately-booked fee + same-account rejection, bank fee posting, FX conversion (gain vs. an official rate, currency-mismatch rejection, never a settlement), multi-document-type statement matching (inflow/outflow/unmatched-line classification/concurrent-match safety), bank reconciliation period close + mandatory-reason reopen, payment-request amount-tier approval with partial approval and partial multi-order execution + its own concurrency test, payment calendar + liquidity forecast + cash-gap detection, treasury health, payment-order reversal |
+| `backend/test/cash-desk.e2e-spec.ts` | 15 | Cash receipt/expense posting, negative-balance block + its own concurrency safety, an ALLOWED-policy desk going negative, cashier-assignment enforcement, employee advance + return (and its own validation), cash-to-cash transfer INSTANT and TWO_STEP with partial receives (unpost blocked once received, over-receive rejected, same-desk rejection), physical count ⇒ adjustment resolution chain (shortage, CASHIER_RECEIVABLE, difference report), daily close (gated on an unresolved count, closed, reopened), cashier handover (blocked then completed), cash health (no false-positive book-vs-GL mismatch) |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -456,5 +486,15 @@ All run against a real PostgreSQL instance — no mocked database.
   timing; BankFee tax is a flat manual amount, not full Tax Engine
   resolution; no MT940/CAMT.053 parser, only CSV; forecast versioning and
   credit-line/loan management are out of scope — see docs/TREASURY.md.
+- **Cash Desk Engine** — ✅ done, tested, documented. Extends Phase 14's
+  `Cashbox`/`CashTransaction` rather than new document types; negative-
+  balance control is concurrency-safe (advisory lock before the balance
+  read); `CashDeskTransfer` mirrors WarehouseTransfer's INSTANT/TWO_STEP
+  shape; physical-count differences resolve only through
+  `CashCountAdjustment`. No payroll-deduction/expense-report workflow, no
+  automatic `CashierAssignment` handoff on handover completion, `BLIND`
+  count method doesn't withhold the book balance from the API,
+  `maxCashLimit`/override permission codes are declared but not yet
+  enforced — see docs/CASH_DESK.md.
 - **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
   started. Later phases building on this foundation.

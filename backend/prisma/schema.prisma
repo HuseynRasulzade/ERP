@@ -158,6 +158,15 @@ model Tenant {
   BankReconciliation                      BankReconciliation[]
   TreasuryPaymentApprovalRule             TreasuryPaymentApprovalRule[]
   TreasuryLiquidityPolicy                 TreasuryLiquidityPolicy[]
+  CashierAssignment                       CashierAssignment[]
+  AccountablePersonMovement               AccountablePersonMovement[]
+  CashDeskTransfer                        CashDeskTransfer[]
+  CurrencyDenomination                    CurrencyDenomination[]
+  CashPhysicalCount                       CashPhysicalCount[]
+  CashDenominationCountLine               CashDenominationCountLine[]
+  CashCountAdjustment                     CashCountAdjustment[]
+  CashDeskDailyClose                      CashDeskDailyClose[]
+  CashierHandover                         CashierHandover[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -306,6 +315,13 @@ model Organization {
   BankReconciliation          BankReconciliation[]
   TreasuryPaymentApprovalRule TreasuryPaymentApprovalRule[]
   TreasuryLiquidityPolicy     TreasuryLiquidityPolicy[]
+  CashierAssignment           CashierAssignment[]
+  AccountablePersonMovement   AccountablePersonMovement[]
+  CashDeskTransfer            CashDeskTransfer[]
+  CashPhysicalCount           CashPhysicalCount[]
+  CashCountAdjustment         CashCountAdjustment[]
+  CashDeskDailyClose          CashDeskDailyClose[]
+  CashierHandover             CashierHandover[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -431,6 +447,17 @@ model ResponsiblePerson {
   purchaseOrdersAsBuyer               PurchaseOrder[]        @relation("PurchaseOrderBuyer")
   counterpartyContractsResponsibleFor CounterpartyContract[]
 
+  // Cash Desk Control Engine (docx spec Phase 15)
+  cashierAssignments         CashierAssignment[]
+  accountablePersonMovements AccountablePersonMovement[]
+  cashTransactionsAsCashier  CashTransaction[]           @relation("CashTransactionCashier")
+  cashTransactionsAsEmployee CashTransaction[]           @relation("CashTransactionEmployee")
+  cashPhysicalCounts         CashPhysicalCount[]
+  cashCountAdjustments       CashCountAdjustment[]
+  cashDeskDailyCloses        CashDeskDailyClose[]
+  handoversAsOutgoing        CashierHandover[]           @relation("HandoverOutgoing")
+  handoversAsIncoming        CashierHandover[]           @relation("HandoverIncoming")
+
   @@index([tenantId, active])
   @@map("responsible_persons")
 }
@@ -504,6 +531,17 @@ model Cashbox {
   responsiblePersonId String? @map("responsible_person_id")
   active              Boolean @default(true)
 
+  // Cash Desk Control Engine (docx spec Phase 15, sections 4-5, 17, 19).
+  // Disclosed simplification: one Cashbox = one currency still (no
+  // allow_multi_currency split-ledger support) — a location that must
+  // hold several currencies models as one Cashbox row per currency,
+  // sharing the same branch.
+  cashDeskType             String   @default("MAIN_CASH") @map("cash_desk_type") // MAIN_CASH|PETTY_CASH|BRANCH_CASH|SALES_CASH|FOREIGN_CURRENCY_CASH|TEMPORARY_CASH
+  negativeBalancePolicy    String   @default("NEVER") @map("negative_balance_policy") // NEVER|WITH_PERMISSION|ALLOWED_FOR_MIGRATION_ONLY
+  requireDailyClose        Boolean  @default(false) @map("require_daily_close")
+  requireDenominationCount Boolean  @default(false) @map("require_denomination_count")
+  maxCashLimit             Decimal? @map("max_cash_limit") @db.Decimal(18, 2)
+
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -515,8 +553,15 @@ model Cashbox {
   currency     Currency           @relation(fields: [currencyId], references: [id])
   responsible  ResponsiblePerson? @relation(fields: [responsiblePersonId], references: [id])
 
-  defaultForOrganizations Organization[]    @relation("OrgDefaultCashbox")
+  defaultForOrganizations Organization[]        @relation("OrgDefaultCashbox")
   cashTransactions        CashTransaction[]
+  cashierAssignments      CashierAssignment[]
+  transfersAsSource       CashDeskTransfer[]    @relation("CashDeskTransferSource")
+  transfersAsDestination  CashDeskTransfer[]    @relation("CashDeskTransferDestination")
+  physicalCounts          CashPhysicalCount[]
+  countAdjustments        CashCountAdjustment[]
+  dailyCloses             CashDeskDailyClose[]
+  cashierHandovers        CashierHandover[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -959,6 +1004,9 @@ model Currency {
   fxConversionsAsSource                   FXConversion[]                           @relation("FXConversionSourceCurrency")
   fxConversionsAsDestination              FXConversion[]                           @relation("FXConversionDestinationCurrency")
   TreasuryLiquidityPolicy                 TreasuryLiquidityPolicy[]
+  AccountablePersonMovement               AccountablePersonMovement[]
+  CashDeskTransfer                        CashDeskTransfer[]
+  CurrencyDenomination                    CurrencyDenomination[]
 
   @@map("currencies")
 }
@@ -4385,8 +4433,13 @@ model CashTransaction {
   cashboxId      String  @map("cashbox_id")
   // RECEIPT (mədaxil) or PAYMENT (məxaric).
   direction      String
-  // CUSTOMER_PAYMENT | SUPPLIER_PAYMENT | OTHER_INCOME | OTHER_EXPENSE —
-  // selects which GL contra-account this transaction posts against.
+  // CUSTOMER_PAYMENT | SUPPLIER_PAYMENT | OTHER_INCOME | OTHER_EXPENSE |
+  // CUSTOMER_ADVANCE | SUPPLIER_ADVANCE | EMPLOYEE_ADVANCE |
+  // EMPLOYEE_ADVANCE_RETURN | SALARY_PAYMENT | PETTY_CASH_EXPENSE |
+  // CASH_SHORTAGE | CASH_SURPLUS | LOAN_RECEIPT | LOAN_REPAYMENT |
+  // OWNER_CONTRIBUTION | REFUND_TO_CUSTOMER (docx spec Phase 15, sections
+  // 10-11) — selects which GL contra-account this transaction posts
+  // against; see CashTransactionPostingHandler.
   category       String
   counterpartyId String? @map("counterparty_id")
   currencyId     String? @map("currency_id")
@@ -4402,6 +4455,14 @@ model CashTransaction {
   sourceSalesInvoiceId    String? @map("source_sales_invoice_id")
   sourcePurchaseInvoiceId String? @map("source_purchase_invoice_id")
 
+  // Cash Desk build (docx spec Phase 15) — the cashier this document is
+  // recorded against (validated against CashierAssignment at posting,
+  // unless the poster holds CASH_OVERRIDE_NEGATIVE-style override) and,
+  // for EMPLOYEE_ADVANCE/EMPLOYEE_ADVANCE_RETURN, the accountable
+  // ResponsiblePerson the money is issued to/returned by.
+  cashierId  String? @map("cashier_id")
+  employeeId String? @map("employee_id")
+
   createdAt   DateTime  @default(now()) @map("created_at")
   createdBy   String?   @map("created_by")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -4412,17 +4473,353 @@ model CashTransaction {
   cancelledBy String?   @map("cancelled_by")
   version     Int       @default(1)
 
-  tenant                Tenant           @relation(fields: [tenantId], references: [id])
-  organization          Organization     @relation(fields: [organizationId], references: [id])
-  cashbox               Cashbox          @relation(fields: [cashboxId], references: [id])
-  counterparty          Counterparty?    @relation(fields: [counterpartyId], references: [id])
-  currency              Currency?        @relation(fields: [currencyId], references: [id])
-  sourceSalesInvoice    SalesInvoice?    @relation(fields: [sourceSalesInvoiceId], references: [id])
-  sourcePurchaseInvoice PurchaseInvoice? @relation(fields: [sourcePurchaseInvoiceId], references: [id])
+  tenant                Tenant             @relation(fields: [tenantId], references: [id])
+  organization          Organization       @relation(fields: [organizationId], references: [id])
+  cashbox               Cashbox            @relation(fields: [cashboxId], references: [id])
+  counterparty          Counterparty?      @relation(fields: [counterpartyId], references: [id])
+  currency              Currency?          @relation(fields: [currencyId], references: [id])
+  sourceSalesInvoice    SalesInvoice?      @relation(fields: [sourceSalesInvoiceId], references: [id])
+  sourcePurchaseInvoice PurchaseInvoice?   @relation(fields: [sourcePurchaseInvoiceId], references: [id])
+  cashier               ResponsiblePerson? @relation("CashTransactionCashier", fields: [cashierId], references: [id])
+  employee              ResponsiblePerson? @relation("CashTransactionEmployee", fields: [employeeId], references: [id])
 
   @@unique([tenantId, number])
   @@index([organizationId, cashboxId, status])
   @@map("cash_transactions")
+}
+
+// ----------------------------------------------------------------------------
+// Cash Desk / Cashier Control Engine (docx spec Phase 15) — three separate
+// reconciliation points, never merged into one concept (spec section 74):
+// physical cash in the cashier's hand, the ERP's own cash subledger book
+// balance (computed live from CashTransaction's own postings under the
+// CASH_MOVEMENT_REGISTER register, never a mutable Cashbox field), and the
+// GL Cash account balance. Builds on Phase 1's Cashbox (still pure
+// master data — cashbox.service.ts's own doc comment) and reuses Phase 13's
+// PaymentAllocationService for every settlement (never duplicated here).
+// ----------------------------------------------------------------------------
+
+/// One or more users/responsible persons authorized to operate a cash desk
+/// within a date range (spec section 6) — a cash document posted against a
+/// cashier with no active assignment for that date is rejected unless the
+/// poster holds the CASH_OVERRIDE_NEGATIVE-style override.
+model CashierAssignment {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  cashboxId      String    @map("cashbox_id")
+  personId       String    @map("person_id")
+  validFrom      DateTime  @map("valid_from") @db.Date
+  validTo        DateTime? @map("valid_to") @db.Date
+  status         String    @default("ACTIVE") // ACTIVE|ENDED
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  cashbox      Cashbox           @relation(fields: [cashboxId], references: [id])
+  person       ResponsiblePerson @relation(fields: [personId], references: [id])
+
+  @@index([organizationId, cashboxId, status])
+  @@index([personId, status])
+  @@map("cashier_assignments")
+}
+
+/// Accountable Person balance (spec sections 27-32) — append-only ledger,
+/// same rebuildable-projection principle as SettlementMovement/
+/// SettlementOpenItem (Phase 13): an employee's outstanding advance is
+/// never a mutable field, always the live sum of their own movements.
+model AccountablePersonMovement {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  organizationId     String   @map("organization_id")
+  personId           String   @map("person_id")
+  currencyId         String?  @map("currency_id")
+  // ADVANCE_ISSUED (-issued, +outstanding) | RETURNED (+issued cleared) |
+  // EXPENSE_REPORTED (clears outstanding against a recognized expense) |
+  // ADDITIONAL_REIMBURSEMENT (company owes the employee — overspend,
+  // spec section 31).
+  movementType       String
+  // Signed: positive increases outstanding (advance issued, overspend
+  // reimbursement owed), negative decreases it (return, expense reported).
+  amount             Decimal  @db.Decimal(18, 2)
+  sourceDocumentType String   @map("source_document_type")
+  sourceDocumentId   String   @map("source_document_id")
+  effectiveDate      DateTime @map("effective_date") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  person       ResponsiblePerson @relation(fields: [personId], references: [id])
+  currency     Currency?         @relation(fields: [currencyId], references: [id])
+
+  @@index([tenantId, organizationId, personId])
+  @@index([tenantId, sourceDocumentType, sourceDocumentId])
+  @@map("accountable_person_movements")
+}
+
+/// Cash-to-cash transfer (spec sections 33-37) — never a supplier/customer
+/// settlement. INSTANT posts both legs atomically; TWO_STEP posts only the
+/// source-out + Cash-In-Transit leg, leaving the destination-in leg to a
+/// separate `receive()` action (partial receipt supported, spec section
+/// 37) — mirrors WarehouseTransfer's own INSTANT/TWO_STEP split
+/// (warehouse-transfer.service.ts).
+model CashDeskTransfer {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("CASH_DESK_TRANSFER") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  sourceCashboxId      String  @map("source_cashbox_id")
+  destinationCashboxId String  @map("destination_cashbox_id")
+  currencyId           String? @map("currency_id")
+  amount               Decimal @db.Decimal(18, 2)
+  transferMode         String  @default("INSTANT") @map("transfer_mode") // INSTANT|TWO_STEP
+  // DRAFT|RELEASED|IN_TRANSIT|PARTIALLY_RECEIVED|RECEIVED|CANCELLED (spec
+  // section 36) — INSTANT transfers go straight to RECEIVED at posting.
+  transferState        String  @default("DRAFT") @map("transfer_state")
+  receivedAmount       Decimal @default(0) @map("received_amount") @db.Decimal(18, 2)
+  description          String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant             Tenant       @relation(fields: [tenantId], references: [id])
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  sourceCashbox      Cashbox      @relation("CashDeskTransferSource", fields: [sourceCashboxId], references: [id])
+  destinationCashbox Cashbox      @relation("CashDeskTransferDestination", fields: [destinationCashboxId], references: [id])
+  currency           Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, sourceCashboxId])
+  @@index([organizationId, destinationCashboxId])
+  @@map("cash_desk_transfers")
+}
+
+/// Denomination master (spec section 48) — currency-specific face values a
+/// physical count is built from.
+model CurrencyDenomination {
+  id         String  @id @default(uuid())
+  tenantId   String  @map("tenant_id")
+  currencyId String  @map("currency_id")
+  faceValue  Decimal @map("face_value") @db.Decimal(18, 2)
+  active     Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  @@unique([tenantId, currencyId, faceValue])
+  @@map("currency_denominations")
+}
+
+/// A physical cash count session (spec sections 50-52) — the book balance
+/// is snapshotted at count time (never recomputed after the fact, so a
+/// later movement can't silently change what a past count was judged
+/// against); the physical amount is always the sum of its own
+/// CashDenominationCountLine rows (spec section 50: "Manual total yalnız
+/// configurable fallback" — this build always derives it, no manual
+/// override).
+model CashPhysicalCount {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  organizationId  String    @map("organization_id")
+  cashboxId       String    @map("cashbox_id")
+  cashierId       String?   @map("cashier_id")
+  countTimestamp  DateTime  @default(now()) @map("count_timestamp")
+  bookBalance     Decimal   @map("book_balance") @db.Decimal(18, 2)
+  physicalBalance Decimal?  @map("physical_balance") @db.Decimal(18, 2)
+  difference      Decimal?  @db.Decimal(18, 2)
+  // BLIND (cashier enters counts without seeing book_balance, spec
+  // section 51) | OPEN.
+  countMethod     String    @default("OPEN") @map("count_method")
+  status          String    @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED
+  approvedBy      String?   @map("approved_by")
+  approvedAt      DateTime? @map("approved_at")
+  notes           String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id])
+  organization     Organization                @relation(fields: [organizationId], references: [id])
+  cashbox          Cashbox                     @relation(fields: [cashboxId], references: [id])
+  cashier          ResponsiblePerson?          @relation(fields: [cashierId], references: [id])
+  lines            CashDenominationCountLine[]
+  adjustment       CashCountAdjustment?
+  dailyClose       CashDeskDailyClose?
+  handoversAsCount CashierHandover[]
+
+  @@index([organizationId, cashboxId, status])
+  @@map("cash_physical_counts")
+}
+
+/// One denomination's counted quantity within a CashPhysicalCount (spec
+/// section 49) — `subtotal` is always `faceValue * quantity`, computed at
+/// write time, never independently entered.
+model CashDenominationCountLine {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  countId   String  @map("count_id")
+  faceValue Decimal @map("face_value") @db.Decimal(18, 2)
+  quantity  Int
+  subtotal  Decimal @db.Decimal(18, 2)
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id])
+  count  CashPhysicalCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, countId])
+  @@map("cash_denomination_count_lines")
+}
+
+/// The posted resolution of a physical count's difference (spec sections
+/// 53-58) — a full document-framework participant (its own posting
+/// handler) so a shortage/surplus is never a silent automatic GL
+/// adjustment (spec section 55).
+model CashCountAdjustment {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("CASH_COUNT_ADJUSTMENT") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  cashboxId           String  @map("cashbox_id")
+  countId             String  @unique @map("count_id")
+  // CASH_SURPLUS|CASH_SHORTAGE|DOCUMENT_CORRECTION|CASHIER_RECEIVABLE|OTHER
+  adjustmentType      String  @map("adjustment_type")
+  amount              Decimal @db.Decimal(18, 2)
+  reasonCode          String? @map("reason_code")
+  // Set only for CASHIER_RECEIVABLE — the person the shortage is charged
+  // to (spec section 59); reuses AccountablePersonMovement, no separate
+  // payroll-deduction mechanism (Phase 19/20's job).
+  responsiblePersonId String? @map("responsible_person_id")
+  description         String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  cashbox           Cashbox            @relation(fields: [cashboxId], references: [id])
+  count             CashPhysicalCount  @relation(fields: [countId], references: [id])
+  responsiblePerson ResponsiblePerson? @relation(fields: [responsiblePersonId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, cashboxId])
+  @@map("cash_count_adjustments")
+}
+
+/// End-of-day close for one cash desk (spec sections 45-47) — gated on
+/// every cash document posted, any required physical count completed, and
+/// any difference resolved via a POSTED CashCountAdjustment (never silently
+/// waived). Reopening (spec section 78) requires a dedicated permission and
+/// a mandatory reason, itself audited.
+model CashDeskDailyClose {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  cashboxId          String    @map("cashbox_id")
+  businessDate       DateTime  @map("business_date") @db.Date
+  cashierId          String?   @map("cashier_id")
+  openingBookBalance Decimal   @map("opening_book_balance") @db.Decimal(18, 2)
+  totalReceipts      Decimal   @default(0) @map("total_receipts") @db.Decimal(18, 2)
+  totalExpenses      Decimal   @default(0) @map("total_expenses") @db.Decimal(18, 2)
+  closingBookBalance Decimal   @map("closing_book_balance") @db.Decimal(18, 2)
+  physicalCountId    String?   @unique @map("physical_count_id")
+  difference         Decimal?  @db.Decimal(18, 2)
+  // OPEN|COUNT_REQUIRED|DIFFERENCE_FOUND|PENDING_APPROVAL|CLOSED|REOPENED
+  status             String    @default("OPEN")
+  closedAt           DateTime? @map("closed_at")
+  closedBy           String?   @map("closed_by")
+  reopenReason       String?   @map("reopen_reason")
+  reopenedAt         DateTime? @map("reopened_at")
+  reopenedBy         String?   @map("reopened_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id])
+  organization  Organization       @relation(fields: [organizationId], references: [id])
+  cashbox       Cashbox            @relation(fields: [cashboxId], references: [id])
+  cashier       ResponsiblePerson? @relation(fields: [cashierId], references: [id])
+  physicalCount CashPhysicalCount? @relation(fields: [physicalCountId], references: [id])
+
+  @@unique([organizationId, cashboxId, businessDate])
+  @@index([organizationId, cashboxId, status])
+  @@map("cash_desk_daily_closes")
+}
+
+/// Cashier shift handover (spec sections 8, 60) — outgoing/incoming
+/// responsibility transfer, only completable once any physical-count
+/// difference is resolved (spec section 8: "Handover yalnız fərq
+/// resolution-dan sonra complete edilə bilər").
+model CashierHandover {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  organizationId      String   @map("organization_id")
+  cashboxId           String   @map("cashbox_id")
+  outgoingCashierId   String   @map("outgoing_cashier_id")
+  incomingCashierId   String   @map("incoming_cashier_id")
+  handoverAt          DateTime @default(now()) @map("handover_at")
+  bookBalance         Decimal  @map("book_balance") @db.Decimal(18, 2)
+  physicalBalance     Decimal? @map("physical_balance") @db.Decimal(18, 2)
+  difference          Decimal? @db.Decimal(18, 2)
+  denominationCountId String?  @map("denomination_count_id")
+  status              String   @default("DRAFT") // DRAFT|PENDING_RESOLUTION|COMPLETE
+  notes               String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  cashbox           Cashbox            @relation(fields: [cashboxId], references: [id])
+  outgoingCashier   ResponsiblePerson  @relation("HandoverOutgoing", fields: [outgoingCashierId], references: [id])
+  incomingCashier   ResponsiblePerson  @relation("HandoverIncoming", fields: [incomingCashierId], references: [id])
+  denominationCount CashPhysicalCount? @relation(fields: [denominationCountId], references: [id])
+
+  @@index([organizationId, cashboxId, status])
+  @@map("cashier_handovers")
 }
 
 // ----------------------------------------------------------------------------
