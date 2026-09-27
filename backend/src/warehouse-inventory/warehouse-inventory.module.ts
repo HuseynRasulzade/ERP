@@ -72,7 +72,7 @@ import { InventoryStatusTransferController } from './inventory-status-transfer.c
     InventoryStatusTransferPostingHandler,
     InventoryStatusTransferService,
   ],
-  exports: [InventoryMovementService, StockAvailabilityService, BatchSerialService],
+  exports: [InventoryMovementService, StockAvailabilityService, BatchSerialService, WarehouseTransferService, InventoryAdjustmentService, InventoryStatusTransferService],
 })
 export class WarehouseInventoryModule implements OnModuleInit {
   constructor(

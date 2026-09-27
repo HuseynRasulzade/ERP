@@ -268,6 +268,29 @@ computed live, snapshotted on demand.
 
 Full write-up: [`backend/docs/PURCHASE_EXECUTION.md`](backend/docs/PURCHASE_EXECUTION.md).
 
+### Inventory Count / Reconciliation Engine
+
+Full physical-inventory reconciliation on top of the Warehouse/Stock
+Engine (`InventoryMovement` register) and the Inventory Costing Engine
+(FIFO/weighted-average valuation): `InventoryCountPlan` (scope, freeze
+policy, recount/tolerance rules) → `InventoryCountSession` (an
+authoritative, immutable snapshot of the books at a cutoff) →
+`InventoryCountSheet`/`InventoryCountEntry` (blind or non-blind physical
+capture, barcode/unit-conversion aware, batch- and serial-level) →
+`InventoryVariance` (never a per-product net — a batch or location split
+that cancels out at the product level still surfaces as its own rows) →
+`InventoryRecount` (never overwrites the original count) →
+`InventoryVarianceDecision` (decide, then approve) → a real
+`InventoryAdjustment`/`WarehouseTransfer`/`InventoryStatusTransfer`
+posting (reusing the existing document types, never a duplicate
+mechanism) → `InventoryCountReconciliation` (quantity/value/GL
+traceability) → close. `HARD_FREEZE` physically blocks postings into a
+warehouse under count; `NO_FREEZE_WITH_MOVEMENT_TRACKING` (the default)
+instead arithmetically accounts for whatever moved between the snapshot
+and the count.
+
+Full write-up: [`backend/docs/INVENTORY_COUNT.md`](backend/docs/INVENTORY_COUNT.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -296,6 +319,7 @@ Policy, Tax Profile, Access).
 | `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
 | `backend/test/purchase-execution.e2e-spec.ts` | 8 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, tenant isolation |
 | `backend/test/warehouse-inventory.e2e-spec.ts` | 7 | Instant warehouse transfer (source decrease + destination increase in one post), negative-stock-blocked transfer, two-step transfer (ship ⇒ IN_TRANSIT, partial receive, over-receive rejection, unpost blocked after any receive), internal consumption physical decrease, inventory adjustment write-off/surplus, inventory status transfer (quantity unchanged, only status moves), tenant isolation |
+| `backend/test/inventory-count.e2e-spec.ts` | 13 | Zero-variance count with no adjustment, shortage/surplus full lifecycle (variance ⇒ decide ⇒ approve ⇒ post ⇒ reconcile), blind count, post-snapshot movement reconciliation under NO_FREEZE, location and batch mismatch surfaced even at a net-zero product total, serial mismatch at matching quantity, recount (original preserved, final approved count wins), HARD_FREEZE blocking an unrelated posting, uncounted vs. explicit zero, idempotent adjustment posting, stale-reconciliation block under a concurrent movement, tenant isolation |
 
 All run against a real PostgreSQL instance — no mocked database.
 
