@@ -353,4 +353,12 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   // Goods Receipt posts to a clearing liability distinct from the real
   // Supplier Payable (531) — Purchase Invoice posting clears it.
   GOODS_RECEIVED_NOT_INVOICED: '538', // Digər qısamüddətli kreditor borcları
+  // Treasury / Bank Operations build (docx spec Phase 14) — reuse the same
+  // account codes as the generic other-income/other-expense keys by
+  // default; independently reconfigurable per organization via
+  // AccountingMappingService.upsert like any mapping key.
+  BANK_FEE_EXPENSE: '731',
+  BANK_INTEREST_INCOME: '611',
+  BANK_FX_GAIN: '611',
+  BANK_FX_LOSS: '731',
 };

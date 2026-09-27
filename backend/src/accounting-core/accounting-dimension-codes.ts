@@ -79,6 +79,13 @@ export const MappingKeys = {
   VAT_ADJUSTMENT: 'VAT_ADJUSTMENT',
   // Purchase / Procurement build (docx spec Phase 9, section 5 Model A)
   GOODS_RECEIVED_NOT_INVOICED: 'GOODS_RECEIVED_NOT_INVOICED',
+  // Treasury / Bank Operations build (docx spec Phase 14) — independently
+  // configurable per org, defaulting to the same accounts as the generic
+  // OTHER_OPERATING_INCOME/EXPENSE keys (see az-standard-coa.data.ts).
+  BANK_FEE_EXPENSE: 'BANK_FEE_EXPENSE',
+  BANK_INTEREST_INCOME: 'BANK_INTEREST_INCOME',
+  BANK_FX_GAIN: 'BANK_FX_GAIN',
+  BANK_FX_LOSS: 'BANK_FX_LOSS',
 } as const;
 
 export type MappingKey = (typeof MappingKeys)[keyof typeof MappingKeys];

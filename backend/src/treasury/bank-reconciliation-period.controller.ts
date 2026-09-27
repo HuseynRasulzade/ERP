@@ -1,33 +1,39 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { PaymentRequestService } from './payment-request.service';
+import { BankReconciliationPeriodService } from './bank-reconciliation-period.service';
 import {
-  ApprovePaymentRequestDto,
-  CreatePaymentRequestDto,
-  CancelPaymentRequestDto,
-  RejectPaymentRequestDto,
-} from './dto/treasury.dto';
+  CloseBankReconciliationDto,
+  CreateBankReconciliationDto,
+  ReopenBankReconciliationDto,
+} from './dto/bank-reconciliation.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PermissionCodes } from '../rbac/permission-codes';
 
-@Controller('organizations/:organizationId/payment-requests')
-export class PaymentRequestController {
-  constructor(private readonly requests: PaymentRequestService) {}
+@Controller('organizations/:organizationId/bank-reconciliations')
+export class BankReconciliationPeriodController {
+  constructor(
+    private readonly reconciliations: BankReconciliationPeriodService,
+  ) {}
 
-  @RequirePermissions(PermissionCodes.PAYMENT_REQUEST_VIEW)
+  @RequirePermissions(PermissionCodes.TREASURY_RECONCILIATION_VIEW)
   @Get()
   list(
     @CurrentTenantId() tenantId: string,
     @CurrentMembershipId() membershipId: string,
     @Param('organizationId') organizationId: string,
-    @Query('status') status?: string,
+    @Query('bankAccountId') bankAccountId?: string,
   ) {
-    return this.requests.list(tenantId, membershipId, organizationId, status);
+    return this.reconciliations.list(
+      tenantId,
+      membershipId,
+      organizationId,
+      bankAccountId,
+    );
   }
 
-  @RequirePermissions(PermissionCodes.PAYMENT_REQUEST_VIEW)
+  @RequirePermissions(PermissionCodes.TREASURY_RECONCILIATION_VIEW)
   @Get(':id')
   get(
     @CurrentTenantId() tenantId: string,
@@ -35,19 +41,19 @@ export class PaymentRequestController {
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
   ) {
-    return this.requests.get(tenantId, membershipId, organizationId, id);
+    return this.reconciliations.get(tenantId, membershipId, organizationId, id);
   }
 
-  @RequirePermissions(PermissionCodes.PAYMENT_REQUEST_CREATE)
+  @RequirePermissions(PermissionCodes.BANK_RECONCILIATION_MANAGE)
   @Post()
   create(
     @CurrentTenantId() tenantId: string,
     @CurrentMembershipId() membershipId: string,
     @Param('organizationId') organizationId: string,
     @CurrentUser() user: { userId: string },
-    @Body() dto: CreatePaymentRequestDto,
+    @Body() dto: CreateBankReconciliationDto,
   ) {
-    return this.requests.create(
+    return this.reconciliations.create(
       tenantId,
       membershipId,
       organizationId,
@@ -56,64 +62,59 @@ export class PaymentRequestController {
     );
   }
 
-  @RequirePermissions(PermissionCodes.PAYMENT_REQUEST_CANCEL)
-  @Post(':id/cancel')
-  cancel(
+  @RequirePermissions(PermissionCodes.BANK_RECONCILIATION_MANAGE)
+  @Post(':id/refresh')
+  refresh(
     @CurrentTenantId() tenantId: string,
     @CurrentMembershipId() membershipId: string,
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
-    @CurrentUser() user: { userId: string },
-    @Body() dto: CancelPaymentRequestDto,
   ) {
-    return this.requests.cancel(
+    return this.reconciliations.refresh(
       tenantId,
       membershipId,
       organizationId,
       id,
-      user.userId,
-      dto.expectedVersion,
     );
   }
 
-  @RequirePermissions(PermissionCodes.PAYMENT_REQUEST_APPROVE)
-  @Post(':id/approve')
-  approve(
+  @RequirePermissions(PermissionCodes.BANK_RECONCILIATION_CLOSE)
+  @Post(':id/close')
+  close(
     @CurrentTenantId() tenantId: string,
     @CurrentMembershipId() membershipId: string,
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
     @CurrentUser() user: { userId: string },
-    @Body() dto: ApprovePaymentRequestDto,
+    @Body() dto: CloseBankReconciliationDto,
   ) {
-    return this.requests.approve(
+    return this.reconciliations.close(
       tenantId,
       membershipId,
       organizationId,
       id,
       user.userId,
-      dto.approvedAmount,
-      dto.comment,
+      dto,
     );
   }
 
-  @RequirePermissions(PermissionCodes.PAYMENT_REQUEST_APPROVE)
-  @Post(':id/reject')
-  reject(
+  @RequirePermissions(PermissionCodes.BANK_RECONCILIATION_REOPEN)
+  @Post(':id/reopen')
+  reopen(
     @CurrentTenantId() tenantId: string,
     @CurrentMembershipId() membershipId: string,
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
     @CurrentUser() user: { userId: string },
-    @Body() dto: RejectPaymentRequestDto,
+    @Body() dto: ReopenBankReconciliationDto,
   ) {
-    return this.requests.reject(
+    return this.reconciliations.reopen(
       tenantId,
       membershipId,
       organizationId,
       id,
       user.userId,
-      dto.comment,
+      dto,
     );
   }
 }

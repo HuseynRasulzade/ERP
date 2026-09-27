@@ -64,7 +64,7 @@ model Tenant {
   registerMovements                       RegisterMovement[]
   responsiblePersons                      ResponsiblePerson[]
   unitsOfMeasure                          UnitOfMeasure[]
-  banks                                    Bank[]
+  banks                                   Bank[]
   productCategories                       ProductCategory[]
   productParentCategories                 ProductParentCategory[]
   products                                Product[]
@@ -151,6 +151,13 @@ model Tenant {
   CashTransaction                         CashTransaction[]
   BankStatementLine                       BankStatementLine[]
   PeriodReopenRequest                     PeriodReopenRequest[]
+  IncomingBankPayment                     IncomingBankPayment[]
+  InternalBankTransfer                    InternalBankTransfer[]
+  BankFee                                 BankFee[]
+  FXConversion                            FXConversion[]
+  BankReconciliation                      BankReconciliation[]
+  TreasuryPaymentApprovalRule             TreasuryPaymentApprovalRule[]
+  TreasuryLiquidityPolicy                 TreasuryLiquidityPolicy[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -181,13 +188,13 @@ model Tenant {
   inventoryCountReconciliations InventoryCountReconciliation[]
 
   // Counterparty Settlement Engine (docx spec Phase 13)
-  settlementMovements         SettlementMovement[]
-  settlementOpenItems         SettlementOpenItem[]
-  settlementAllocations       SettlementAllocation[]
-  settlementOffsets           SettlementOffset[]
-  debtAdjustments             DebtAdjustment[]
-  settlementReconciliations   SettlementReconciliation[]
-  settlementBalanceSnapshots  SettlementBalanceSnapshot[]
+  settlementMovements        SettlementMovement[]
+  settlementOpenItems        SettlementOpenItem[]
+  settlementAllocations      SettlementAllocation[]
+  settlementOffsets          SettlementOffset[]
+  debtAdjustments            DebtAdjustment[]
+  settlementReconciliations  SettlementReconciliation[]
+  settlementBalanceSnapshots SettlementBalanceSnapshot[]
 
   @@map("tenants")
 }
@@ -239,59 +246,66 @@ model Organization {
   defaultCashbox     Cashbox?     @relation("OrgDefaultCashbox", fields: [defaultCashboxId], references: [id])
   defaultBankAccount BankAccount? @relation("OrgDefaultBankAccount", fields: [defaultBankAccountId], references: [id])
 
-  periods                  AccountingPeriod[]
-  branches                 Branch[]                  @relation("OrgBranches")
-  departments              Department[]              @relation("OrgDepartments")
-  warehouses               Warehouse[]               @relation("OrgWarehouses")
-  cashboxes                Cashbox[]                 @relation("OrgCashboxes")
-  bankAccounts             BankAccount[]             @relation("OrgBankAccounts")
-  accountingPolicies       AccountingPolicy[]        @relation("OrgAccountingPolicies")
-  taxProfiles              TaxProfile[]              @relation("OrgTaxProfiles")
-  accessGrants             OrganizationAccess[]
-  productCategories        ProductCategory[]
-  productParentCategories  ProductParentCategory[]
-  products                 Product[]
-  counterparties           Counterparty[]
-  counterpartyContracts    CounterpartyContract[]
-  priceLists               PriceList[]
-  salesOrders              SalesOrder[]
-  salesInvoices            SalesInvoice[]
-  chartsOfAccounts         ChartOfAccounts[]
-  accounts                 Account[]
-  accountingMappings       AccountingMapping[]
-  journalEntries           JournalEntry[]
-  accountingMovements      AccountingMovement[]
-  postingRuns              PostingRun[]
-  taxRegistrations         TaxRegistration[]
-  productTaxProfiles       ProductTaxProfile[]
-  taxMovements             TaxMovement[]
-  customerRequests         CustomerRequest[]
-  commercialOffers         CommercialOffer[]
-  stockReservations        StockReservation[]
-  shipmentPlans            ShipmentPlan[]
-  shipments                Shipment[]
-  settlementObligations    SettlementObligation[]
-  salesReturns             SalesReturn[]
-  purchaseRequirements     PurchaseRequirement[]
-  purchaseOrders           PurchaseOrder[]
-  supplierProductCodes     SupplierProductCode[]
-  goodsReceipts            GoodsReceipt[]
-  purchaseInvoices         PurchaseInvoice[]
-  supplierPayables         SupplierPayable[]
-  purchaseReturns          PurchaseReturn[]
-  additionalPurchaseCosts  AdditionalPurchaseCost[]
-  batches                  Batch[]
-  serialNumbers            SerialNumber[]
-  inventoryMovements       InventoryMovement[]
-  warehouseTransfers       WarehouseTransfer[]
-  internalConsumptions     InternalConsumption[]
-  inventoryAdjustments     InventoryAdjustment[]
-  inventoryStatusTransfers InventoryStatusTransfer[]
-  PaymentRequest           PaymentRequest[]
-  PaymentOrder             PaymentOrder[]
-  PaymentAllocation        PaymentAllocation[]
-  CashTransaction          CashTransaction[]
-  BankStatementLine        BankStatementLine[]
+  periods                     AccountingPeriod[]
+  branches                    Branch[]                      @relation("OrgBranches")
+  departments                 Department[]                  @relation("OrgDepartments")
+  warehouses                  Warehouse[]                   @relation("OrgWarehouses")
+  cashboxes                   Cashbox[]                     @relation("OrgCashboxes")
+  bankAccounts                BankAccount[]                 @relation("OrgBankAccounts")
+  accountingPolicies          AccountingPolicy[]            @relation("OrgAccountingPolicies")
+  taxProfiles                 TaxProfile[]                  @relation("OrgTaxProfiles")
+  accessGrants                OrganizationAccess[]
+  productCategories           ProductCategory[]
+  productParentCategories     ProductParentCategory[]
+  products                    Product[]
+  counterparties              Counterparty[]
+  counterpartyContracts       CounterpartyContract[]
+  priceLists                  PriceList[]
+  salesOrders                 SalesOrder[]
+  salesInvoices               SalesInvoice[]
+  chartsOfAccounts            ChartOfAccounts[]
+  accounts                    Account[]
+  accountingMappings          AccountingMapping[]
+  journalEntries              JournalEntry[]
+  accountingMovements         AccountingMovement[]
+  postingRuns                 PostingRun[]
+  taxRegistrations            TaxRegistration[]
+  productTaxProfiles          ProductTaxProfile[]
+  taxMovements                TaxMovement[]
+  customerRequests            CustomerRequest[]
+  commercialOffers            CommercialOffer[]
+  stockReservations           StockReservation[]
+  shipmentPlans               ShipmentPlan[]
+  shipments                   Shipment[]
+  settlementObligations       SettlementObligation[]
+  salesReturns                SalesReturn[]
+  purchaseRequirements        PurchaseRequirement[]
+  purchaseOrders              PurchaseOrder[]
+  supplierProductCodes        SupplierProductCode[]
+  goodsReceipts               GoodsReceipt[]
+  purchaseInvoices            PurchaseInvoice[]
+  supplierPayables            SupplierPayable[]
+  purchaseReturns             PurchaseReturn[]
+  additionalPurchaseCosts     AdditionalPurchaseCost[]
+  batches                     Batch[]
+  serialNumbers               SerialNumber[]
+  inventoryMovements          InventoryMovement[]
+  warehouseTransfers          WarehouseTransfer[]
+  internalConsumptions        InternalConsumption[]
+  inventoryAdjustments        InventoryAdjustment[]
+  inventoryStatusTransfers    InventoryStatusTransfer[]
+  PaymentRequest              PaymentRequest[]
+  PaymentOrder                PaymentOrder[]
+  PaymentAllocation           PaymentAllocation[]
+  CashTransaction             CashTransaction[]
+  BankStatementLine           BankStatementLine[]
+  IncomingBankPayment         IncomingBankPayment[]
+  InternalBankTransfer        InternalBankTransfer[]
+  BankFee                     BankFee[]
+  FXConversion                FXConversion[]
+  BankReconciliation          BankReconciliation[]
+  TreasuryPaymentApprovalRule TreasuryPaymentApprovalRule[]
+  TreasuryLiquidityPolicy     TreasuryLiquidityPolicy[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -308,13 +322,13 @@ model Organization {
   inventoryCountSessions InventoryCountSession[]
 
   // Counterparty Settlement Engine (docx spec Phase 13)
-  settlementMovements         SettlementMovement[]
-  settlementOpenItems         SettlementOpenItem[]
-  settlementAllocations       SettlementAllocation[]
-  settlementOffsets           SettlementOffset[]
-  debtAdjustments             DebtAdjustment[]
-  settlementReconciliations   SettlementReconciliation[]
-  settlementBalanceSnapshots  SettlementBalanceSnapshot[]
+  settlementMovements        SettlementMovement[]
+  settlementOpenItems        SettlementOpenItem[]
+  settlementAllocations      SettlementAllocation[]
+  settlementOffsets          SettlementOffset[]
+  debtAdjustments            DebtAdjustment[]
+  settlementReconciliations  SettlementReconciliation[]
+  settlementBalanceSnapshots SettlementBalanceSnapshot[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -559,6 +573,11 @@ model BankAccount {
   openedDate           DateTime? @map("opened_date") @db.Date
   closedDate           DateTime? @map("closed_date") @db.Date
 
+  // Overdraft (spec sections 114-115) — optional; a liquidity report can add
+  // `available_credit` when set, without a full credit-line/loan module.
+  overdraftAllowed Boolean  @default(false) @map("overdraft_allowed")
+  overdraftLimit   Decimal? @map("overdraft_limit") @db.Decimal(18, 2)
+
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -569,9 +588,17 @@ model BankAccount {
   currency     Currency     @relation(fields: [currencyId], references: [id])
   bank         Bank?        @relation(fields: [bankId], references: [id])
 
-  defaultForOrganizations Organization[]      @relation("OrgDefaultBankAccount")
-  PaymentOrder            PaymentOrder[]
-  statementLines          BankStatementLine[]
+  defaultForOrganizations        Organization[]            @relation("OrgDefaultBankAccount")
+  PaymentOrder                   PaymentOrder[]
+  statementLines                 BankStatementLine[]
+  IncomingBankPayment            IncomingBankPayment[]
+  internalTransfersAsSource      InternalBankTransfer[]    @relation("InternalTransferSource")
+  internalTransfersAsDestination InternalBankTransfer[]    @relation("InternalTransferDestination")
+  BankFee                        BankFee[]
+  fxConversionsAsSource          FXConversion[]            @relation("FXConversionSource")
+  fxConversionsAsDestination     FXConversion[]            @relation("FXConversionDestination")
+  BankReconciliation             BankReconciliation[]
+  TreasuryLiquidityPolicy        TreasuryLiquidityPolicy[]
 
   @@index([organizationId, active])
   @@index([iban])
@@ -612,6 +639,7 @@ model BankStatementLine {
   tenant       Tenant       @relation(fields: [tenantId], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
   bankAccount  BankAccount  @relation(fields: [bankAccountId], references: [id])
+  bankFee      BankFee?
 
   @@index([organizationId, bankAccountId, status])
   @@map("bank_statement_lines")
@@ -925,6 +953,12 @@ model Currency {
   PaymentRequest                          PaymentRequest[]
   PaymentOrder                            PaymentOrder[]
   CashTransaction                         CashTransaction[]
+  IncomingBankPayment                     IncomingBankPayment[]
+  InternalBankTransfer                    InternalBankTransfer[]
+  BankFee                                 BankFee[]
+  fxConversionsAsSource                   FXConversion[]                           @relation("FXConversionSourceCurrency")
+  fxConversionsAsDestination              FXConversion[]                           @relation("FXConversionDestinationCurrency")
+  TreasuryLiquidityPolicy                 TreasuryLiquidityPolicy[]
 
   @@map("currencies")
 }
@@ -1638,14 +1672,15 @@ model Counterparty {
   PaymentRequest               PaymentRequest[]
   PaymentOrder                 PaymentOrder[]
   CashTransaction              CashTransaction[]
+  IncomingBankPayment          IncomingBankPayment[]
 
   // Counterparty Settlement Engine (docx spec Phase 13)
-  settlementMovementsAsCounterparty     SettlementMovement[]       @relation("SettlementMovementCounterparty")
-  settlementOpenItemsAsCounterparty     SettlementOpenItem[]       @relation("SettlementOpenItemCounterparty")
-  settlementAllocationsAsCounterparty   SettlementAllocation[]     @relation("SettlementAllocationCounterparty")
-  settlementOffsetsAsCounterparty       SettlementOffset[]         @relation("SettlementOffsetCounterparty")
-  debtAdjustmentsAsCounterparty         DebtAdjustment[]           @relation("DebtAdjustmentCounterparty")
-  settlementReconciliationsAsCounterparty SettlementReconciliation[] @relation("SettlementReconciliationCounterparty")
+  settlementMovementsAsCounterparty        SettlementMovement[]        @relation("SettlementMovementCounterparty")
+  settlementOpenItemsAsCounterparty        SettlementOpenItem[]        @relation("SettlementOpenItemCounterparty")
+  settlementAllocationsAsCounterparty      SettlementAllocation[]      @relation("SettlementAllocationCounterparty")
+  settlementOffsetsAsCounterparty          SettlementOffset[]          @relation("SettlementOffsetCounterparty")
+  debtAdjustmentsAsCounterparty            DebtAdjustment[]            @relation("DebtAdjustmentCounterparty")
+  settlementReconciliationsAsCounterparty  SettlementReconciliation[]  @relation("SettlementReconciliationCounterparty")
   settlementBalanceSnapshotsAsCounterparty SettlementBalanceSnapshot[] @relation("SettlementBalanceSnapshotCounterparty")
 
   @@unique([organizationId, code])
@@ -1960,14 +1995,15 @@ model SalesInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant           Tenant             @relation(fields: [tenantId], references: [id])
-  organization     Organization       @relation(fields: [organizationId], references: [id])
-  counterparty     Counterparty       @relation(fields: [counterpartyId], references: [id])
-  currency         Currency?          @relation(fields: [currencyId], references: [id])
-  sourceShipment   Shipment?          @relation(fields: [sourceShipmentId], references: [id])
-  lines            SalesInvoiceLine[]
-  returns          SalesReturn[]
-  cashTransactions CashTransaction[]
+  tenant               Tenant                @relation(fields: [tenantId], references: [id])
+  organization         Organization          @relation(fields: [organizationId], references: [id])
+  counterparty         Counterparty          @relation(fields: [counterpartyId], references: [id])
+  currency             Currency?             @relation(fields: [currencyId], references: [id])
+  sourceShipment       Shipment?             @relation(fields: [sourceShipmentId], references: [id])
+  lines                SalesInvoiceLine[]
+  returns              SalesReturn[]
+  cashTransactions     CashTransaction[]
+  incomingBankPayments IncomingBankPayment[]
 
   @@unique([tenantId, number])
   @@index([tenantId, documentDate])
@@ -3759,12 +3795,12 @@ model PurchaseInvoice {
   deletionMark Boolean   @default(false) @map("deletion_mark")
   version      Int       @default(1)
 
-  tenant           Tenant                   @relation(fields: [tenantId], references: [id])
-  organization     Organization             @relation(fields: [organizationId], references: [id])
-  counterparty     Counterparty             @relation(fields: [counterpartyId], references: [id])
-  currency         Currency?                @relation(fields: [currencyId], references: [id])
-  lines            PurchaseInvoiceLine[]
-  purchaseReturns  PurchaseReturn[]
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id])
+  organization       Organization             @relation(fields: [organizationId], references: [id])
+  counterparty       Counterparty             @relation(fields: [counterpartyId], references: [id])
+  currency           Currency?                @relation(fields: [currencyId], references: [id])
+  lines              PurchaseInvoiceLine[]
+  purchaseReturns    PurchaseReturn[]
   matchingResults    PurchaseMatchingResult[]
   cashTransactions   CashTransaction[]
   paymentAllocations PaymentAllocation[]
@@ -3878,36 +3914,36 @@ model SupplierPayable {
 /// movement types carry the business meaning; GL debit/credit is a
 /// completely separate axis handled by `AccountingPostingEngine`.
 model SettlementMovement {
-  id                    String   @id @default(uuid())
-  tenantId              String   @map("tenant_id")
-  organizationId        String   @map("organization_id")
-  branchId              String?  @map("branch_id")
-  counterpartyId        String   @map("counterparty_id")
-  counterpartyRole      String   @map("counterparty_role") // CUSTOMER | SUPPLIER
-  contractId            String?  @map("contract_id")
-  settlementDimensionType String @default("BY_DOCUMENT") @map("settlement_dimension_type")
-  openItemId            String?  @map("open_item_id")
-  currencyId            String?  @map("currency_id")
-  dueDate               DateTime? @map("due_date") @db.Date
-  movementType          String   @map("movement_type") // spec section 5 enum
-  amount                Decimal  @db.Decimal(18, 2) // transaction currency, signed
-  baseAmount            Decimal  @map("base_amount") @db.Decimal(18, 2) // base/accounting currency, signed
-  exchangeRate          Decimal? @map("exchange_rate") @db.Decimal(24, 10)
-  sourceDocumentType    String   @map("source_document_type")
-  sourceDocumentId      String   @map("source_document_id")
-  sourceDocumentLineId  String?  @map("source_document_line_id")
-  reversalOfMovementId  String?  @map("reversal_of_movement_id")
-  effectiveDate         DateTime @map("effective_date") @db.Date
-  postingDate           DateTime @map("posting_date") @db.Date
-  description           String?
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  organizationId          String    @map("organization_id")
+  branchId                String?   @map("branch_id")
+  counterpartyId          String    @map("counterparty_id")
+  counterpartyRole        String    @map("counterparty_role") // CUSTOMER | SUPPLIER
+  contractId              String?   @map("contract_id")
+  settlementDimensionType String    @default("BY_DOCUMENT") @map("settlement_dimension_type")
+  openItemId              String?   @map("open_item_id")
+  currencyId              String?   @map("currency_id")
+  dueDate                 DateTime? @map("due_date") @db.Date
+  movementType            String    @map("movement_type") // spec section 5 enum
+  amount                  Decimal   @db.Decimal(18, 2) // transaction currency, signed
+  baseAmount              Decimal   @map("base_amount") @db.Decimal(18, 2) // base/accounting currency, signed
+  exchangeRate            Decimal?  @map("exchange_rate") @db.Decimal(24, 10)
+  sourceDocumentType      String    @map("source_document_type")
+  sourceDocumentId        String    @map("source_document_id")
+  sourceDocumentLineId    String?   @map("source_document_line_id")
+  reversalOfMovementId    String?   @map("reversal_of_movement_id")
+  effectiveDate           DateTime  @map("effective_date") @db.Date
+  postingDate             DateTime  @map("posting_date") @db.Date
+  description             String?
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
 
-  tenant       Tenant                @relation(fields: [tenantId], references: [id])
-  organization Organization          @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty          @relation("SettlementMovementCounterparty", fields: [counterpartyId], references: [id])
-  openItem     SettlementOpenItem?   @relation(fields: [openItemId], references: [id])
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty        @relation("SettlementMovementCounterparty", fields: [counterpartyId], references: [id])
+  openItem     SettlementOpenItem? @relation(fields: [openItemId], references: [id])
 
   @@index([tenantId, organizationId, counterpartyId])
   @@index([tenantId, openItemId])
@@ -3949,14 +3985,14 @@ model SettlementOpenItem {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tenant       Tenant               @relation(fields: [tenantId], references: [id])
-  organization Organization         @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty         @relation("SettlementOpenItemCounterparty", fields: [counterpartyId], references: [id])
-  movements    SettlementMovement[]
-  allocations  SettlementAllocation[] @relation("AllocationTargetOpenItem")
-  sourceAllocations SettlementAllocation[] @relation("AllocationSourceOpenItem")
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id])
+  organization        Organization           @relation(fields: [organizationId], references: [id])
+  counterparty        Counterparty           @relation("SettlementOpenItemCounterparty", fields: [counterpartyId], references: [id])
+  movements           SettlementMovement[]
+  allocations         SettlementAllocation[] @relation("AllocationTargetOpenItem")
+  sourceAllocations   SettlementAllocation[] @relation("AllocationSourceOpenItem")
   debtAdjustmentLines DebtAdjustmentLine[]
-  offsetLines  SettlementOffsetLine[]
+  offsetLines         SettlementOffsetLine[]
 
   @@index([tenantId, organizationId, counterpartyId, status])
   @@index([tenantId, sourceDocumentType, sourceDocumentId])
@@ -3972,30 +4008,30 @@ model SettlementOpenItem {
 /// document. Never physically deleted on reversal — `reversedAt`/status
 /// preserve history (spec section 33).
 model SettlementAllocation {
-  id                    String    @id @default(uuid())
-  tenantId              String    @map("tenant_id")
-  organizationId        String    @map("organization_id")
-  paymentDocumentType   String?   @map("payment_document_type")
-  paymentDocumentId     String?   @map("payment_document_id")
-  paymentLineId         String?   @map("payment_line_id")
-  counterpartyId        String    @map("counterparty_id")
-  contractId            String?   @map("contract_id")
-  targetOpenItemId      String    @map("target_open_item_id")
-  sourceOpenItemId      String?   @map("source_open_item_id")
-  allocationDate        DateTime  @map("allocation_date") @db.Date
-  paymentCurrencyId     String?   @map("payment_currency_id")
-  settlementCurrencyId  String?   @map("settlement_currency_id")
-  paymentAmount         Decimal   @map("payment_amount") @db.Decimal(18, 2)
-  settlementAmount      Decimal   @map("settlement_amount") @db.Decimal(18, 2)
-  baseCurrencyAmount    Decimal   @map("base_currency_amount") @db.Decimal(18, 2)
-  exchangeRate          Decimal?  @map("exchange_rate") @db.Decimal(24, 10)
-  realizedFxAmount      Decimal   @default(0) @map("realized_fx_amount") @db.Decimal(18, 2)
-  allocationType        String    @map("allocation_type") // MANUAL|AUTOMATIC|ADVANCE_APPLICATION|OFFSET|RETURN|CREDIT_NOTE|DEBT_ADJUSTMENT|SYSTEM_RECONCILIATION
-  status                String    @default("ACTIVE") @map("status") // ACTIVE|REVERSED
-  createdBy             String?   @map("created_by")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  reversedAt            DateTime? @map("reversed_at")
-  reversedBy            String?   @map("reversed_by")
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  organizationId       String    @map("organization_id")
+  paymentDocumentType  String?   @map("payment_document_type")
+  paymentDocumentId    String?   @map("payment_document_id")
+  paymentLineId        String?   @map("payment_line_id")
+  counterpartyId       String    @map("counterparty_id")
+  contractId           String?   @map("contract_id")
+  targetOpenItemId     String    @map("target_open_item_id")
+  sourceOpenItemId     String?   @map("source_open_item_id")
+  allocationDate       DateTime  @map("allocation_date") @db.Date
+  paymentCurrencyId    String?   @map("payment_currency_id")
+  settlementCurrencyId String?   @map("settlement_currency_id")
+  paymentAmount        Decimal   @map("payment_amount") @db.Decimal(18, 2)
+  settlementAmount     Decimal   @map("settlement_amount") @db.Decimal(18, 2)
+  baseCurrencyAmount   Decimal   @map("base_currency_amount") @db.Decimal(18, 2)
+  exchangeRate         Decimal?  @map("exchange_rate") @db.Decimal(24, 10)
+  realizedFxAmount     Decimal   @default(0) @map("realized_fx_amount") @db.Decimal(18, 2)
+  allocationType       String    @map("allocation_type") // MANUAL|AUTOMATIC|ADVANCE_APPLICATION|OFFSET|RETURN|CREDIT_NOTE|DEBT_ADJUSTMENT|SYSTEM_RECONCILIATION
+  status               String    @default("ACTIVE") @map("status") // ACTIVE|REVERSED
+  createdBy            String?   @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  reversedAt           DateTime? @map("reversed_at")
+  reversedBy           String?   @map("reversed_by")
 
   tenant         Tenant              @relation(fields: [tenantId], references: [id])
   organization   Organization        @relation(fields: [organizationId], references: [id])
@@ -4029,19 +4065,19 @@ model SettlementOffset {
   postedBy       String?   @map("posted_by")
   version        Int       @default(1)
 
-  tenant       Tenant               @relation(fields: [tenantId], references: [id])
-  organization Organization         @relation(fields: [organizationId], references: [id])
-  counterparty Counterparty         @relation("SettlementOffsetCounterparty", fields: [counterpartyId], references: [id])
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  counterparty Counterparty           @relation("SettlementOffsetCounterparty", fields: [counterpartyId], references: [id])
   lines        SettlementOffsetLine[]
 
   @@map("settlement_offsets")
 }
 
 model SettlementOffsetLine {
-  id                 String @id @default(uuid())
-  tenantId           String @map("tenant_id")
-  settlementOffsetId String @map("settlement_offset_id")
-  openItemId         String @map("open_item_id")
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  settlementOffsetId String  @map("settlement_offset_id")
+  openItemId         String  @map("open_item_id")
   side               String // RECEIVABLE | PAYABLE
   amount             Decimal @db.Decimal(18, 2)
 
@@ -4059,15 +4095,15 @@ model SettlementOffsetLine {
 /// classes). Requires `SETTLEMENT_CREATE_ADJUSTMENT` to create and
 /// `SETTLEMENT_APPROVE_ADJUSTMENT` (a distinct permission) to post.
 model DebtAdjustment {
-  id             String    @id @default(uuid())
-  tenantId       String    @map("tenant_id")
-  organizationId String    @map("organization_id")
-  counterpartyId String    @map("counterparty_id")
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  organizationId String   @map("organization_id")
+  counterpartyId String   @map("counterparty_id")
   number         String?
-  documentDate   DateTime  @map("document_date") @db.Date
-  operationType  String    @map("operation_type") // RECEIVABLE_INCREASE|RECEIVABLE_DECREASE|PAYABLE_INCREASE|PAYABLE_DECREASE|DEBT_WRITE_OFF|CREDIT_RECLASSIFICATION|CONTRACT_TRANSFER|COUNTERPARTY_TRANSFER|OFFSET|OTHER
-  reasonCode     String?   @map("reason_code")
-  status         String    @default("DRAFT") // DRAFT|PENDING_APPROVAL|APPROVED|POSTED|REJECTED|CANCELLED
+  documentDate   DateTime @map("document_date") @db.Date
+  operationType  String   @map("operation_type") // RECEIVABLE_INCREASE|RECEIVABLE_DECREASE|PAYABLE_INCREASE|PAYABLE_DECREASE|DEBT_WRITE_OFF|CREDIT_RECLASSIFICATION|CONTRACT_TRANSFER|COUNTERPARTY_TRANSFER|OFFSET|OTHER
+  reasonCode     String?  @map("reason_code")
+  status         String   @default("DRAFT") // DRAFT|PENDING_APPROVAL|APPROVED|POSTED|REJECTED|CANCELLED
   description    String?
 
   createdBy  String?   @map("created_by")
@@ -4087,14 +4123,14 @@ model DebtAdjustment {
 }
 
 model DebtAdjustmentLine {
-  id               String  @id @default(uuid())
-  tenantId         String  @map("tenant_id")
-  debtAdjustmentId String  @map("debt_adjustment_id")
-  openItemId       String? @map("open_item_id")
-  targetContractId String? @map("target_contract_id") // CREDIT_RECLASSIFICATION / CONTRACT_TRANSFER destination
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  debtAdjustmentId     String  @map("debt_adjustment_id")
+  openItemId           String? @map("open_item_id")
+  targetContractId     String? @map("target_contract_id") // CREDIT_RECLASSIFICATION / CONTRACT_TRANSFER destination
   targetCounterpartyId String? @map("target_counterparty_id") // COUNTERPARTY_TRANSFER destination
-  amount           Decimal @db.Decimal(18, 2)
-  description      String?
+  amount               Decimal @db.Decimal(18, 2)
+  description          String?
 
   debtAdjustment DebtAdjustment      @relation(fields: [debtAdjustmentId], references: [id], onDelete: Cascade)
   openItem       SettlementOpenItem? @relation(fields: [openItemId], references: [id])
@@ -4109,25 +4145,25 @@ model DebtAdjustmentLine {
 /// "authoritative register, rebuildable view" principle as everything
 /// else in this phase).
 model SettlementReconciliation {
-  id                    String    @id @default(uuid())
-  tenantId              String    @map("tenant_id")
-  organizationId        String    @map("organization_id")
-  counterpartyId        String    @map("counterparty_id")
-  contractId            String?   @map("contract_id")
-  periodStart           DateTime  @map("period_start") @db.Date
-  periodEnd             DateTime  @map("period_end") @db.Date
-  currencyId             String?  @map("currency_id")
-  openingBalance         Decimal  @default(0) @map("opening_balance") @db.Decimal(18, 2)
-  debitTurnover          Decimal  @default(0) @map("debit_turnover") @db.Decimal(18, 2)
-  creditTurnover         Decimal  @default(0) @map("credit_turnover") @db.Decimal(18, 2)
-  closingBalance         Decimal  @default(0) @map("closing_balance") @db.Decimal(18, 2)
-  status                 String   @default("DRAFT") // DRAFT|GENERATED|SENT|COUNTERPARTY_CONFIRMED|DIFFERENCE_FOUND|ADJUSTMENT_REQUIRED|RECONCILED|CANCELLED
-  confirmedByUs          Boolean  @default(false) @map("confirmed_by_us")
-  confirmedByCounterparty Boolean @default(false) @map("confirmed_by_counterparty")
-  theirBalance           Decimal? @map("their_balance") @db.Decimal(18, 2)
-  differenceReason       String?  @map("difference_reason")
-  signedDate             DateTime? @map("signed_date") @db.Date
-  notes                  String?
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  organizationId          String    @map("organization_id")
+  counterpartyId          String    @map("counterparty_id")
+  contractId              String?   @map("contract_id")
+  periodStart             DateTime  @map("period_start") @db.Date
+  periodEnd               DateTime  @map("period_end") @db.Date
+  currencyId              String?   @map("currency_id")
+  openingBalance          Decimal   @default(0) @map("opening_balance") @db.Decimal(18, 2)
+  debitTurnover           Decimal   @default(0) @map("debit_turnover") @db.Decimal(18, 2)
+  creditTurnover          Decimal   @default(0) @map("credit_turnover") @db.Decimal(18, 2)
+  closingBalance          Decimal   @default(0) @map("closing_balance") @db.Decimal(18, 2)
+  status                  String    @default("DRAFT") // DRAFT|GENERATED|SENT|COUNTERPARTY_CONFIRMED|DIFFERENCE_FOUND|ADJUSTMENT_REQUIRED|RECONCILED|CANCELLED
+  confirmedByUs           Boolean   @default(false) @map("confirmed_by_us")
+  confirmedByCounterparty Boolean   @default(false) @map("confirmed_by_counterparty")
+  theirBalance            Decimal?  @map("their_balance") @db.Decimal(18, 2)
+  differenceReason        String?   @map("difference_reason")
+  signedDate              DateTime? @map("signed_date") @db.Date
+  notes                   String?
 
   createdBy String?  @map("created_by")
   createdAt DateTime @default(now()) @map("created_at")
@@ -4193,6 +4229,21 @@ model PaymentRequest {
   amount            Decimal  @db.Decimal(18, 2)
   paymentTerms      String?  @map("payment_terms")
   description       String?
+
+  // Amount control (spec section 10): `amount` above IS the requested
+  // amount; `approvedAmount` is set once the approval chain below clears
+  // (capped at `amount`, possibly less — partial approval); "planned"
+  // is this same amount once it appears on a payment calendar date;
+  // "executed" is never stored — always computed live from this
+  // request's own linked, POSTED PaymentOrder rows (spec section 7:
+  // "PAID status source bank payments-dən hesablanmalıdır. Manual set
+  // edilməməlidir").
+  approvalStatus       ApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
+  approvedAmount       Decimal?       @map("approved_amount") @db.Decimal(18, 2)
+  plannedAmount        Decimal?       @map("planned_amount") @db.Decimal(18, 2)
+  priority             String         @default("NORMAL") @map("priority") // CRITICAL|HIGH|NORMAL|LOW
+  category             String         @default("SUPPLIER") @map("category") // SUPPLIER|PAYROLL|TAX|RENT|LOAN|CAPEX|OPEX|DIVIDEND|INTERNAL_TRANSFER|OTHER
+  requestedPaymentDate DateTime?      @map("requested_payment_date") @db.Date
 
   createdAt   DateTime  @default(now()) @map("created_at")
   createdBy   String?   @map("created_by")
@@ -4304,9 +4355,9 @@ model PaymentAllocation {
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
 
-  tenant          Tenant          @relation(fields: [tenantId], references: [id])
-  organization    Organization    @relation(fields: [organizationId], references: [id])
-  paymentOrder    PaymentOrder    @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  paymentOrder    PaymentOrder     @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
   purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id])
 
   @@index([tenantId, paymentOrderId])
@@ -4372,6 +4423,313 @@ model CashTransaction {
   @@unique([tenantId, number])
   @@index([organizationId, cashboxId, status])
   @@map("cash_transactions")
+}
+
+// ----------------------------------------------------------------------------
+// Treasury / Bank Operations (docx spec Phase 14) — Layer 2 "Bank Reality"
+// documents PaymentOrder/CashTransaction didn't already cover: money coming
+// IN via bank (IncomingBankPayment — CashTransaction is cashbox-only),
+// bank-to-bank transfers, bank fees, and FX conversion between two of the
+// tenant's own bank accounts. Each is a full document-framework participant
+// (its own repository + posting handler) mirroring PaymentOrder's shape.
+// ----------------------------------------------------------------------------
+
+/// Incoming Bank Payment (spec section 28) — the bank-side counterpart of
+/// PaymentOrder for money received (customer receipt, loan proceeds,
+/// refund, interest, ...). Posting is the bank receipt event: Dr Bank /
+/// Cr AR (or P&L income account for a non-counterparty category), plus the
+/// same Phase 13 settlement-subledger hook CashTransaction/PaymentOrder use
+/// for a CUSTOMER_PAYMENT/CUSTOMER_ADVANCE category.
+model IncomingBankPayment {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("INCOMING_BANK_PAYMENT") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  bankAccountId  String  @map("bank_account_id")
+  // CUSTOMER_PAYMENT|CUSTOMER_ADVANCE|LOAN_RECEIPT|REFUND_FROM_SUPPLIER|
+  // INTEREST_INCOME|OTHER (spec section 28) — selects the GL contra-account,
+  // same principle as CashTransaction.category.
+  category       String  @default("CUSTOMER_PAYMENT")
+  counterpartyId String? @map("counterparty_id")
+  currencyId     String? @map("currency_id")
+  amount         Decimal @db.Decimal(18, 2)
+  description    String?
+  bankReference  String? @map("bank_reference")
+
+  // Optional: which specific sales invoice this CUSTOMER_PAYMENT clears —
+  // same convention as CashTransaction.sourceSalesInvoiceId. Left unset,
+  // the receipt still posts to AR but settles as a customer advance.
+  sourceSalesInvoiceId String? @map("source_sales_invoice_id")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant             Tenant        @relation(fields: [tenantId], references: [id])
+  organization       Organization  @relation(fields: [organizationId], references: [id])
+  bankAccount        BankAccount   @relation(fields: [bankAccountId], references: [id])
+  counterparty       Counterparty? @relation(fields: [counterpartyId], references: [id])
+  currency           Currency?     @relation(fields: [currencyId], references: [id])
+  sourceSalesInvoice SalesInvoice? @relation(fields: [sourceSalesInvoiceId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, bankAccountId, status])
+  @@index([organizationId, counterpartyId])
+  @@map("incoming_bank_payments")
+}
+
+/// Internal Bank Transfer (spec sections 57-60) — moves money between two
+/// of the tenant's own bank accounts; never a supplier/customer settlement.
+/// Simplification (disclosed in docs/TREASURY.md): posted as a single
+/// atomic event (both legs same business date) rather than the spec's own
+/// optional INITIATED->DEBITED->IN_TRANSIT->CREDITED->RECONCILED timing
+/// split — `transferState` defaults straight to COMPLETED.
+model InternalBankTransfer {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("INTERNAL_BANK_TRANSFER") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  sourceBankAccountId      String  @map("source_bank_account_id")
+  destinationBankAccountId String  @map("destination_bank_account_id")
+  currencyId               String? @map("currency_id")
+  amount                   Decimal @db.Decimal(18, 2)
+  feeAmount                Decimal @default(0) @map("fee_amount") @db.Decimal(18, 2)
+  transferState            String  @default("COMPLETED") @map("transfer_state")
+  description              String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant                 Tenant       @relation(fields: [tenantId], references: [id])
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  sourceBankAccount      BankAccount  @relation("InternalTransferSource", fields: [sourceBankAccountId], references: [id])
+  destinationBankAccount BankAccount  @relation("InternalTransferDestination", fields: [destinationBankAccountId], references: [id])
+  currency               Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, sourceBankAccountId])
+  @@index([organizationId, destinationBankAccountId])
+  @@map("internal_bank_transfers")
+}
+
+/// Bank Fee (spec section 54) — a bank charge/commission posted straight to
+/// expense, either created manually or confirmed from an unmatched
+/// statement-line classification suggestion (BankReconciliationService).
+model BankFee {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("BANK_FEE") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  bankAccountId String  @map("bank_account_id")
+  feeType       String  @default("OTHER") @map("fee_type")
+  currencyId    String? @map("currency_id")
+  amount        Decimal @db.Decimal(18, 2)
+  // Disclosed simplification: a flat manual tax amount, not a full Tax
+  // Engine resolution (spec: "Tax applicable olarsa Phase 5 engine
+  // istifadə et" — overkill for a bank commission line; see docs).
+  taxAmount     Decimal @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  description   String?
+
+  // Set when this fee was created from an unmatched statement line's
+  // classification suggestion — keeps the line<->fee link unique so the
+  // same line can never spawn two fee documents.
+  sourceStatementLineId String? @unique @map("source_statement_line_id")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant              Tenant             @relation(fields: [tenantId], references: [id])
+  organization        Organization       @relation(fields: [organizationId], references: [id])
+  bankAccount         BankAccount        @relation(fields: [bankAccountId], references: [id])
+  currency            Currency?          @relation(fields: [currencyId], references: [id])
+  sourceStatementLine BankStatementLine? @relation(fields: [sourceStatementLineId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, bankAccountId])
+  @@map("bank_fees")
+}
+
+/// FX Conversion (spec sections 61-63) — a currency exchange between two of
+/// the tenant's own bank accounts, deliberately separate from Phase 13's
+/// realized settlement FX (spec section 63: "Treasury FX vs Settlement FX
+/// — bunları qarışdırma"). Never creates a customer/supplier settlement.
+model FXConversion {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("FX_CONVERSION") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  sourceBankAccountId      String   @map("source_bank_account_id")
+  destinationBankAccountId String   @map("destination_bank_account_id")
+  sourceCurrencyId         String   @map("source_currency_id")
+  sourceAmount             Decimal  @map("source_amount") @db.Decimal(18, 2)
+  destinationCurrencyId    String   @map("destination_currency_id")
+  destinationAmount        Decimal  @map("destination_amount") @db.Decimal(18, 2)
+  tradeRate                Decimal  @map("trade_rate") @db.Decimal(24, 10)
+  officialRate             Decimal? @map("official_rate") @db.Decimal(24, 10)
+  bankFee                  Decimal  @default(0) @map("bank_fee") @db.Decimal(18, 2)
+  description              String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant                 Tenant       @relation(fields: [tenantId], references: [id])
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  sourceBankAccount      BankAccount  @relation("FXConversionSource", fields: [sourceBankAccountId], references: [id])
+  destinationBankAccount BankAccount  @relation("FXConversionDestination", fields: [destinationBankAccountId], references: [id])
+  sourceCurrency         Currency     @relation("FXConversionSourceCurrency", fields: [sourceCurrencyId], references: [id])
+  destinationCurrency    Currency     @relation("FXConversionDestinationCurrency", fields: [destinationCurrencyId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, sourceBankAccountId])
+  @@map("fx_conversions")
+}
+
+/// Bank Reconciliation period close (spec sections 49-51, 95-99) — a formal
+/// per-bank-account/per-period checkpoint layered ON TOP of
+/// BankStatementLine's existing line-level matching (never a second,
+/// parallel matching mechanism): aggregates that period's matched/
+/// unmatched lines into book-vs-bank balances and a difference, and gates
+/// CLOSED on every line being resolved and the difference falling within
+/// tolerance.
+model BankReconciliation {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  bankAccountId      String    @map("bank_account_id")
+  periodStart        DateTime  @map("period_start") @db.Date
+  periodEnd          DateTime  @map("period_end") @db.Date
+  bookOpeningBalance Decimal   @map("book_opening_balance") @db.Decimal(18, 2)
+  bankOpeningBalance Decimal   @map("bank_opening_balance") @db.Decimal(18, 2)
+  bookClosingBalance Decimal?  @map("book_closing_balance") @db.Decimal(18, 2)
+  bankClosingBalance Decimal?  @map("bank_closing_balance") @db.Decimal(18, 2)
+  difference         Decimal?  @db.Decimal(18, 2)
+  status             String    @default("DRAFT") // DRAFT|IN_PROGRESS|DIFFERENCE_FOUND|READY_TO_CLOSE|RECONCILED|CLOSED|REOPENED
+  closedAt           DateTime? @map("closed_at")
+  closedBy           String?   @map("closed_by")
+  reopenReason       String?   @map("reopen_reason")
+  reopenedAt         DateTime? @map("reopened_at")
+  reopenedBy         String?   @map("reopened_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  bankAccount  BankAccount  @relation(fields: [bankAccountId], references: [id])
+
+  @@index([organizationId, bankAccountId, status])
+  @@map("bank_reconciliations")
+}
+
+/// Configurable amount-tier approval ladder for PaymentRequest (spec
+/// sections 11-13 — "Rules hard-coded olmamalıdır"). No rows configured
+/// for a tenant means no approval gate at all — PaymentRequestApprovalPlanProvider
+/// then plans zero steps (NOT_REQUIRED) — so every existing zero-config
+/// PaymentRequest flow keeps working unchanged; configuring rows here is
+/// what turns the gate on for that tenant/organization/category.
+model TreasuryPaymentApprovalRule {
+  id             String           @id @default(uuid())
+  tenantId       String           @map("tenant_id")
+  organizationId String?          @map("organization_id")
+  category       String?
+  minAmount      Decimal          @default(0) @map("min_amount") @db.Decimal(18, 2)
+  maxAmount      Decimal?         @map("max_amount") @db.Decimal(18, 2)
+  stepType       ApprovalStepType @map("step_type")
+  sequence       Int              @default(1)
+  active         Boolean          @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([tenantId, organizationId, category, active])
+  @@map("treasury_payment_approval_rules")
+}
+
+/// Minimum-cash-buffer policy (spec sections 20-21) — TreasuryLiquidityService's
+/// cash-gap detection compares the projected balance against the most
+/// specific matching row (bank account + currency beats organization-wide).
+model TreasuryLiquidityPolicy {
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  organizationId String  @map("organization_id")
+  bankAccountId  String? @map("bank_account_id")
+  currencyId     String? @map("currency_id")
+  minimumBalance Decimal @map("minimum_balance") @db.Decimal(18, 2)
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  bankAccount  BankAccount? @relation(fields: [bankAccountId], references: [id])
+  currency     Currency?    @relation(fields: [currencyId], references: [id])
+
+  @@index([organizationId, bankAccountId, currencyId])
+  @@map("treasury_liquidity_policies")
 }
 
 /// Return of goods to a supplier (spec sections 14-16) — against a

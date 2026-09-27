@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { PrismaService, PrismaTransactionClient } from '../prisma/prisma.service';
-import { AccountingBatchResult, DocumentPostingHandler, RegisterMovementInput } from '../document-framework/document-posting-handler.interface';
+import {
+  PrismaService,
+  PrismaTransactionClient,
+} from '../prisma/prisma.service';
+import {
+  AccountingBatchResult,
+  DocumentPostingHandler,
+  RegisterMovementInput,
+} from '../document-framework/document-posting-handler.interface';
 import { BaseDocumentFields } from '../document-framework/base-document';
 import { ValidationAppError } from '../common/errors/app-error';
 import { AccountingMappingService } from '../accounting-core/accounting-mapping.service';
@@ -34,42 +41,86 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     private readonly settlementMovements: SettlementMovementService,
   ) {}
 
-  async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
-    const order = await tx.paymentOrder.findFirst({ where: { id: document.id, tenantId } });
-    if (!order) throw new ValidationAppError('Document disappeared during posting');
+  async validateForPosting(
+    tenantId: string,
+    document: BaseDocumentFields,
+    tx: PrismaTransactionClient,
+  ): Promise<void> {
+    const order = await tx.paymentOrder.findFirst({
+      where: { id: document.id, tenantId },
+    });
+    if (!order)
+      throw new ValidationAppError('Document disappeared during posting');
     if ((order as any).approvalStatus !== 'APPROVED') {
-      throw new ValidationAppError('Cannot post a payment order until finance approval is complete');
+      throw new ValidationAppError(
+        'Cannot post a payment order until finance approval is complete',
+      );
     }
-    if (order.amount.lte(0)) throw new ValidationAppError('Cannot post a payment order with a non-positive amount');
+    if (order.amount.lte(0))
+      throw new ValidationAppError(
+        'Cannot post a payment order with a non-positive amount',
+      );
 
-    const bankAccount = await tx.bankAccount.findFirst({ where: { id: order.bankAccountId, tenantId } });
-    if (!bankAccount || !bankAccount.active) throw new ValidationAppError('Cannot post a payment order against a missing or inactive bank account');
+    const bankAccount = await tx.bankAccount.findFirst({
+      where: { id: order.bankAccountId, tenantId },
+    });
+    if (!bankAccount || !bankAccount.active)
+      throw new ValidationAppError(
+        'Cannot post a payment order against a missing or inactive bank account',
+      );
 
     // Bank-account-change control: re-checked here (not just at create
     // time) because the counterparty's account can be edited — and its
     // approval reopened to PENDING — any time between order creation and
     // posting (see counterparty.service.ts's SENSITIVE_BANK_ACCOUNT_FIELDS).
     if (order.counterpartyBankAccountId) {
-      const counterpartyBankAccount = await tx.counterpartyBankAccount.findFirst({ where: { id: order.counterpartyBankAccountId, tenantId } });
-      if (!counterpartyBankAccount || counterpartyBankAccount.status !== 'APPROVED') {
-        throw new ValidationAppError('Cannot post a payment order against a counterparty bank account that is not APPROVED');
+      const counterpartyBankAccount =
+        await tx.counterpartyBankAccount.findFirst({
+          where: { id: order.counterpartyBankAccountId, tenantId },
+        });
+      if (
+        !counterpartyBankAccount ||
+        counterpartyBankAccount.status !== 'APPROVED'
+      ) {
+        throw new ValidationAppError(
+          'Cannot post a payment order against a counterparty bank account that is not APPROVED',
+        );
       }
     }
 
     // Segregation of duties: the executor (current user, posting now) must
     // not be the same person who gave FINANCE approval.
     const approvalStep = await tx.approvalStep.findFirst({
-      where: { tenantId, documentType: PAYMENT_ORDER_TYPE, documentId: order.id, stepType: 'FINANCE', status: 'APPROVED' },
+      where: {
+        tenantId,
+        documentType: PAYMENT_ORDER_TYPE,
+        documentId: order.id,
+        stepType: 'FINANCE',
+        status: 'APPROVED',
+      },
     });
     const executorId = this.requestContext.getUser()?.userId;
-    if (approvalStep?.approvedBy && executorId && approvalStep.approvedBy === executorId) {
-      throw new ValidationAppError('The payment executor cannot be the same person who approved it');
+    if (
+      approvalStep?.approvedBy &&
+      executorId &&
+      approvalStep.approvedBy === executorId
+    ) {
+      throw new ValidationAppError(
+        'The payment executor cannot be the same person who approved it',
+      );
     }
   }
 
-  async buildMovements(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<RegisterMovementInput[]> {
-    const order = await tx.paymentOrder.findFirst({ where: { id: document.id, tenantId } });
-    if (!order) throw new ValidationAppError('Document disappeared during posting');
+  async buildMovements(
+    tenantId: string,
+    document: BaseDocumentFields,
+    tx: PrismaTransactionClient,
+  ): Promise<RegisterMovementInput[]> {
+    const order = await tx.paymentOrder.findFirst({
+      where: { id: document.id, tenantId },
+    });
+    if (!order)
+      throw new ValidationAppError('Document disappeared during posting');
     const businessDate = document.postingDate ?? document.documentDate;
 
     return [
@@ -77,15 +128,29 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
         registerCode: 'PAYMENT_ORDER_REGISTER',
         businessDate,
         movementType: 'PAYMENT_ORDER_LINE',
-        dimensions: { organizationId: document.organizationId ?? null, counterpartyId: order.counterpartyId, bankAccountId: order.bankAccountId },
-        resources: { amount: order.amount.toString(), currencyId: order.currencyId },
+        dimensions: {
+          organizationId: document.organizationId ?? null,
+          counterpartyId: order.counterpartyId,
+          bankAccountId: order.bankAccountId,
+        },
+        resources: {
+          amount: order.amount.toString(),
+          currencyId: order.currencyId,
+        },
       },
     ];
   }
 
-  async buildAccountingBatch(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<AccountingBatchResult | null> {
-    const order = await tx.paymentOrder.findFirst({ where: { id: document.id, tenantId } });
-    if (!order) throw new ValidationAppError('Document disappeared during posting');
+  async buildAccountingBatch(
+    tenantId: string,
+    document: BaseDocumentFields,
+    tx: PrismaTransactionClient,
+  ): Promise<AccountingBatchResult | null> {
+    const order = await tx.paymentOrder.findFirst({
+      where: { id: document.id, tenantId },
+    });
+    if (!order)
+      throw new ValidationAppError('Document disappeared during posting');
     const organizationId = order.organizationId;
     const businessDate = document.postingDate ?? document.documentDate;
     const amount = new Decimal(order.amount.toString());
@@ -97,23 +162,45 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     // no allocation rows, fall back to the original always-one-invoice
     // behavior (the PaymentRequest's own source invoice) for every payment
     // order that never used splitting.
-    const request = await tx.paymentRequest.findFirst({ where: { id: order.paymentRequestId, tenantId } });
-    const allocations = await tx.paymentAllocation.findMany({ where: { tenantId, paymentOrderId: order.id } });
+    const request = await tx.paymentRequest.findFirst({
+      where: { id: order.paymentRequestId, tenantId },
+    });
+    const allocations = await tx.paymentAllocation.findMany({
+      where: { tenantId, paymentOrderId: order.id },
+    });
     const invoiceAmounts: { purchaseInvoiceId: string; amount: Decimal }[] =
       allocations.length > 0
-        ? allocations.filter((a) => a.purchaseInvoiceId).map((a) => ({ purchaseInvoiceId: a.purchaseInvoiceId as string, amount: new Decimal(a.amount.toString()) }))
+        ? allocations
+            .filter((a) => a.purchaseInvoiceId)
+            .map((a) => ({
+              purchaseInvoiceId: a.purchaseInvoiceId as string,
+              amount: new Decimal(a.amount.toString()),
+            }))
         : request
           ? [{ purchaseInvoiceId: request.purchaseInvoiceId, amount }]
           : [];
 
     for (const { purchaseInvoiceId, amount: lineAmount } of invoiceAmounts) {
-      const payable = await tx.supplierPayable.findFirst({ where: { tenantId, sourceDocumentType: 'PURCHASE_INVOICE', sourceDocumentId: purchaseInvoiceId } });
+      const payable = await tx.supplierPayable.findFirst({
+        where: {
+          tenantId,
+          sourceDocumentType: 'PURCHASE_INVOICE',
+          sourceDocumentId: purchaseInvoiceId,
+        },
+      });
       if (payable) {
-        const newPaid = new Decimal(payable.paidAmount.toString()).plus(lineAmount);
-        const fullyPaid = newPaid.gte(new Decimal(payable.invoiceAmount.toString()));
+        const newPaid = new Decimal(payable.paidAmount.toString()).plus(
+          lineAmount,
+        );
+        const fullyPaid = newPaid.gte(
+          new Decimal(payable.invoiceAmount.toString()),
+        );
         await tx.supplierPayable.update({
           where: { id: payable.id },
-          data: { paidAmount: newPaid, status: fullyPaid ? 'PAID' : payable.status },
+          data: {
+            paidAmount: newPaid,
+            status: fullyPaid ? 'PAID' : payable.status,
+          },
         });
       }
     }
@@ -121,22 +208,43 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     // Posting IS the "Bank Ödənişi" event — mark it executed.
     await tx.paymentOrder.update({
       where: { id: order.id },
-      data: { bankPaymentStatus: 'CLEARED', bankReference: order.bankReference ?? `AUTO-${order.number ?? order.id.slice(0, 8)}` },
+      data: {
+        bankPaymentStatus: 'CLEARED',
+        bankReference:
+          order.bankReference ?? `AUTO-${order.number ?? order.id.slice(0, 8)}`,
+      },
     });
 
-    const payableAccount = await this.mappings.resolve(tenantId, organizationId, MappingKeys.SUPPLIER_PAYABLE, businessDate, tx);
-    const bankAccountGl = await this.mappings.resolve(tenantId, organizationId, MappingKeys.BANK, businessDate, tx);
+    const payableAccount = await this.mappings.resolve(
+      tenantId,
+      organizationId,
+      MappingKeys.SUPPLIER_PAYABLE,
+      businessDate,
+      tx,
+    );
+    const bankAccountGl = await this.mappings.resolve(
+      tenantId,
+      organizationId,
+      MappingKeys.BANK,
+      businessDate,
+      tx,
+    );
 
     let currencyId = order.currencyId;
     if (!currencyId) {
-      const org = await tx.organization.findUnique({ where: { id: organizationId } });
+      const org = await tx.organization.findUnique({
+        where: { id: organizationId },
+      });
       currencyId = org?.baseCurrencyId ?? null;
     }
     if (!currencyId) {
       const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
       currencyId = tenant?.baseCurrencyId ?? null;
     }
-    if (!currencyId) throw new ValidationAppError('Cannot post a payment order: no currency on the order, organization, or tenant');
+    if (!currencyId)
+      throw new ValidationAppError(
+        'Cannot post a payment order: no currency on the order, organization, or tenant',
+      );
 
     // One debit line per invoice this payment settles (each keeping the
     // same SETTLEMENT_DOCUMENT the invoice's own AP credit line used —
@@ -144,7 +252,10 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     // unmatched-advance remainder (no SETTLEMENT_DOCUMENT), so a split
     // payment's GL entry mirrors its allocation 1:1 instead of collapsing
     // everything onto one invoice.
-    const matchedTotal = invoiceAmounts.reduce((sum, a) => sum.plus(a.amount), new Decimal(0));
+    const matchedTotal = invoiceAmounts.reduce(
+      (sum, a) => sum.plus(a.amount),
+      new Decimal(0),
+    );
     const advanceAmount = amount.minus(matchedTotal);
 
     // Settlement Subledger (docx spec Phase 13) — additive alongside the
@@ -154,29 +265,59 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
     for (const { purchaseInvoiceId, amount: lineAmount } of invoiceAmounts) {
       await this.settlementAllocations.allocateToDocument(
         tenantId,
-        { organizationId, counterpartyId: order.counterpartyId, role: 'SUPPLIER', paymentDocumentType: PAYMENT_ORDER_TYPE, paymentDocumentId: order.id, paymentCurrencyId: currencyId, paymentDate: businessDate, paymentAmount: lineAmount, targetSourceDocumentType: PURCHASE_INVOICE_TYPE, targetSourceDocumentId: purchaseInvoiceId, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+        {
+          organizationId,
+          counterpartyId: order.counterpartyId,
+          role: 'SUPPLIER',
+          paymentDocumentType: PAYMENT_ORDER_TYPE,
+          paymentDocumentId: order.id,
+          paymentCurrencyId: currencyId,
+          paymentDate: businessDate,
+          paymentAmount: lineAmount,
+          targetSourceDocumentType: PURCHASE_INVOICE_TYPE,
+          targetSourceDocumentId: purchaseInvoiceId,
+          createdBy: document.postedBy ?? document.createdBy ?? undefined,
+        },
         tx,
       );
     }
     if (advanceAmount.gt(0)) {
       await this.settlementMovements.createAdvance(
         tenantId,
-        { organizationId, counterpartyId: order.counterpartyId, role: 'SUPPLIER', sourceDocumentType: PAYMENT_ORDER_TYPE, sourceDocumentId: order.id, effectiveDate: businessDate, currencyId, amount: advanceAmount, baseAmount: advanceAmount, createdBy: document.postedBy ?? document.createdBy ?? undefined },
+        {
+          organizationId,
+          counterpartyId: order.counterpartyId,
+          role: 'SUPPLIER',
+          sourceDocumentType: PAYMENT_ORDER_TYPE,
+          sourceDocumentId: order.id,
+          effectiveDate: businessDate,
+          currencyId,
+          amount: advanceAmount,
+          baseAmount: advanceAmount,
+          createdBy: document.postedBy ?? document.createdBy ?? undefined,
+        },
         tx,
       );
     }
-    const debitLines: AccountingPostingLineInput[] = invoiceAmounts.map(({ purchaseInvoiceId, amount: lineAmount }) => ({
-      accountId: payableAccount.id,
-      side: 'DEBIT',
-      amountBase: lineAmount,
-      description: `Payment order ${order.number ?? order.id} — supplier payable cleared`,
-      dimensions: [
-        { dimensionCode: 'PARTNER', referenceId: order.counterpartyId },
-        { dimensionCode: 'COUNTERPARTY', referenceId: order.counterpartyId },
-        { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: purchaseInvoiceId },
-        ...(currencyId ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }] : []),
-      ],
-    }));
+    const debitLines: AccountingPostingLineInput[] = invoiceAmounts.map(
+      ({ purchaseInvoiceId, amount: lineAmount }) => ({
+        accountId: payableAccount.id,
+        side: 'DEBIT',
+        amountBase: lineAmount,
+        description: `Payment order ${order.number ?? order.id} — supplier payable cleared`,
+        dimensions: [
+          { dimensionCode: 'PARTNER', referenceId: order.counterpartyId },
+          { dimensionCode: 'COUNTERPARTY', referenceId: order.counterpartyId },
+          {
+            dimensionCode: 'SETTLEMENT_DOCUMENT',
+            referenceId: purchaseInvoiceId,
+          },
+          ...(currencyId
+            ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }]
+            : []),
+        ],
+      }),
+    );
     if (advanceAmount.gt(0)) {
       debitLines.push({
         accountId: payableAccount.id,
@@ -191,7 +332,9 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
           // itself — satisfies the AP account's SETTLEMENT_DOCUMENT
           // requirement without inventing a separate advances account.
           { dimensionCode: 'SETTLEMENT_DOCUMENT', referenceId: order.id },
-          ...(currencyId ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }] : []),
+          ...(currencyId
+            ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }]
+            : []),
         ],
       });
     }
@@ -205,11 +348,99 @@ export class PaymentOrderPostingHandler implements DocumentPostingHandler {
         description: `Payment order ${order.number ?? order.id} — bank outflow`,
         dimensions: [
           { dimensionCode: 'BANK_ACCOUNT', referenceId: order.bankAccountId },
-          ...(currencyId ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }] : []),
+          ...(currencyId
+            ? [{ dimensionCode: 'CURRENCY', referenceId: currencyId }]
+            : []),
         ],
       },
     ];
 
-    return { description: `Payment order ${order.number ?? order.id}`, operationType: 'SYSTEM_DOCUMENT', lines };
+    return {
+      description: `Payment order ${order.number ?? order.id}`,
+      operationType: 'SYSTEM_DOCUMENT',
+      lines,
+    };
+  }
+
+  /** Payment reversal (spec sections 153-154): reverses every side effect
+   * `buildAccountingBatch` performed — the legacy SupplierPayable.paidAmount
+   * decrement, the Phase 13 settlement-subledger allocations, and the
+   * "Bank Ödənişi" execution marker — so post -> unpost -> post never
+   * double-counts. The GL reversal itself and the RegisterMovement cleanup
+   * are handled generically by DocumentPostingService; this only undoes
+   * what this handler's own buildAccountingBatch wrote beyond that. */
+  async undoSideEffects(
+    tenantId: string,
+    document: BaseDocumentFields,
+    tx: PrismaTransactionClient,
+  ): Promise<void> {
+    const order = await tx.paymentOrder.findFirst({
+      where: { id: document.id, tenantId },
+    });
+    if (!order) return;
+
+    const allocations = await tx.paymentAllocation.findMany({
+      where: { tenantId, paymentOrderId: order.id },
+    });
+    const invoiceAmounts: { purchaseInvoiceId: string; amount: Decimal }[] =
+      allocations.length > 0
+        ? allocations
+            .filter((a) => a.purchaseInvoiceId)
+            .map((a) => ({
+              purchaseInvoiceId: a.purchaseInvoiceId as string,
+              amount: new Decimal(a.amount.toString()),
+            }))
+        : [];
+
+    // Mirrors buildAccountingBatch's own fallback: no split allocations
+    // recorded means the whole amount went to the PaymentRequest's own
+    // single source invoice.
+    if (invoiceAmounts.length === 0) {
+      const request = await tx.paymentRequest.findFirst({
+        where: { id: order.paymentRequestId, tenantId },
+      });
+      if (request)
+        invoiceAmounts.push({
+          purchaseInvoiceId: request.purchaseInvoiceId,
+          amount: new Decimal(order.amount.toString()),
+        });
+    }
+
+    for (const { purchaseInvoiceId, amount: lineAmount } of invoiceAmounts) {
+      const payable = await tx.supplierPayable.findFirst({
+        where: {
+          tenantId,
+          sourceDocumentType: 'PURCHASE_INVOICE',
+          sourceDocumentId: purchaseInvoiceId,
+        },
+      });
+      if (!payable) continue;
+      const newPaid = new Decimal(payable.paidAmount.toString()).minus(
+        lineAmount,
+      );
+      await tx.supplierPayable.update({
+        where: { id: payable.id },
+        data: {
+          paidAmount: newPaid,
+          status: newPaid.lt(new Decimal(payable.invoiceAmount.toString()))
+            ? 'OPEN'
+            : payable.status,
+        },
+      });
+    }
+
+    await tx.paymentOrder.update({
+      where: { id: order.id },
+      data: { bankPaymentStatus: 'PENDING' },
+    });
+
+    await this.settlementAllocations.reverseForPaymentDocument(
+      tenantId,
+      order.organizationId,
+      PAYMENT_ORDER_TYPE,
+      order.id,
+      document.postedBy ?? document.createdBy ?? undefined,
+      tx,
+    );
   }
 }

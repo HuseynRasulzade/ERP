@@ -1,4 +1,12 @@
-import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateBankStatementLineDto {
   @IsString()
@@ -43,9 +51,58 @@ export class UpdateBankStatementLineDto {
 }
 
 export class MatchBankStatementLineDto {
-  @IsIn(['PAYMENT_ORDER'])
-  documentType!: 'PAYMENT_ORDER';
+  @IsIn([
+    'PAYMENT_ORDER',
+    'INCOMING_BANK_PAYMENT',
+    'INTERNAL_BANK_TRANSFER',
+    'BANK_FEE',
+    'FX_CONVERSION',
+  ])
+  documentType!:
+    | 'PAYMENT_ORDER'
+    | 'INCOMING_BANK_PAYMENT'
+    | 'INTERNAL_BANK_TRANSFER'
+    | 'BANK_FEE'
+    | 'FX_CONVERSION';
 
   @IsString()
   documentId!: string;
+}
+
+export class ClassifyAsBankFeeDto {
+  @IsOptional()
+  @IsIn(['MONTHLY_MAINTENANCE', 'TRANSFER_FEE', 'COMMISSION', 'OTHER'])
+  feeType?: string;
+}
+
+export class CreateBankReconciliationDto {
+  @IsString()
+  bankAccountId!: string;
+
+  @IsDateString()
+  periodStart!: string;
+
+  @IsDateString()
+  periodEnd!: string;
+
+  @IsNumber()
+  bookOpeningBalance!: number;
+
+  @IsNumber()
+  bankOpeningBalance!: number;
+}
+
+export class CloseBankReconciliationDto {
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+}
+
+export class ReopenBankReconciliationDto {
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+
+  @IsString()
+  reason!: string;
 }

@@ -1,4 +1,14 @@
-import { IsArray, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreatePaymentRequestDto {
@@ -15,6 +25,45 @@ export class CreatePaymentRequestDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsIn(['CRITICAL', 'HIGH', 'NORMAL', 'LOW'])
+  priority?: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
+
+  @IsOptional()
+  @IsIn([
+    'SUPPLIER',
+    'PAYROLL',
+    'TAX',
+    'RENT',
+    'LOAN',
+    'CAPEX',
+    'OPEX',
+    'DIVIDEND',
+    'INTERNAL_TRANSFER',
+    'OTHER',
+  ])
+  category?: string;
+
+  @IsOptional()
+  @IsDateString()
+  requestedPaymentDate?: string;
+}
+
+export class ApprovePaymentRequestDto {
+  @IsOptional()
+  @IsNumber()
+  approvedAmount?: number; // defaults to the full requested amount
+
+  @IsOptional()
+  @IsString()
+  comment?: string;
+}
+
+export class RejectPaymentRequestDto {
+  @IsOptional()
+  @IsString()
+  comment?: string;
 }
 
 export class CancelPaymentRequestDto {
@@ -81,8 +130,14 @@ export class CreateCashTransactionDto {
   @IsIn(['RECEIPT', 'PAYMENT'])
   direction!: 'RECEIPT' | 'PAYMENT';
 
-  @IsIn(['CUSTOMER_PAYMENT', 'SUPPLIER_PAYMENT', 'OTHER_INCOME', 'OTHER_EXPENSE'])
-  category!: 'CUSTOMER_PAYMENT' | 'SUPPLIER_PAYMENT' | 'OTHER_INCOME' | 'OTHER_EXPENSE';
+  @IsIn([
+    'CUSTOMER_PAYMENT',
+    'SUPPLIER_PAYMENT',
+    'OTHER_INCOME',
+    'OTHER_EXPENSE',
+  ])
+  category!:
+    'CUSTOMER_PAYMENT' | 'SUPPLIER_PAYMENT' | 'OTHER_INCOME' | 'OTHER_EXPENSE';
 
   /** Required for CUSTOMER_PAYMENT/SUPPLIER_PAYMENT, ignored otherwise. */
   @IsOptional()
@@ -124,8 +179,14 @@ export class UpdateCashTransactionDto {
   documentDate?: string;
 
   @IsOptional()
-  @IsIn(['CUSTOMER_PAYMENT', 'SUPPLIER_PAYMENT', 'OTHER_INCOME', 'OTHER_EXPENSE'])
-  category?: 'CUSTOMER_PAYMENT' | 'SUPPLIER_PAYMENT' | 'OTHER_INCOME' | 'OTHER_EXPENSE';
+  @IsIn([
+    'CUSTOMER_PAYMENT',
+    'SUPPLIER_PAYMENT',
+    'OTHER_INCOME',
+    'OTHER_EXPENSE',
+  ])
+  category?:
+    'CUSTOMER_PAYMENT' | 'SUPPLIER_PAYMENT' | 'OTHER_INCOME' | 'OTHER_EXPENSE';
 
   @IsOptional()
   @IsString()
@@ -177,4 +238,210 @@ export class ReconcilePaymentOrderDto {
   @IsOptional()
   @IsString()
   bankReference?: string;
+}
+
+const INCOMING_CATEGORIES = [
+  'CUSTOMER_PAYMENT',
+  'CUSTOMER_ADVANCE',
+  'LOAN_RECEIPT',
+  'REFUND_FROM_SUPPLIER',
+  'INTEREST_INCOME',
+  'OTHER',
+] as const;
+
+export class CreateIncomingBankPaymentDto {
+  @IsDateString()
+  documentDate!: string;
+
+  @IsString()
+  bankAccountId!: string;
+
+  @IsOptional()
+  @IsIn(INCOMING_CATEGORIES)
+  category?: (typeof INCOMING_CATEGORIES)[number];
+
+  @IsOptional()
+  @IsString()
+  counterpartyId?: string;
+
+  @IsOptional()
+  @IsString()
+  currencyId?: string;
+
+  @IsNumber()
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  /** CUSTOMER_PAYMENT/CUSTOMER_ADVANCE only: the Sales Invoice this receipt
+   * clears — left unset, it settles as a customer advance instead. */
+  @IsOptional()
+  @IsString()
+  sourceSalesInvoiceId?: string;
+}
+
+export class UpdateIncomingBankPaymentDto {
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+
+  @IsOptional()
+  @IsIn(INCOMING_CATEGORIES)
+  category?: (typeof INCOMING_CATEGORIES)[number];
+
+  @IsOptional()
+  @IsString()
+  counterpartyId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  amount?: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  bankReference?: string;
+}
+
+export class CreateInternalBankTransferDto {
+  @IsDateString()
+  documentDate!: string;
+
+  @IsString()
+  sourceBankAccountId!: string;
+
+  @IsString()
+  destinationBankAccountId!: string;
+
+  @IsNumber()
+  amount!: number;
+
+  @IsOptional()
+  @IsNumber()
+  feeAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+const BANK_FEE_TYPES = [
+  'MONTHLY_MAINTENANCE',
+  'TRANSFER_FEE',
+  'COMMISSION',
+  'OTHER',
+] as const;
+
+export class CreateBankFeeDto {
+  @IsDateString()
+  documentDate!: string;
+
+  @IsString()
+  bankAccountId!: string;
+
+  @IsOptional()
+  @IsIn(BANK_FEE_TYPES)
+  feeType?: (typeof BANK_FEE_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  currencyId?: string;
+
+  @IsNumber()
+  amount!: number;
+
+  @IsOptional()
+  @IsNumber()
+  taxAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+const APPROVAL_STEP_TYPES = [
+  'PROCUREMENT_OFFICER',
+  'DEPARTMENT_HEAD',
+  'DIRECTOR',
+  'FINANCE',
+  'ACCOUNTING',
+  'WAREHOUSE_SUPERVISOR',
+  'SALES_MANAGER',
+] as const;
+
+export class CreateTreasuryApprovalRuleDto {
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsNumber()
+  minAmount!: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxAmount?: number;
+
+  @IsIn(APPROVAL_STEP_TYPES)
+  stepType!: (typeof APPROVAL_STEP_TYPES)[number];
+
+  @IsInt()
+  @Min(1)
+  sequence!: number;
+}
+
+export class CreateTreasuryLiquidityPolicyDto {
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  currencyId?: string;
+
+  @IsNumber()
+  minimumBalance!: number;
+}
+
+export class CreateFXConversionDto {
+  @IsDateString()
+  documentDate!: string;
+
+  @IsString()
+  sourceBankAccountId!: string;
+
+  @IsString()
+  destinationBankAccountId!: string;
+
+  @IsString()
+  sourceCurrencyId!: string;
+
+  @IsNumber()
+  sourceAmount!: number;
+
+  @IsString()
+  destinationCurrencyId!: string;
+
+  @IsNumber()
+  destinationAmount!: number;
+
+  @IsOptional()
+  @IsNumber()
+  officialRate?: number;
+
+  @IsOptional()
+  @IsNumber()
+  bankFee?: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
 }

@@ -250,6 +250,12 @@ export class PaymentAllocationService {
     const itemType = params.role === 'CUSTOMER' ? 'RECEIVABLE' : 'PAYABLE';
     const openItems = await tx.settlementOpenItem.findMany({
       where: { tenantId, organizationId: params.organizationId, counterpartyId: params.counterpartyId, itemType, currencyId: params.paymentCurrencyId, status: { in: ['OPEN', 'PARTIALLY_SETTLED'] }, blockedForPayment: false },
+      // A row order Postgres never promises without an explicit ORDER BY —
+      // sortByStrategy's own comparator returns 0 for two items with the
+      // same due/source date, and only this deterministic baseline (not
+      // incidental physical row layout, which drifts as the table grows)
+      // decides which one that stable sort keeps first.
+      orderBy: [{ sourceDate: 'asc' }, { createdAt: 'asc' }],
     });
 
     const sorted = this.sortByStrategy(openItems, params.strategy ?? 'FIFO_BY_DUE_DATE');

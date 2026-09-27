@@ -315,6 +315,30 @@ of the legacy fields keeps working unchanged.
 
 Full write-up: [`backend/docs/SETTLEMENT.md`](backend/docs/SETTLEMENT.md).
 
+### Treasury / Bank Operations
+
+A full Treasury Planning + Bank Operations engine on three loosely-coupled
+layers (spec: never merge planning, bank reality, and settlement
+allocation into one document) — Treasury Plan (`PaymentRequest`, now with
+its own configurable amount-tier approval ladder, partial approval, and
+partial multi-order execution up to the approved cap; `PaymentCalendarService`;
+`LiquidityForecastService` with cash-gap detection against a configurable
+minimum buffer), Bank Reality (the existing `PaymentOrder` outflow
+document, plus new `IncomingBankPayment`/`InternalBankTransfer`/`BankFee`/
+`FXConversion` documents, and multi-document-type bank statement
+matching), and Settlement Allocation (Phase 13's own engine, only called
+into, never duplicated). `FXConversion` books its own gain/loss against an
+optional official rate, deliberately kept separate from Phase 13's
+realized settlement FX. A formal `BankReconciliation` period-close sits on
+top of the existing line-level statement matching, gated on every line
+being matched and the book-vs-bank difference falling within tolerance.
+Along the way, found and fixed two genuine latent bugs: an advisory lock
+that was being released before it could do its job (a statement line
+could be double-matched), and a Settlement-engine FIFO allocation query
+with no deterministic sort order at all.
+
+Full write-up: [`backend/docs/TREASURY.md`](backend/docs/TREASURY.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -345,6 +369,8 @@ Policy, Tax Profile, Access).
 | `backend/test/warehouse-inventory.e2e-spec.ts` | 7 | Instant warehouse transfer (source decrease + destination increase in one post), negative-stock-blocked transfer, two-step transfer (ship ⇒ IN_TRANSIT, partial receive, over-receive rejection, unpost blocked after any receive), internal consumption physical decrease, inventory adjustment write-off/surplus, inventory status transfer (quantity unchanged, only status moves), tenant isolation |
 | `backend/test/inventory-count.e2e-spec.ts` | 13 | Zero-variance count with no adjustment, shortage/surplus full lifecycle (variance ⇒ decide ⇒ approve ⇒ post ⇒ reconcile), blind count, post-snapshot movement reconciliation under NO_FREEZE, location and batch mismatch surfaced even at a net-zero product total, serial mismatch at matching quantity, recount (original preserved, final approved count wins), HARD_FREEZE blocking an unrelated posting, uncounted vs. explicit zero, idempotent adjustment posting, stale-reconciliation block under a concurrent movement, tenant isolation |
 | `backend/test/settlement.e2e-spec.ts` | 17 | Basic receivable + full payment, partial payment, multiple payments accumulating to zero, one payment auto-allocated FIFO across multiple invoices, customer/supplier advances incl. partial application, overpayment becoming a customer advance, sales return after full payment producing a credit position, AR/AP offset, write-off with segregation of duties (self-approval rejected), due-date ageing on the remaining balance only, realized FX on full and partial foreign-currency payments, concurrent over-allocation safety, invoice-unpost blocked by an active allocation, counterparty reconciliation statement, tenant isolation |
+| `backend/test/treasury.e2e-spec.ts` | 5 | Purchase Invoice ⇒ Payment Request ⇒ Payment Order requiring FINANCE approval, segregation of duties (approver ≠ executor), counterparty-bank-account-change re-check at posting, reconciliation against a bank statement amount, accounting-entries viewer |
+| `backend/test/treasury-bank-operations.e2e-spec.ts` | 16 | Incoming bank payment posting (named invoice + unnamed advance), internal transfer with a separately-booked fee + same-account rejection, bank fee posting, FX conversion (gain vs. an official rate, currency-mismatch rejection, never a settlement), multi-document-type statement matching (inflow/outflow/unmatched-line classification/concurrent-match safety), bank reconciliation period close + mandatory-reason reopen, payment-request amount-tier approval with partial approval and partial multi-order execution + its own concurrency test, payment calendar + liquidity forecast + cash-gap detection, treasury health, payment-order reversal |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -382,9 +408,11 @@ All run against a real PostgreSQL instance — no mocked database.
   not yet validated); no frontend UI yet.
 - **Purchase Execution** — ✅ done, tested, documented. Goods Receipt
   Model A only (GRNI clearing — Model B not implemented); no batch/serial
-  tracking; no approval workflow; no Payment/Advance engine (Phase 13/14
-  boundary — SupplierPayable never shows PARTIALLY_PAID/PAID); no
-  frontend UI yet.
+  tracking. Payment/Advance now exists (Phase 13's Settlement Subledger +
+  Phase 14's Treasury/Bank Operations) — `SupplierPayable` itself still
+  never shows PARTIALLY_PAID (a legacy field kept for backward
+  compatibility; the real partial-payment state lives on
+  `SettlementOpenItem`). No frontend UI yet.
 - **Warehouse / Stock Engine** — ✅ done, tested, documented. The Stock
   Truth Engine: physical stock always computed live from the immutable
   `InventoryMovement` register (never a mutable field), with Phase 7/9's
@@ -414,5 +442,19 @@ All run against a real PostgreSQL instance — no mocked database.
   exposure is a callable interface Sales Pre-Order/Execution don't call
   yet; AR/AP-vs-GL health check is a placeholder — see
   docs/SETTLEMENT.md.
+- **Treasury / Bank Operations** — ✅ done, tested, documented. Three
+  loosely-coupled layers (Treasury Plan / Bank Reality / Settlement
+  Allocation — Phase 13's engine, never duplicated): PaymentRequest's own
+  configurable amount-tier approval + partial approval + partial
+  multi-order execution, IncomingBankPayment/InternalBankTransfer/BankFee/
+  FXConversion as full document-framework participants, multi-document-
+  type bank statement matching, and a formal BankReconciliation period
+  close layered on the existing line-level matching. Payment Instruction
+  stays folded into PaymentOrder's own posting event (a pre-existing
+  simplification, not revisited); InternalBankTransfer posts as a single
+  atomic event rather than the spec's optional multi-day in-transit
+  timing; BankFee tax is a flat manual amount, not full Tax Engine
+  resolution; no MT940/CAMT.053 parser, only CSV; forecast versioning and
+  credit-line/loan management are out of scope — see docs/TREASURY.md.
 - **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
   started. Later phases building on this foundation.
