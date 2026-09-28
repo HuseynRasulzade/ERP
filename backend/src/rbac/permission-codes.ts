@@ -402,6 +402,27 @@ export const PermissionCodes = {
   TIME_VIEW_PAYROLL_INPUT: 'time.view_payroll_input',
   TIME_OVERRIDE_VALIDATION: 'time.override_validation',
 
+  // Payroll / Gross-to-Net Engine (docx spec Phase 19)
+  PAYROLL_VIEW: 'payroll.view',
+  PAYROLL_VIEW_OWN: 'payroll.view_own',
+  PAYROLL_VIEW_DEPARTMENT: 'payroll.view_department',
+  PAYROLL_VIEW_SALARY: 'payroll.view_salary',
+  PAYROLL_EDIT_COMPENSATION: 'payroll.edit_compensation',
+  PAYROLL_CREATE_VARIABLE_INPUT: 'payroll.create_variable_input',
+  PAYROLL_CALCULATE: 'payroll.calculate',
+  PAYROLL_RECALCULATE: 'payroll.recalculate',
+  PAYROLL_APPROVE: 'payroll.approve',
+  PAYROLL_POST: 'payroll.post',
+  PAYROLL_CLOSE: 'payroll.close',
+  PAYROLL_REOPEN: 'payroll.reopen',
+  PAYROLL_CREATE_PAYMENT_BATCH: 'payroll.create_payment_batch',
+  PAYROLL_VIEW_TAX: 'payroll.view_tax',
+  PAYROLL_EDIT_TAX_PROFILE: 'payroll.edit_tax_profile',
+  PAYROLL_MANAGE_DEDUCTIONS: 'payroll.manage_deductions',
+  PAYROLL_MANUAL_ADJUSTMENT: 'payroll.manual_adjustment',
+  PAYROLL_VIEW_ACCOUNTING: 'payroll.view_accounting',
+  PAYROLL_VIEW_LEGAL_TRACE: 'payroll.view_legal_trace',
+
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_VIEW_ALL_WAREHOUSES: 'inventory.view_all_warehouses',
@@ -2180,6 +2201,102 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.TIME_OVERRIDE_VALIDATION,
     module: 'work_time',
     description: 'Override a work-time validation exception (e.g. approve a timesheet with unresolved exceptions)',
+  },
+
+  {
+    code: PermissionCodes.PAYROLL_VIEW,
+    module: 'payroll',
+    description: 'View payroll data across the organization',
+  },
+  {
+    code: PermissionCodes.PAYROLL_VIEW_OWN,
+    module: 'payroll',
+    description: 'View own payslip/payroll data',
+  },
+  {
+    code: PermissionCodes.PAYROLL_VIEW_DEPARTMENT,
+    module: 'payroll',
+    description: "View a manager's own department payroll aggregate",
+  },
+  {
+    code: PermissionCodes.PAYROLL_VIEW_SALARY,
+    module: 'payroll',
+    description: 'View individual salary/compensation amounts',
+  },
+  {
+    code: PermissionCodes.PAYROLL_EDIT_COMPENSATION,
+    module: 'payroll',
+    description: 'Create/edit employee compensation assignments',
+  },
+  {
+    code: PermissionCodes.PAYROLL_CREATE_VARIABLE_INPUT,
+    module: 'payroll',
+    description: 'Create bonus/allowance/manual variable payroll inputs',
+  },
+  {
+    code: PermissionCodes.PAYROLL_CALCULATE,
+    module: 'payroll',
+    description: 'Run a payroll calculation',
+  },
+  {
+    code: PermissionCodes.PAYROLL_RECALCULATE,
+    module: 'payroll',
+    description: 'Trigger a payroll recalculation/retro run',
+  },
+  {
+    code: PermissionCodes.PAYROLL_APPROVE,
+    module: 'payroll',
+    description: 'Approve a calculated payroll period',
+  },
+  {
+    code: PermissionCodes.PAYROLL_POST,
+    module: 'payroll',
+    description: 'Post payroll to the general ledger',
+  },
+  {
+    code: PermissionCodes.PAYROLL_CLOSE,
+    module: 'payroll',
+    description: 'Close a payroll period',
+  },
+  {
+    code: PermissionCodes.PAYROLL_REOPEN,
+    module: 'payroll',
+    description: 'Reopen a closed/approved payroll period',
+  },
+  {
+    code: PermissionCodes.PAYROLL_CREATE_PAYMENT_BATCH,
+    module: 'payroll',
+    description: 'Create a salary payment batch',
+  },
+  {
+    code: PermissionCodes.PAYROLL_VIEW_TAX,
+    module: 'payroll',
+    description: 'View employee tax profile and tax calculation detail',
+  },
+  {
+    code: PermissionCodes.PAYROLL_EDIT_TAX_PROFILE,
+    module: 'payroll',
+    description: 'Edit employee tax profile',
+  },
+  {
+    code: PermissionCodes.PAYROLL_MANAGE_DEDUCTIONS,
+    module: 'payroll',
+    description: 'Manage deduction definitions and execution orders',
+  },
+  {
+    code: PermissionCodes.PAYROLL_MANUAL_ADJUSTMENT,
+    module: 'payroll',
+    description: 'Manually override a calculated payroll amount',
+  },
+  {
+    code: PermissionCodes.PAYROLL_VIEW_ACCOUNTING,
+    module: 'payroll',
+    description: 'View the accounting/GL side of payroll postings',
+  },
+  {
+    code: PermissionCodes.PAYROLL_VIEW_LEGAL_TRACE,
+    module: 'payroll',
+    description: 'View the legal/config rule trace behind a payroll calculation line',
   },
 
   {

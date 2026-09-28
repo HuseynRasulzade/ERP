@@ -1097,4 +1097,17 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   IMPAIRMENT_LOSS: '731', // reuses Sair əməliyyat xərcləri
   DISPOSAL_GAIN: '611', // reuses Sair əməliyyat gəlirləri
   DISPOSAL_LOSS: '731', // reuses Sair əməliyyat xərcləri
+  // Payroll / Gross-to-Net Engine (docx spec Phase 19) — SALARY_EXPENSE/
+  // EMPLOYER_CONTRIBUTION_EXPENSE reuse İnzibati xərclər (721) the same
+  // way DEPRECIATION_EXPENSE does: the DEPARTMENT dimension on each GL
+  // line carries the real department/cost-center allocation, not a
+  // separate account per department.
+  SALARY_EXPENSE: '721', // İnzibati xərclər
+  EMPLOYER_CONTRIBUTION_EXPENSE: '721',
+  SALARY_PAYABLE: '533', // Əməyin ödənişi üzrə işçi heyətinə olan borclar
+  INCOME_TAX_PAYABLE: '521', // Vergi öhdəlikləri
+  SOCIAL_INSURANCE_PAYABLE: '522', // Sosial sığorta və təminat üzrə öhdəliklər
+  UNEMPLOYMENT_INSURANCE_PAYABLE: '523', // Digər məcburi ödənişlər üzrə öhdəliklər
+  MEDICAL_INSURANCE_PAYABLE: '523',
+  EXECUTION_ORDER_PAYABLE: '538', // Digər qısamüddətli kreditor borcları
 };

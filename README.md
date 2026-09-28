@@ -455,6 +455,37 @@ full list of disclosed simplifications.
 
 Full write-up: [`backend/docs/WORK_TIME.md`](backend/docs/WORK_TIME.md).
 
+### Payroll / Gross-to-Net Engine
+
+Effective-dated `EmployeeCompensationAssignment` (a mid-month raise splits the
+period into segments, never overwrites the prior row) → the only door into
+Phase 18's hours (`PayrollTimeInputService`, APPROVED/LOCKED rows only) →
+base-salary proration + overtime/night/holiday premiums (holiday/weekend
+hours excluded from the proration ratio and paid entirely through their own
+premium line, so they're never double-paid) → Gross-to-Net (separate
+taxable/social/unemployment/medical bases, progressive tax and contribution
+brackets resolved by `asOfDate` from seeded, effective-dated legal-rule data
+— never a hardcoded rate — execution orders/alimony with legal caps and
+carry-forward, employer contributions kept fully separate from employee
+deductions) → a versioned `PayrollCalculationResult`/`PayrollResultLine`
+trace. A regular calculation run is idempotent (retry never duplicates); a
+retroactive correction always creates a new version and marks the old one
+`SUPERSEDED` (`supersededById` points forward) — history is never
+overwritten. `PayrollPosting` is a full document-framework participant: one
+balanced GL entry per period (Dr Salary Expense + Employer Contribution
+Expense / Cr Salary Payable + statutory payables, dimensioned by department)
+plus `PAYROLL_LIABILITY_REGISTER` movements — the sixth Truth Engine reuse
+after Stock/Cash/Bank/FixedAsset/WorkTime — and unposting after a payment has
+already been recorded is refused outright. `PayrollPaymentBatch`/
+`PayrollPaymentAllocation` are the stable contract Phase 14 (bank)/Phase 15
+(cash) are expected to consume once built. AZ 2026 bracket figures are
+explicitly illustrative, not verified official rates; overtime/night/holiday
+use only the statutory-minimum multiplier; a payment batch confirms
+immediately rather than a separate draft/confirm step — see
+docs/PAYROLL.md.
+
+Full write-up: [`backend/docs/PAYROLL.md`](backend/docs/PAYROLL.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -491,6 +522,7 @@ Policy, Tax Profile, Access).
 | `backend/test/fixed-assets.e2e-spec.ts` | 17 | Acquisition-candidate classification (CAPITALIZE creates an asset, EXPENSE never does), CIP cost formation across multiple sources with an expensed exclusion + capitalization into one asset, over-capitalization rejection, CIP capitalization concurrency safety, acceptance-without-commissioning staying depreciation-free, straight-line depreciation (zero residual, non-zero residual, idempotency), modernization increasing gross cost, impairment reducing NBV to the recoverable amount, transfer leaving cost/NBV unchanged, disposal (SALE with gain/loss + receivable, WRITE_OFF with a full loss and no further depreciation), physical inventory (wrong-location auto-correction, missing-asset staying unresolved), GL reconciliation reporting every account healthy after a full mixed flow |
 | `backend/test/hr-core.e2e-spec.ts` | 11 | Physical-person duplicate-personalId detection (blocked, then confirmed), hire lifecycle via the new-person path (draft ⇒ post), as-of-date employment state resolution before and after the hire date, employment contract create + amend with versioned history, manager hierarchy transfer + circular-hierarchy rejection, EmployeeAssignment history split at a transfer's effective date (state correct on both sides of the date), staffing-position capacity enforcement + override with permission, termination with correct Employee-status rollup, rehire reusing the same Employee row, multiple concurrent employments (secondary termination leaving primary + Employee active), org-chart/headcount/staffing-capacity/health reports |
 | `backend/test/work-time.e2e-spec.ts` | 14 | Attendance idempotency on re-import, missing-clock-out and duplicate-punch detection, a production calendar with a holiday and a shortened day, a standard 5-day schedule template, the full spec section-172 end-to-end month (hire, schedule assignment, mid-month department transfer, annual leave, approved overtime, daily plan generation reflecting calendar + transfer, regular attendance with break deduction, partial absence, a night shift crossing midnight with correct 6h night premium and no worked-hours inflation, holiday work, timesheet generate ⇒ submit ⇒ approve ⇒ lock, Work Time Register + Payroll Time Input Register generation with no money fields), a locked-timesheet direct-edit block requiring a Time Correction (which correctly flags `requiresRecalculation`), an unapproved-overtime exception that blocks timesheet approval until resolved, and the plan-vs-actual/overtime/night/holiday-weekend reports |
+| `backend/test/payroll.e2e-spec.ts` | 3 | Full base-salary proration with progressive AZ income tax/social/unemployment/medical contributions against a real Work Time Register month, a backdated salary raise recalculated into a new version with the original preserved as SUPERSEDED, and the full GL-posting pipeline (approve ⇒ draft PayrollPosting ⇒ post through the generic document-framework command ⇒ balanced journal entry assertion ⇒ payment batch payout ⇒ second-batch-against-fully-paid-period and unpost-after-payment both refused ⇒ register/payslip/employer-cost/liability reports ⇒ close) |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -622,5 +654,23 @@ All run against a real PostgreSQL instance — no mocked database.
   the PREAPPROVAL_REQUIRED overtime policy, no actual-clock-based break
   deduction (uniform from the schedule pattern instead) — see
   docs/WORK_TIME.md.
-- **Payroll, Banking, ...** — not started. Later phases building on this
+- **Payroll / Gross-to-Net Engine** — ✅ done, tested, documented.
+  Effective-dated compensation with mid-period segment splitting; reads
+  Phase 18's hours through `PayrollTimeInputService` only; base-salary
+  proration + overtime/night/holiday premiums with no double-paying of
+  holiday/weekend hours; Gross-to-Net with separate taxable/social/
+  unemployment/medical bases and progressive tax/contribution brackets
+  resolved by `asOfDate` from seeded data (never hardcoded); execution
+  orders with legal caps and carry-forward; a versioned, non-destructive
+  retro/recalculation engine (`SUPERSEDED`, never overwritten);
+  `PayrollPosting` as a full document-framework participant producing a
+  balanced GL entry and the `PAYROLL_LIABILITY_REGISTER` (sixth Truth
+  Engine reuse); `PayrollPaymentBatch`/`PayrollPaymentAllocation` as the
+  stable contract Phase 14/15 are expected to consume; close/reopen +
+  register/payslip/employer-cost/liability reports + health checks. AZ
+  2026 bracket figures are illustrative, not verified official rates; only
+  the statutory-minimum overtime/night/holiday multiplier; a payment batch
+  confirms immediately rather than a separate draft/confirm step; reopen
+  does not cascade-undo GL posting or payments — see docs/PAYROLL.md.
+- **Banking, ...** — not started. Later phases building on this
   foundation.

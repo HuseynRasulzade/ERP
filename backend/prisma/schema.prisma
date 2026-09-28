@@ -220,6 +220,27 @@ model Tenant {
   WorkTimePeriod         WorkTimePeriod[]
   PayrollTimeInput       PayrollTimeInput[]
 
+  // Payroll / Gross-to-Net Engine (docx spec Phase 19)
+  PayrollPeriod                  PayrollPeriod[]
+  EmployeeCompensationAssignment EmployeeCompensationAssignment[]
+  PayrollEarningDefinition       PayrollEarningDefinition[]
+  PayrollDeductionDefinition     PayrollDeductionDefinition[]
+  PayrollLegalRuleSet            PayrollLegalRuleSet[]
+  PayrollTaxBracket              PayrollTaxBracket[]
+  PayrollContributionBracket     PayrollContributionBracket[]
+  PayrollTaxRelief               PayrollTaxRelief[]
+  PayrollTaxProfile              PayrollTaxProfile[]
+  PayrollVariableInput           PayrollVariableInput[]
+  PayrollExecutionOrder          PayrollExecutionOrder[]
+  AverageEarningsCalculation     AverageEarningsCalculation[]
+  PayrollCalculationRun          PayrollCalculationRun[]
+  PayrollCalculationResult       PayrollCalculationResult[]
+  PayrollRecalculationRequest    PayrollRecalculationRequest[]
+  PayrollError                   PayrollError[]
+  PayrollPaymentBatch            PayrollPaymentBatch[]
+  PayrollPaymentAllocation       PayrollPaymentAllocation[]
+  PayrollPosting                 PayrollPosting[]
+
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
   inventoryCostMovements       InventoryCostMovement[]
@@ -398,6 +419,12 @@ model Organization {
   Timesheet             Timesheet[]
   WorkTimePeriod        WorkTimePeriod[]
   PayrollTimeInput      PayrollTimeInput[]
+
+  // Payroll / Gross-to-Net Engine (docx spec Phase 19)
+  PayrollPeriod          PayrollPeriod[]
+  PayrollCalculationRun  PayrollCalculationRun[]
+  PayrollPaymentBatch    PayrollPaymentBatch[]
+  PayrollPosting         PayrollPosting[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -8399,4 +8426,576 @@ model PayrollTimeInput {
   @@index([employmentId, payrollPeriodStart])
   @@index([organizationId, status])
   @@map("work_time_payroll_inputs")
+}
+
+// ============================================================================
+// Payroll / Gross-to-Net Engine (docx spec Phase 19)
+//
+// Five layers (spec section 1): Compensation Entitlement -> Payroll Input
+// (Phase 18's approved PayrollTimeInput, never raw attendance) -> Payroll
+// Calculation (earning/deduction resolution via a fixed, documented
+// dependency-respecting pipeline) -> Payroll Liability (reusing the generic
+// RegisterMovement ledger, registerCode = 'PAYROLL_LIABILITY_REGISTER' —
+// the sixth Truth Engine reuse) -> Payroll Payment (a stable contract for
+// Phase 14/15 to consume, never executed here). Azerbaijan-specific rates
+// (income tax brackets, social/unemployment/medical contribution brackets,
+// leave-average coefficients) are effective-dated seed DATA
+// (PayrollLegalRuleSet/PayrollTaxBracket/PayrollContributionBracket), never
+// hardcoded in the calculation engine. Employment/Department/CostCenter/
+// Currency/BankAccount/CashDesk are cross-module soft references (plain
+// string columns, no @relation) — same convention as every other module
+// built on top of Phase 17.
+// ============================================================================
+
+model PayrollPeriod {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  periodType         String    @default("MONTHLY") @map("period_type")
+  year               Int
+  month              Int
+  periodStart        DateTime  @map("period_start") @db.Date
+  periodEnd          DateTime  @map("period_end") @db.Date
+  paymentDate        DateTime? @map("payment_date") @db.Date
+  workTimePeriodId   String?   @map("work_time_period_id")
+  status             String    @default("OPEN") // OPEN|INPUT_COLLECTION|READY_TO_CALCULATE|CALCULATING|CALCULATED|REVIEW|APPROVED|POSTED|PAYMENT_READY|PARTIALLY_PAID|PAID|CLOSED|REOPENED|ERROR
+  calculationVersion Int       @default(1) @map("calculation_version")
+  openedAt           DateTime  @default(now()) @map("opened_at")
+  calculatedAt       DateTime? @map("calculated_at")
+  approvedAt         DateTime? @map("approved_at")
+  approvedBy         String?   @map("approved_by")
+  postedAt           DateTime? @map("posted_at")
+  closedAt           DateTime? @map("closed_at")
+  reopenedAt         DateTime? @map("reopened_at")
+  reopenReason       String?   @map("reopen_reason")
+
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
+  organization     Organization              @relation(fields: [organizationId], references: [id])
+  calculationRuns  PayrollCalculationRun[]
+  results          PayrollCalculationResult[]
+  paymentBatches   PayrollPaymentBatch[]
+  posting          PayrollPosting?
+
+  @@unique([organizationId, year, month])
+  @@index([organizationId, status])
+  @@map("payroll_periods")
+}
+
+/// EmployeeCompensationAssignment — effective-dated (spec sections 9-12):
+/// a mid-period change never overwrites the prior row; the calculation
+/// engine splits the period into segments at each effectiveFrom boundary.
+model EmployeeCompensationAssignment {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  employmentId      String    @map("employment_id")
+  effectiveFrom     DateTime  @map("effective_from") @db.Date
+  effectiveTo       DateTime? @map("effective_to") @db.Date
+  compensationType  String    @default("REGULAR") @map("compensation_type")
+  payBasis          String    @map("pay_basis") // MONTHLY_SALARY|HOURLY|DAILY|PIECE_RATE|FIXED_PERIOD_AMOUNT
+  baseSalary        Decimal?  @map("base_salary") @db.Decimal(14, 2)
+  hourlyRate        Decimal?  @map("hourly_rate") @db.Decimal(10, 4)
+  dailyRate         Decimal?  @map("daily_rate") @db.Decimal(12, 2)
+  currencyId        String?   @map("currency_id")
+  fteBasis          String    @default("ACTUAL_ASSIGNED_SALARY") @map("fte_basis") // FULL_FTE_RATE|ACTUAL_ASSIGNED_SALARY
+  salaryGrade       String?   @map("salary_grade")
+  sourceDocument     String?   @map("source_document")
+  status            String    @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, effectiveFrom])
+  @@map("payroll_compensation_assignments")
+}
+
+/// PayrollEarningDefinition — configurable catalog (spec sections 13-14).
+/// The base-inclusion flags are what drive separate taxable/social/
+/// unemployment/medical/average-pay bases (spec section 59: contribution
+/// base != gross).
+model PayrollEarningDefinition {
+  id                       String  @id @default(uuid())
+  tenantId                 String  @map("tenant_id")
+  code                     String
+  name                     String
+  calculationStrategy      String  @map("calculation_strategy")
+  taxableIncome            Boolean @default(true) @map("taxable_income")
+  socialInsuranceBase      Boolean @default(true) @map("social_insurance_base")
+  unemploymentBase         Boolean @default(true) @map("unemployment_base")
+  medicalInsuranceBase     Boolean @default(true) @map("medical_insurance_base")
+  averageEarningsInclusion Boolean @default(true) @map("average_earnings_inclusion")
+  grossPayInclusion        Boolean @default(true) @map("gross_pay_inclusion")
+  employerCostInclusion    Boolean @default(true) @map("employer_cost_inclusion")
+  accountingMappingKey     String? @map("accounting_mapping_key")
+  priority                 Int     @default(100)
+  active                   Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@map("payroll_earning_definitions")
+}
+
+/// PayrollDeductionDefinition (spec sections 15-16). `priority` is the
+/// statutory withholding order (spec section 62) — never an arbitrary UI
+/// sort order.
+model PayrollDeductionDefinition {
+  id                   String   @id @default(uuid())
+  tenantId             String   @map("tenant_id")
+  code                 String
+  name                 String
+  category             String   @default("STATUTORY") // STATUTORY|VOLUNTARY
+  taxTreatment         String   @default("POST_TAX") @map("tax_treatment") // PRE_TAX|POST_TAX
+  calculationMethod    String   @map("calculation_method") // PERCENTAGE|FIXED|FORMULA|BRACKET
+  baseDefinition       String?  @map("base_definition")
+  percentage           Decimal? @db.Decimal(7, 4)
+  fixedAmount          Decimal? @map("fixed_amount") @db.Decimal(14, 2)
+  capAmount            Decimal? @map("cap_amount") @db.Decimal(14, 2)
+  floorAmount          Decimal? @map("floor_amount") @db.Decimal(14, 2)
+  priority             Int      @default(100)
+  consentRequired      Boolean  @default(false) @map("consent_required")
+  accountingMappingKey String?  @map("accounting_mapping_key")
+  active               Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@map("payroll_deduction_definitions")
+}
+
+/// PayrollLegalRuleSet — legal rule versioning (spec sections 4-5): a
+/// historical payroll always resolves the rule version that was effective
+/// during that period, never today's version.
+model PayrollLegalRuleSet {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  jurisdiction     String    @default("AZ")
+  ruleCode         String    @map("rule_code")
+  legalSource      String?   @map("legal_source")
+  articleReference String?   @map("article_reference")
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  effectiveTo      DateTime? @map("effective_to") @db.Date
+  ruleVersion      Int       @default(1) @map("rule_version")
+  status           String    @default("ACTIVE")
+  approvedBy       String?   @map("approved_by")
+  publishedDate    DateTime? @map("published_date") @db.Date
+  metadata         Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, ruleCode, ruleVersion])
+  @@index([tenantId, ruleCode, effectiveFrom])
+  @@map("payroll_legal_rule_sets")
+}
+
+/// PayrollTaxBracket — generic progressive tax engine (spec section 53).
+/// Seeded with the 2026 AZ non-oil private-sector example rates as
+/// effective-dated DATA (see prisma/seed.ts's az-payroll-localization
+/// block) — never hardcoded in PayrollTaxService itself.
+model PayrollTaxBracket {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  ruleCode      String    @map("rule_code")
+  regime        String?
+  fromAmount    Decimal   @map("from_amount") @db.Decimal(14, 2)
+  toAmount      Decimal?  @map("to_amount") @db.Decimal(14, 2)
+  baseTax       Decimal   @default(0) @map("base_tax") @db.Decimal(14, 2)
+  rate          Decimal   @db.Decimal(7, 4)
+  sequence      Int
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, ruleCode, effectiveFrom])
+  @@map("payroll_tax_brackets")
+}
+
+/// PayrollContributionBracket — social/unemployment/medical insurance,
+/// employee and employer components tracked as fully separate rows (spec
+/// sections 54-58: never mix employee/employer, never assume one flat
+/// threshold across years).
+model PayrollContributionBracket {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  contributionType String   @map("contribution_type") // SOCIAL_INSURANCE|UNEMPLOYMENT|MEDICAL_INSURANCE
+  payerType       String    @map("payer_type") // EMPLOYEE|EMPLOYER
+  regime          String?
+  thresholdFrom   Decimal   @map("threshold_from") @db.Decimal(14, 2)
+  thresholdTo     Decimal?  @map("threshold_to") @db.Decimal(14, 2)
+  fixedComponent  Decimal   @default(0) @map("fixed_component") @db.Decimal(14, 2)
+  percentage      Decimal   @db.Decimal(7, 4)
+  sequence        Int
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, contributionType, payerType, effectiveFrom])
+  @@map("payroll_contribution_brackets")
+}
+
+/// PayrollTaxRelief — exemption catalog (spec sections 49-50). The engine
+/// (not the UI) decides additive/mutually-exclusive/largest-only
+/// combinability.
+model PayrollTaxRelief {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  code                  String
+  name                  String
+  amount                Decimal?  @db.Decimal(14, 2)
+  formula               String?
+  priority              Int       @default(100)
+  combinability         String    @default("ADDITIVE") // ADDITIVE|MUTUALLY_EXCLUSIVE|LARGEST_ONLY
+  mainWorkplaceRequired Boolean   @default(false) @map("main_workplace_required")
+  legalReference        String?   @map("legal_reference")
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@map("payroll_tax_reliefs")
+}
+
+/// EmployeeTaxProfile — effective-dated (spec section 48). Sensitive/legal
+/// attributes; permission-controlled at the service layer.
+model PayrollTaxProfile {
+  id                          String    @id @default(uuid())
+  tenantId                    String    @map("tenant_id")
+  employmentId                String    @map("employment_id")
+  taxResidency                String    @default("RESIDENT") @map("tax_residency")
+  mainWorkplace               Boolean   @default(true) @map("main_workplace")
+  sectorCategory               String?   @map("sector_category")
+  exemptionCodes              Json?     @map("exemption_codes")
+  statutoryReliefReference     String?   @map("statutory_relief_reference")
+  taxRegime                   String    @default("STANDARD") @map("tax_regime")
+  effectiveFrom                DateTime  @map("effective_from") @db.Date
+  effectiveTo                  DateTime? @map("effective_to") @db.Date
+  supportingDocument           String?   @map("supporting_document")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, effectiveFrom])
+  @@map("payroll_tax_profiles")
+}
+
+/// PayrollVariableInput — bonus/allowance/manual authorized inputs (spec
+/// section 32), linked to a PayrollEarningDefinition by code (soft
+/// reference, resolver pattern — never a hardcoded switch).
+model PayrollVariableInput {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  employmentId       String    @map("employment_id")
+  earningCode        String    @map("earning_code")
+  payrollPeriodId    String?   @map("payroll_period_id")
+  amount             Decimal?  @db.Decimal(14, 2)
+  percentage         Decimal?  @db.Decimal(7, 4)
+  quantity           Decimal?  @db.Decimal(10, 2)
+  sourceDocumentType String?   @map("source_document_type")
+  sourceDocumentId   String?   @map("source_document_id")
+  approvalStatus     String    @default("PENDING") @map("approval_status")
+  approvedBy         String?   @map("approved_by")
+  approvedAt         DateTime? @map("approved_at")
+  effectiveDate      DateTime  @map("effective_date") @db.Date
+  status             String    @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, effectiveDate])
+  @@map("payroll_variable_inputs")
+}
+
+/// PayrollExecutionOrder — alimony/execution orders (spec sections 63-66).
+/// `carryForwardBalance` is the legally-uncollectable-this-period remainder
+/// (spec section 130) — never silently dropped.
+model PayrollExecutionOrder {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  employmentId            String    @map("employment_id")
+  orderType               String    @map("order_type") // ALIMONY|EXECUTION_ORDER|UNION_DUES|EMPLOYEE_LOAN|OTHER
+  creditor                String?
+  executionDocumentReference String? @map("execution_document_reference")
+  calculationMethod       String    @map("calculation_method") // PERCENTAGE|FIXED
+  percentage              Decimal?  @db.Decimal(7, 4)
+  fixedAmount             Decimal?  @map("fixed_amount") @db.Decimal(14, 2)
+  priority                Int       @default(100)
+  effectiveFrom           DateTime  @map("effective_from") @db.Date
+  effectiveTo             DateTime? @map("effective_to") @db.Date
+  capAmount               Decimal?  @map("cap_amount") @db.Decimal(14, 2)
+  protectedMinimumRule    String?   @map("protected_minimum_rule")
+  carryForwardBalance     Decimal   @default(0) @map("carry_forward_balance") @db.Decimal(14, 2)
+  status                  String    @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, status])
+  @@map("payroll_execution_orders")
+}
+
+/// AverageEarningsCalculation — the Average Earnings Engine's own
+/// projection (spec sections 35-39): reference months, included/excluded
+/// earnings, adjustment coefficients, and the resulting average — fully
+/// traceable per spec section 39.
+model AverageEarningsCalculation {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  employmentId           String    @map("employment_id")
+  calculationType        String    @map("calculation_type") // LEAVE_PAY|SICK_PAY|TERMINATION|BUSINESS_TRIP
+  referencePeriodStart   DateTime  @map("reference_period_start") @db.Date
+  referencePeriodEnd     DateTime  @map("reference_period_end") @db.Date
+  includedEarnings       Json?     @map("included_earnings")
+  excludedEarnings       Json?     @map("excluded_earnings")
+  substitutionPeriods    Json?     @map("substitution_periods")
+  adjustmentCoefficient  Decimal?  @map("adjustment_coefficient") @db.Decimal(7, 3)
+  averageMonthly         Decimal?  @map("average_monthly") @db.Decimal(14, 2)
+  averageDaily           Decimal?  @map("average_daily") @db.Decimal(14, 4)
+  paidDays               Decimal?  @map("paid_days") @db.Decimal(6, 2)
+  resultAmount           Decimal?  @map("result_amount") @db.Decimal(14, 2)
+  sourceResultId         String?   @map("source_result_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, calculationType])
+  @@map("payroll_average_earnings_calculations")
+}
+
+model PayrollCalculationRun {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  organizationId    String    @map("organization_id")
+  payrollPeriodId   String    @map("payroll_period_id")
+  runType           String    @default("REGULAR") @map("run_type") // PREVIEW|REGULAR|RECALCULATION|RETROACTIVE|TERMINATION|OFF_CYCLE|FINAL
+  version           Int       @default(1)
+  status            String    @default("RUNNING")
+  startedAt         DateTime  @default(now()) @map("started_at")
+  completedAt       DateTime? @map("completed_at")
+  initiatedBy       String?   @map("initiated_by")
+  employeesProcessed Int      @default(0) @map("employees_processed")
+  employeesFailed   Int       @default(0) @map("employees_failed")
+  totalGross        Decimal   @default(0) @map("total_gross") @db.Decimal(16, 2)
+  totalNet          Decimal   @default(0) @map("total_net") @db.Decimal(16, 2)
+  totalTaxes        Decimal   @default(0) @map("total_taxes") @db.Decimal(16, 2)
+  totalEmployerCost Decimal   @default(0) @map("total_employer_cost") @db.Decimal(16, 2)
+
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id])
+  organization Organization               @relation(fields: [organizationId], references: [id])
+  payrollPeriod PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
+  results      PayrollCalculationResult[]
+  errors       PayrollError[]
+
+  @@index([payrollPeriodId, status])
+  @@map("payroll_calculation_runs")
+}
+
+/// PayrollCalculationResult — per employment/period, VERSIONED (spec
+/// sections 76, 91): a retro correction creates a new version and points
+/// the old one's `supersededById` forward; it is never overwritten.
+model PayrollCalculationResult {
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  employmentId          String   @map("employment_id")
+  payrollPeriodId       String   @map("payroll_period_id")
+  calculationRunId      String   @map("calculation_run_id")
+  version               Int      @default(1)
+  gross                 Decimal  @default(0) @db.Decimal(14, 2)
+  taxableIncome         Decimal  @default(0) @map("taxable_income") @db.Decimal(14, 2)
+  employeeDeductions    Decimal  @default(0) @map("employee_deductions") @db.Decimal(14, 2)
+  net                   Decimal  @default(0) @db.Decimal(14, 2)
+  employerContributions Decimal  @default(0) @map("employer_contributions") @db.Decimal(14, 2)
+  employerTotalCost     Decimal  @default(0) @map("employer_total_cost") @db.Decimal(14, 2)
+  status                String   @default("CALCULATED") // CALCULATED|SUPERSEDED|ERROR
+  supersededById        String?  @unique @map("superseded_by_id")
+  snapshot              Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
+  payrollPeriod    PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
+  calculationRun   PayrollCalculationRun     @relation(fields: [calculationRunId], references: [id])
+  supersededBy     PayrollCalculationResult? @relation("PayrollResultRetro", fields: [supersededById], references: [id])
+  supersedes       PayrollCalculationResult? @relation("PayrollResultRetro")
+  lines            PayrollResultLine[]
+
+  @@unique([employmentId, payrollPeriodId, version])
+  @@index([payrollPeriodId, status])
+  @@map("payroll_calculation_results")
+}
+
+/// PayrollResultLine — the explainable calculation trace (spec sections
+/// 77-79): formula, inputs, rate, legal/company rule, result, all on one
+/// row.
+model PayrollResultLine {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  resultId            String   @map("result_id")
+  calculationCode     String   @map("calculation_code")
+  lineType            String   @map("line_type") // EARNING|DEDUCTION|EMPLOYER_CONTRIBUTION
+  quantity            Decimal? @db.Decimal(10, 2)
+  rate                Decimal? @db.Decimal(10, 4)
+  baseAmount          Decimal? @map("base_amount") @db.Decimal(14, 2)
+  multiplier           Decimal? @db.Decimal(6, 3)
+  amount              Decimal  @db.Decimal(14, 2)
+  taxableFlags        Json?    @map("taxable_flags")
+  sourceInput         String?  @map("source_input")
+  sourceRule          String?  @map("source_rule")
+  calculationSequence Int      @map("calculation_sequence")
+  explanation         String?
+
+  result PayrollCalculationResult @relation(fields: [resultId], references: [id])
+
+  @@index([resultId, calculationSequence])
+  @@map("payroll_result_lines")
+}
+
+/// PayrollRecalculationRequest — the queue behind spec section 89's
+/// PayrollRecalculationRequired: never a silent history rewrite.
+model PayrollRecalculationRequest {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  employmentId           String    @map("employment_id")
+  earliestAffectedPeriodId String  @map("earliest_affected_period_id")
+  reason                 String
+  sourceDocumentType     String?   @map("source_document_type")
+  sourceDocumentId       String?   @map("source_document_id")
+  status                 String    @default("PENDING")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  resolvedAt             DateTime? @map("resolved_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, status])
+  @@map("payroll_recalculation_requests")
+}
+
+model PayrollError {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  calculationRunId String   @map("calculation_run_id")
+  employmentId     String?  @map("employment_id")
+  calculationCode  String?  @map("calculation_code")
+  errorCode        String   @map("error_code")
+  message          String
+  severity         String   @default("ERROR")
+  blocking         Boolean  @default(true)
+  source           String?
+  resolved         Boolean  @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id])
+  calculationRun PayrollCalculationRun  @relation(fields: [calculationRunId], references: [id])
+
+  @@index([calculationRunId, resolved])
+  @@map("payroll_errors")
+}
+
+/// PayrollPaymentBatch / PayrollPaymentAllocation — the stable contract
+/// Phase 14 (bank)/Phase 15 (cash) consume (spec sections 104-111): Phase
+/// 19 determines who is owed what; it never executes the actual payment.
+model PayrollPaymentBatch {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  organizationId  String    @map("organization_id")
+  payrollPeriodId String    @map("payroll_period_id")
+  paymentMethod   String    @map("payment_method") // BANK|CASH
+  bankAccountId   String?   @map("bank_account_id")
+  cashDeskId      String?   @map("cash_desk_id")
+  paymentDate     DateTime  @map("payment_date") @db.Date
+  totalAmount     Decimal   @default(0) @map("total_amount") @db.Decimal(16, 2)
+  status          String    @default("DRAFT")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant        Tenant                    @relation(fields: [tenantId], references: [id])
+  organization  Organization              @relation(fields: [organizationId], references: [id])
+  payrollPeriod PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
+  allocations   PayrollPaymentAllocation[]
+
+  @@index([organizationId, status])
+  @@map("payroll_payment_batches")
+}
+
+model PayrollPaymentAllocation {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  paymentBatchId     String?  @map("payment_batch_id")
+  paymentDocumentType String? @map("payment_document_type")
+  paymentDocumentId  String?  @map("payment_document_id")
+  employmentId       String   @map("employment_id")
+  payrollPeriodId    String   @map("payroll_period_id")
+  amount             Decimal  @db.Decimal(14, 2)
+  allocationDate     DateTime @map("allocation_date") @db.Date
+  status             String   @default("ALLOCATED")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  paymentBatch PayrollPaymentBatch?  @relation(fields: [paymentBatchId], references: [id])
+
+  @@index([employmentId, payrollPeriodId])
+  @@map("payroll_payment_allocations")
+}
+
+/// PayrollPosting — the document-framework participant that turns a
+/// PayrollPeriod's calculated results into a balanced GL entry (Dr Salary
+/// Expense + Employer Contribution Expense / Cr Salary Payable +
+/// statutory payables, spec sections 97-103) and the
+/// PAYROLL_LIABILITY_REGISTER movements (spec section 114) — the sixth
+/// reuse of this codebase's Truth Engine principle after Stock/Cash/Bank/
+/// FixedAsset/WorkTime. Exactly one per PayrollPeriod (`@unique`);
+/// unpost/repost is how a mistaken posting is corrected, never a second
+/// PayrollPosting row for the same period.
+model PayrollPosting {
+  id                         String    @id @default(uuid())
+  tenantId                   String    @map("tenant_id")
+  organizationId             String    @map("organization_id")
+  documentType               String    @default("PAYROLL_POSTING") @map("document_type")
+  number                     String?
+  payrollPeriodId            String    @unique @map("payroll_period_id")
+  documentDate               DateTime  @map("document_date") @db.Date
+  postingDate                DateTime? @map("posting_date") @db.Date
+  status                     String    @default("ACTIVE")
+  postingStatus              String    @default("NOT_POSTED") @map("posting_status")
+  employeeCount              Int       @default(0) @map("employee_count")
+  totalGross                 Decimal   @default(0) @map("total_gross") @db.Decimal(16, 2)
+  totalNet                   Decimal   @default(0) @map("total_net") @db.Decimal(16, 2)
+  totalEmployerContributions Decimal   @default(0) @map("total_employer_contributions") @db.Decimal(16, 2)
+  description                String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant        Tenant       @relation(fields: [tenantId], references: [id])
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  payrollPeriod PayrollPeriod @relation(fields: [payrollPeriodId], references: [id])
+
+  @@index([organizationId, postingStatus])
+  @@map("payroll_postings")
 }

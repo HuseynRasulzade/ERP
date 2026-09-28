@@ -113,6 +113,19 @@ export const MappingKeys = {
   IMPAIRMENT_LOSS: 'IMPAIRMENT_LOSS',
   DISPOSAL_GAIN: 'DISPOSAL_GAIN',
   DISPOSAL_LOSS: 'DISPOSAL_LOSS',
+  // Payroll / Gross-to-Net Engine (docx spec Phase 19, sections 97-103):
+  // gross wages + employer statutory contributions are expensed; net pay
+  // and each statutory withholding become a separate short-term
+  // liability until paid (spec section 114 — never one lumped "payroll
+  // payable" account).
+  SALARY_EXPENSE: 'SALARY_EXPENSE',
+  EMPLOYER_CONTRIBUTION_EXPENSE: 'EMPLOYER_CONTRIBUTION_EXPENSE',
+  SALARY_PAYABLE: 'SALARY_PAYABLE',
+  INCOME_TAX_PAYABLE: 'INCOME_TAX_PAYABLE',
+  SOCIAL_INSURANCE_PAYABLE: 'SOCIAL_INSURANCE_PAYABLE',
+  UNEMPLOYMENT_INSURANCE_PAYABLE: 'UNEMPLOYMENT_INSURANCE_PAYABLE',
+  MEDICAL_INSURANCE_PAYABLE: 'MEDICAL_INSURANCE_PAYABLE',
+  EXECUTION_ORDER_PAYABLE: 'EXECUTION_ORDER_PAYABLE',
 } as const;
 
 export type MappingKey = (typeof MappingKeys)[keyof typeof MappingKeys];
