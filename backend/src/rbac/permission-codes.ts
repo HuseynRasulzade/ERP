@@ -335,6 +335,26 @@ export const PermissionCodes = {
   CASH_DENOMINATION_MANAGE: 'cash_desk.denomination.manage',
   CASHIER_HANDOVER_MANAGE: 'cash_desk.handover.manage',
 
+  // Fixed Asset Subledger (docx spec Phase 16)
+  FIXED_ASSET_VIEW: 'fixed_asset.view',
+  FIXED_ASSET_VIEW_COST: 'fixed_asset.view_cost',
+  FIXED_ASSET_CREATE: 'fixed_asset.create',
+  FIXED_ASSET_ACCEPT: 'fixed_asset.accept',
+  FIXED_ASSET_COMMISSION: 'fixed_asset.commission',
+  FIXED_ASSET_TRANSFER: 'fixed_asset.transfer',
+  FIXED_ASSET_MODERNIZE: 'fixed_asset.modernize',
+  FIXED_ASSET_CHANGE_USEFUL_LIFE: 'fixed_asset.change_useful_life',
+  FIXED_ASSET_DEPRECIATION_CALCULATE: 'fixed_asset.depreciation.calculate',
+  FIXED_ASSET_DEPRECIATION_POST: 'fixed_asset.depreciation.post',
+  FIXED_ASSET_IMPAIR: 'fixed_asset.impair',
+  FIXED_ASSET_REVALUE: 'fixed_asset.revalue',
+  FIXED_ASSET_INVENTORY: 'fixed_asset.inventory',
+  FIXED_ASSET_DISPOSE: 'fixed_asset.dispose',
+  FIXED_ASSET_WRITE_OFF: 'fixed_asset.write_off',
+  FIXED_ASSET_MANUAL_ADJUSTMENT: 'fixed_asset.manual_adjustment',
+  FIXED_ASSET_VIEW_ACCOUNTING: 'fixed_asset.view_accounting',
+  FIXED_ASSET_PERIOD_OVERRIDE: 'fixed_asset.period_override',
+
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_VIEW_ALL_WAREHOUSES: 'inventory.view_all_warehouses',
@@ -1803,6 +1823,99 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.CASHIER_HANDOVER_MANAGE,
     module: 'cash_desk',
     description: 'Create and complete a cashier handover',
+  },
+
+  {
+    code: PermissionCodes.FIXED_ASSET_VIEW,
+    module: 'fixed_asset',
+    description: 'View fixed assets and their lifecycle documents',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_VIEW_COST,
+    module: 'fixed_asset',
+    description: 'View fixed asset cost/depreciation figures',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_CREATE,
+    module: 'fixed_asset',
+    description:
+      'Create acquisition candidates, CIP projects, and fixed assets',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_ACCEPT,
+    module: 'fixed_asset',
+    description: 'Accept a fixed asset into the register',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_COMMISSION,
+    module: 'fixed_asset',
+    description: 'Commission a fixed asset (starts depreciation eligibility)',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_TRANSFER,
+    module: 'fixed_asset',
+    description:
+      'Transfer a fixed asset between department/location/responsible person',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_MODERNIZE,
+    module: 'fixed_asset',
+    description: 'Create and post a fixed asset modernization',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_CHANGE_USEFUL_LIFE,
+    module: 'fixed_asset',
+    description: 'Change a fixed asset useful life / residual value / method',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_DEPRECIATION_CALCULATE,
+    module: 'fixed_asset',
+    description: 'Preview/calculate a depreciation run',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_DEPRECIATION_POST,
+    module: 'fixed_asset',
+    description: 'Post a calculated depreciation run to the GL',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_IMPAIR,
+    module: 'fixed_asset',
+    description: 'Create and post a fixed asset impairment',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_REVALUE,
+    module: 'fixed_asset',
+    description: 'Create and post a fixed asset revaluation',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_INVENTORY,
+    module: 'fixed_asset',
+    description: 'Run a fixed asset physical inventory count',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_DISPOSE,
+    module: 'fixed_asset',
+    description: 'Create and post a fixed asset disposal/sale',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_WRITE_OFF,
+    module: 'fixed_asset',
+    description: 'Create and post a fixed asset write-off',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_MANUAL_ADJUSTMENT,
+    module: 'fixed_asset',
+    description: 'Make a privileged manual fixed asset cost adjustment',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_VIEW_ACCOUNTING,
+    module: 'fixed_asset',
+    description: 'View the GL postings behind a fixed asset document',
+  },
+  {
+    code: PermissionCodes.FIXED_ASSET_PERIOD_OVERRIDE,
+    module: 'fixed_asset',
+    description: 'Post a fixed asset document into a closed period',
   },
 
   {

@@ -22,6 +22,13 @@ export const DimensionCodes = {
   // Cash Desk Control Engine (docx spec Phase 15) — the accountable
   // ResponsiblePerson an advance/shortage receivable is tracked against.
   EMPLOYEE: 'EMPLOYEE',
+  // Fixed Asset Subledger (docx spec Phase 16) — which asset/CIP project a
+  // cost/depreciation/impairment/disposal GL line belongs to. Two separate
+  // dimensions because a CIP project's own capitalization account (113)
+  // carries cost BEFORE any FixedAsset row exists — a FIXED_ASSET
+  // dimension can never be required there.
+  FIXED_ASSET: 'FIXED_ASSET',
+  CIP_PROJECT: 'CIP_PROJECT',
 } as const;
 
 export type DimensionCode =
@@ -47,6 +54,8 @@ export const DIMENSION_REFERENCE_ENTITY_TYPE: Record<string, string> = {
   [DimensionCodes.CURRENCY]: 'CURRENCY',
   [DimensionCodes.SETTLEMENT_DOCUMENT]: 'SETTLEMENT_DOCUMENT',
   [DimensionCodes.EMPLOYEE]: 'RESPONSIBLE_PERSON',
+  [DimensionCodes.FIXED_ASSET]: 'FIXED_ASSET',
+  [DimensionCodes.CIP_PROJECT]: 'CIP_PROJECT',
 };
 
 /**
@@ -96,6 +105,14 @@ export const MappingKeys = {
   CASH_SHORTAGE_LOSS: 'CASH_SHORTAGE_LOSS',
   CASH_SURPLUS_INCOME: 'CASH_SURPLUS_INCOME',
   CASH_IN_TRANSIT: 'CASH_IN_TRANSIT',
+  // Fixed Asset Subledger (docx spec Phase 16)
+  FIXED_ASSET_COST: 'FIXED_ASSET_COST',
+  FIXED_ASSET_CIP: 'FIXED_ASSET_CIP',
+  ACCUMULATED_DEPRECIATION: 'ACCUMULATED_DEPRECIATION',
+  DEPRECIATION_EXPENSE: 'DEPRECIATION_EXPENSE',
+  IMPAIRMENT_LOSS: 'IMPAIRMENT_LOSS',
+  DISPOSAL_GAIN: 'DISPOSAL_GAIN',
+  DISPOSAL_LOSS: 'DISPOSAL_LOSS',
 } as const;
 
 export type MappingKey = (typeof MappingKeys)[keyof typeof MappingKeys];

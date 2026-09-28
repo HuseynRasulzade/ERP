@@ -1032,6 +1032,12 @@ export const AZ_DEFAULT_DIMENSION_RULES: Record<string, string[]> = {
   // Cash Desk Control Engine (docx spec Phase 15)
   '244': ['EMPLOYEE', 'CURRENCY'],
   '222': ['CASHBOX', 'CURRENCY'],
+  // Fixed Asset Subledger (docx spec Phase 16) — 113 (CIP) requires
+  // CIP_PROJECT, never FIXED_ASSET: a CIP project's capitalizable cost
+  // accumulates BEFORE any Fixed Asset row exists.
+  '111': ['FIXED_ASSET'],
+  '112': ['FIXED_ASSET'],
+  '113': ['CIP_PROJECT'],
 };
 
 /** Default Azerbaijan mapping-key -> account code (spec section 41). */
@@ -1083,4 +1089,12 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   CASH_SHORTAGE_LOSS: '731', // reuses Sair əməliyyat xərcləri — not charged to anyone
   CASH_SURPLUS_INCOME: '611', // reuses Sair əməliyyat gəlirləri
   CASH_IN_TRANSIT: '222', // Yolda olan pul köçürmələri
+  // Fixed Asset Subledger (docx spec Phase 16)
+  FIXED_ASSET_COST: '111', // Torpaq, tikili və avadanlıqların dəyəri
+  FIXED_ASSET_CIP: '113', // ... məsrəflərin kapitallaşdırılması (CIP)
+  ACCUMULATED_DEPRECIATION: '112', // yığılmış amortizasiya və qiymətdəndüşmə zərərləri — also carries impairment, same combined line the AZ chart itself uses
+  DEPRECIATION_EXPENSE: '721', // İnzibati xərclər — reused, DEPARTMENT dimension carries the real allocation (admin/production/commercial)
+  IMPAIRMENT_LOSS: '731', // reuses Sair əməliyyat xərcləri
+  DISPOSAL_GAIN: '611', // reuses Sair əməliyyat gəlirləri
+  DISPOSAL_LOSS: '731', // reuses Sair əməliyyat xərcləri
 };

@@ -36,6 +36,7 @@ import { ProcurementModule } from './procurement/procurement.module';
 import { PurchaseExecutionModule } from './purchase-execution/purchase-execution.module';
 import { TreasuryModule } from './treasury/treasury.module';
 import { CashDeskModule } from './cash-desk/cash-desk.module';
+import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { WarehouseInventoryModule } from './warehouse-inventory/warehouse-inventory.module';
 import { InventoryCostingModule } from './inventory-costing/inventory-costing.module';
 import { InventoryCountModule } from './inventory-count/inventory-count.module';
@@ -109,6 +110,7 @@ import { PrintFormsModule } from './print-forms/print-forms.module';
     PurchaseExecutionModule,
     TreasuryModule,
     CashDeskModule,
+    FixedAssetsModule,
 
     // Warehouse / Stock Engine (docx spec Phase 10 — the Stock Truth
     // Engine every other module reads from, plus WarehouseTransfer,

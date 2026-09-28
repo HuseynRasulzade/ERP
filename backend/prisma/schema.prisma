@@ -168,6 +168,23 @@ model Tenant {
   CashDeskDailyClose                      CashDeskDailyClose[]
   CashierHandover                         CashierHandover[]
 
+  // Fixed Asset Subledger (docx spec Phase 16)
+  FixedAssetCategory              FixedAssetCategory[]
+  FixedAssetAcquisitionCandidate  FixedAssetAcquisitionCandidate[]
+  CapitalInvestmentProject        CapitalInvestmentProject[]
+  CapitalInvestmentCost           CapitalInvestmentCost[]
+  FixedAsset                      FixedAsset[]
+  FixedAssetTransfer              FixedAssetTransfer[]
+  FixedAssetPolicyChange          FixedAssetPolicyChange[]
+  FixedAssetModernization         FixedAssetModernization[]
+  FixedAssetImpairment            FixedAssetImpairment[]
+  FixedAssetDisposal              FixedAssetDisposal[]
+  FixedAssetDepreciationRun       FixedAssetDepreciationRun[]
+  FixedAssetDepreciationLine      FixedAssetDepreciationLine[]
+  FixedAssetInventoryCount        FixedAssetInventoryCount[]
+  FixedAssetInventoryResult       FixedAssetInventoryResult[]
+  FixedAssetOpeningBalance        FixedAssetOpeningBalance[]
+
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
   inventoryCostMovements       InventoryCostMovement[]
@@ -322,6 +339,16 @@ model Organization {
   CashCountAdjustment         CashCountAdjustment[]
   CashDeskDailyClose          CashDeskDailyClose[]
   CashierHandover             CashierHandover[]
+
+  // Fixed Asset Subledger (docx spec Phase 16)
+  FixedAssetAcquisitionCandidate FixedAssetAcquisitionCandidate[]
+  CapitalInvestmentProject       CapitalInvestmentProject[]
+  FixedAsset                     FixedAsset[]
+  FixedAssetModernization        FixedAssetModernization[]
+  FixedAssetImpairment           FixedAssetImpairment[]
+  FixedAssetDisposal             FixedAssetDisposal[]
+  FixedAssetDepreciationRun      FixedAssetDepreciationRun[]
+  FixedAssetInventoryCount       FixedAssetInventoryCount[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -6892,4 +6919,519 @@ model CounterpartyDocument {
 
   @@index([tenantId, ownerType, ownerId, active])
   @@map("counterparty_documents")
+}
+
+// ----------------------------------------------------------------------------
+// Fixed Asset Subledger (docx spec Phase 16) — Acquisition Candidate -> CIP
+// -> Fixed Asset Card -> Acceptance/Commissioning -> Depreciation -> Transfer/
+// Modernization/Impairment -> Disposal. Cost/depreciation/impairment values
+// are NEVER authoritative mutable fields on FixedAsset — they are always
+// derived live from RegisterMovement rows under FIXED_ASSET_MOVEMENT_REGISTER
+// (FixedAssetBalanceService), the same Stock/Cash/Bank Truth Engine principle
+// reused a fourth time in this codebase.
+//
+// Disclosed simplification (see docs/FIXED_ASSETS.md): cross-references to
+// Department/ResponsiblePerson/Warehouse(-as-location)/Counterparty/Product
+// are plain string IDs WITHOUT a declared Prisma relation (no back-relation
+// array churn on those master-data models) — validated at the service layer,
+// the same soft-reference convention AccountingDimensionDefinition/
+// AccountingMapping already use for their own resourceId columns.
+// ----------------------------------------------------------------------------
+
+model FixedAssetCategory {
+  id                        String  @id @default(uuid())
+  tenantId                  String  @map("tenant_id")
+  code                      String
+  name                      String
+  defaultUsefulLifeMonths   Int?    @map("default_useful_life_months")
+  defaultDepreciationMethod String  @default("STRAIGHT_LINE") @map("default_depreciation_method")
+  defaultResidualValue      Decimal @default(0) @map("default_residual_value") @db.Decimal(18, 2)
+  capitalizationThreshold   Decimal @default(0) @map("capitalization_threshold") @db.Decimal(18, 2)
+  componentizationAllowed   Boolean @default(false) @map("componentization_allowed")
+  revaluationModel          String  @default("COST_MODEL") @map("revaluation_model")
+  active                    Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id])
+  assets FixedAsset[]
+
+  @@unique([tenantId, code])
+  @@map("fixed_asset_categories")
+}
+
+/// FixedAssetAcquisitionCandidate (spec section 4) — a candidate is NEVER
+/// automatically turned into an asset; `classify()` is the one and only
+/// human/policy decision point (spec section 6, 167 "never auto-create
+/// final asset from a purchase invoice line").
+model FixedAssetAcquisitionCandidate {
+  id                   String   @id @default(uuid())
+  tenantId             String   @map("tenant_id")
+  organizationId       String   @map("organization_id")
+  sourceDocumentType   String   @map("source_document_type")
+  sourceDocumentId     String   @map("source_document_id")
+  sourceDocumentLineId String?  @map("source_document_line_id")
+  supplierId           String?  @map("supplier_id")
+  productId            String?  @map("product_id")
+  description          String?
+  quantity             Decimal  @default(1) @db.Decimal(18, 4)
+  currencyId           String?  @map("currency_id")
+  transactionAmount    Decimal  @map("transaction_amount") @db.Decimal(18, 2)
+  baseAmount           Decimal  @map("base_amount") @db.Decimal(18, 2)
+  taxAmount            Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  capitalizableAmount  Decimal? @map("capitalizable_amount") @db.Decimal(18, 2)
+  // PURCHASE|CONSTRUCTION|INTERNAL_CREATION|TRANSFER_FROM_INVENTORY|MIGRATION|MANUAL
+  candidateType        String   @default("PURCHASE") @map("candidate_type")
+  // NEW|UNDER_REVIEW|CAPITALIZABLE|EXPENSE|ASSIGNED_TO_CIP|ASSIGNED_TO_ASSET|CAPITALIZED|CANCELLED
+  status               String   @default("NEW")
+  assignedCipProjectId String?  @map("assigned_cip_project_id")
+  assignedAssetId      String?  @map("assigned_asset_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant             Tenant                    @relation(fields: [tenantId], references: [id])
+  organization       Organization              @relation(fields: [organizationId], references: [id])
+  assignedCipProject CapitalInvestmentProject? @relation(fields: [assignedCipProjectId], references: [id])
+  assignedAsset      FixedAsset?               @relation(fields: [assignedAssetId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([sourceDocumentType, sourceDocumentId])
+  @@map("fixed_asset_acquisition_candidates")
+}
+
+/// CapitalInvestmentProject — CIP / Asset Under Construction (spec section 8).
+model CapitalInvestmentProject {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  code                  String
+  name                  String
+  projectType           String?   @map("project_type")
+  startDate             DateTime  @map("start_date") @db.Date
+  plannedCompletionDate DateTime? @map("planned_completion_date") @db.Date
+  departmentId          String?   @map("department_id")
+  responsiblePersonId   String?   @map("responsible_person_id")
+  locationWarehouseId   String?   @map("location_warehouse_id")
+  currencyId            String?   @map("currency_id")
+  // PLANNED|ACTIVE|SUSPENDED|READY_FOR_CAPITALIZATION|CAPITALIZED|CANCELLED
+  status                String    @default("PLANNED")
+  targetAssetCount      Int?      @map("target_asset_count")
+  comment               String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant                           @relation(fields: [tenantId], references: [id])
+  organization Organization                     @relation(fields: [organizationId], references: [id])
+  costs        CapitalInvestmentCost[]
+  candidates   FixedAssetAcquisitionCandidate[]
+  assets       FixedAsset[]
+
+  @@unique([tenantId, code])
+  @@index([organizationId, status])
+  @@map("capital_investment_projects")
+}
+
+/// CapitalInvestmentCostRegister (spec section 9) — every capitalizable cost
+/// component feeding a CIP project, append-only.
+model CapitalInvestmentCost {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  projectId          String   @map("project_id")
+  // PURCHASE_PRICE|CONSTRUCTION|INSTALLATION|FREIGHT|CUSTOMS|ENGINEERING|
+  // PROFESSIONAL_FEES|TESTING|LABOR|BORROWING_COST|OTHER
+  costComponent      String   @map("cost_component")
+  amount             Decimal  @db.Decimal(18, 2)
+  sourceDocumentType String   @map("source_document_type")
+  sourceDocumentId   String   @map("source_document_id")
+  candidateId        String?  @map("candidate_id")
+  effectiveDate      DateTime @map("effective_date") @db.Date
+  capitalized        Boolean  @default(false)
+  capitalizedAssetId String?  @map("capitalized_asset_id")
+  description        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant  Tenant                   @relation(fields: [tenantId], references: [id])
+  project CapitalInvestmentProject @relation(fields: [projectId], references: [id])
+
+  @@index([tenantId, projectId])
+  @@map("capital_investment_costs")
+}
+
+/// FixedAsset — the card (spec section 15). Financial totals (accumulated
+/// depreciation, impairment, NBV) are deliberately NOT columns here — see
+/// FixedAssetBalanceService, which derives them from RegisterMovement.
+model FixedAsset {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  organizationId         String    @map("organization_id")
+  assetNumber            String?   @map("asset_number")
+  inventoryNumber        String?   @map("inventory_number")
+  name                   String
+  description            String?
+  categoryId             String    @map("category_id")
+  parentAssetId          String?   @map("parent_asset_id")
+  cipProjectId           String?   @map("cip_project_id")
+  acquisitionDate        DateTime  @map("acquisition_date") @db.Date
+  acceptanceDate         DateTime? @map("acceptance_date") @db.Date
+  commissioningDate      DateTime? @map("commissioning_date") @db.Date
+  depreciationStartDate  DateTime? @map("depreciation_start_date") @db.Date
+  disposalDate           DateTime? @map("disposal_date") @db.Date
+  locationWarehouseId    String?   @map("location_warehouse_id")
+  departmentId           String?   @map("department_id")
+  responsiblePersonId    String?   @map("responsible_person_id")
+  // ACQUISITION|UNDER_CONSTRUCTION|ACCEPTED|NOT_COMMISSIONED|ACTIVE|SUSPENDED|
+  // CONSERVED|UNDER_MODERNIZATION|IMPAIRED|HELD_FOR_SALE|PARTIALLY_DISPOSED|
+  // DISPOSED|WRITTEN_OFF
+  status                 String    @default("ACQUISITION")
+  ownershipType          String    @default("OWNED") @map("ownership_type")
+  serialNumber           String?   @map("serial_number")
+  manufacturer           String?
+  model                  String?
+  usefulLifeMonths       Int?      @map("useful_life_months")
+  depreciationMethod     String    @default("STRAIGHT_LINE") @map("depreciation_method")
+  residualValue          Decimal   @default(0) @map("residual_value") @db.Decimal(18, 2)
+  // FROM_COMMISSIONING_DATE|NEXT_DAY|NEXT_MONTH|FIRST_DAY_NEXT_MONTH
+  depreciationStartRule  String    @default("FIRST_DAY_NEXT_MONTH") @map("depreciation_start_rule")
+  initialCost            Decimal   @default(0) @map("initial_cost") @db.Decimal(18, 2)
+  currencyId             String?   @map("currency_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  category     FixedAssetCategory        @relation(fields: [categoryId], references: [id])
+  cipProject   CapitalInvestmentProject? @relation(fields: [cipProjectId], references: [id])
+  parentAsset  FixedAsset?               @relation("AssetComponents", fields: [parentAssetId], references: [id])
+
+  components        FixedAsset[]                      @relation("AssetComponents")
+  candidates        FixedAssetAcquisitionCandidate[]
+  transfers         FixedAssetTransfer[]
+  policyChanges     FixedAssetPolicyChange[]
+  modernizations    FixedAssetModernization[]
+  impairments       FixedAssetImpairment[]
+  disposals         FixedAssetDisposal[]
+  depreciationLines FixedAssetDepreciationLine[]
+  inventoryResults  FixedAssetInventoryResult[]
+  openingBalance    FixedAssetOpeningBalance?
+
+  @@unique([tenantId, assetNumber])
+  @@index([organizationId, status])
+  @@index([organizationId, categoryId])
+  @@map("fixed_assets")
+}
+
+/// FixedAssetTransfer (spec section 41-44) — department/location/responsible
+/// person history, append-only.
+model FixedAssetTransfer {
+  id                      String   @id @default(uuid())
+  tenantId                String   @map("tenant_id")
+  organizationId          String   @map("organization_id")
+  assetId                 String   @map("asset_id")
+  effectiveDate           DateTime @map("effective_date") @db.Date
+  fromDepartmentId        String?  @map("from_department_id")
+  toDepartmentId          String?  @map("to_department_id")
+  fromLocationWarehouseId String?  @map("from_location_warehouse_id")
+  toLocationWarehouseId   String?  @map("to_location_warehouse_id")
+  fromResponsiblePersonId String?  @map("from_responsible_person_id")
+  toResponsiblePersonId   String?  @map("to_responsible_person_id")
+  reason                  String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  asset  FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@index([tenantId, assetId])
+  @@map("fixed_asset_transfers")
+}
+
+/// FixedAssetPolicyChange (spec sections 35-37) — effective-dated useful
+/// life / residual value / depreciation method history. Prospective only
+/// (spec section 35): past periods are never rewritten.
+model FixedAssetPolicyChange {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  assetId                String   @map("asset_id")
+  effectiveDate          DateTime @map("effective_date") @db.Date
+  oldUsefulLifeMonths    Int?     @map("old_useful_life_months")
+  newUsefulLifeMonths    Int?     @map("new_useful_life_months")
+  oldResidualValue       Decimal? @map("old_residual_value") @db.Decimal(18, 2)
+  newResidualValue       Decimal? @map("new_residual_value") @db.Decimal(18, 2)
+  oldDepreciationMethod  String?  @map("old_depreciation_method")
+  newDepreciationMethod  String?  @map("new_depreciation_method")
+  reason                 String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  asset  FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@index([tenantId, assetId])
+  @@map("fixed_asset_policy_changes")
+}
+
+/// FixedAssetModernization (spec sections 45-49) — a document-framework
+/// participant: posting IS the capitalization event (Dr Fixed Asset Cost /
+/// Cr CIP-or-AP), gross carrying amount increases, future depreciation
+/// recalculated prospectively.
+model FixedAssetModernization {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("FIXED_ASSET_MODERNIZATION") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  assetId             String   @map("asset_id")
+  amount              Decimal  @db.Decimal(18, 2)
+  newUsefulLifeMonths Int?     @map("new_useful_life_months")
+  newResidualValue    Decimal? @map("new_residual_value") @db.Decimal(18, 2)
+  description         String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  asset        FixedAsset   @relation(fields: [assetId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, assetId])
+  @@map("fixed_asset_modernizations")
+}
+
+/// FixedAssetImpairment (spec sections 52-56) — Dr Impairment Loss / Cr
+/// Accumulated Impairment (shares account 112 with Accumulated Depreciation,
+/// the AZ standard chart's own combined line). `impairmentType` REVERSAL
+/// posts the opposite direction (spec section 56).
+model FixedAssetImpairment {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("FIXED_ASSET_IMPAIRMENT") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  assetId              String  @map("asset_id")
+  impairmentType       String  @default("IMPAIRMENT") @map("impairment_type") // IMPAIRMENT|REVERSAL
+  carryingAmountBefore Decimal @map("carrying_amount_before") @db.Decimal(18, 2)
+  recoverableAmount    Decimal @map("recoverable_amount") @db.Decimal(18, 2)
+  impairmentAmount     Decimal @map("impairment_amount") @db.Decimal(18, 2)
+  reason               String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  asset        FixedAsset   @relation(fields: [assetId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, assetId])
+  @@map("fixed_asset_impairments")
+}
+
+/// FixedAssetDisposal (spec sections 65-74) — SALE|WRITE_OFF|SCRAP|DONATION|
+/// LOSS|THEFT|PARTIAL_DISPOSAL. Posting removes gross cost + accumulated
+/// depreciation + impairment from the register and recognizes gain/loss.
+model FixedAssetDisposal {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  organizationId String         @map("organization_id")
+  documentType   String         @default("FIXED_ASSET_DISPOSAL") @map("document_type")
+  number         String?
+  documentDate   DateTime       @map("document_date") @db.Date
+  postingDate    DateTime?      @map("posting_date") @db.Date
+  status         DocumentStatus @default(DRAFT)
+  postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
+
+  assetId                            String   @map("asset_id")
+  disposalType                       String   @map("disposal_type") // SALE|WRITE_OFF|SCRAP|DONATION|LOSS|THEFT|PARTIAL_DISPOSAL
+  proceeds                           Decimal? @db.Decimal(18, 2)
+  buyerId                            String?  @map("buyer_id")
+  disposalCosts                      Decimal  @default(0) @map("disposal_costs") @db.Decimal(18, 2)
+  sourceSalesInvoiceId               String?  @map("source_sales_invoice_id")
+  reason                             String?
+  grossCostAtDisposal                Decimal? @map("gross_cost_at_disposal") @db.Decimal(18, 2)
+  accumulatedDepreciationAtDisposal  Decimal? @map("accumulated_depreciation_at_disposal") @db.Decimal(18, 2)
+  gainLoss                           Decimal? @map("gain_loss") @db.Decimal(18, 2)
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  asset        FixedAsset   @relation(fields: [assetId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([organizationId, assetId])
+  @@map("fixed_asset_disposals")
+}
+
+/// FixedAssetDepreciationRun (spec section 28) — a batch, not a single
+/// document: unique per (organization, period, valuationBook) so the same
+/// period can never post twice for a book (spec section 33 idempotency).
+model FixedAssetDepreciationRun {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  organizationId   String    @map("organization_id")
+  period           DateTime  @db.Date
+  valuationBook    String    @default("ACCOUNTING_BOOK") @map("valuation_book")
+  runType          String    @default("PERIODIC") @map("run_type") // PREVIEW|PERIODIC|RECALCULATION|FINAL_CLOSE
+  status           String    @default("DRAFT") // DRAFT|CALCULATED|POSTED|ERROR
+  assetCount       Int       @default(0) @map("asset_count")
+  calculatedAmount Decimal   @default(0) @map("calculated_amount") @db.Decimal(18, 2)
+  journalEntryId   String?   @map("journal_entry_id")
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  initiatedBy      String?   @map("initiated_by")
+  errors           Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  version   Int      @default(1)
+
+  tenant       Tenant                       @relation(fields: [tenantId], references: [id])
+  organization Organization                 @relation(fields: [organizationId], references: [id])
+  lines        FixedAssetDepreciationLine[]
+
+  @@unique([organizationId, period, valuationBook])
+  @@map("fixed_asset_depreciation_runs")
+}
+
+model FixedAssetDepreciationLine {
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  runId              String  @map("run_id")
+  assetId            String  @map("asset_id")
+  openingNbv         Decimal @map("opening_nbv") @db.Decimal(18, 2)
+  depreciationAmount Decimal @map("depreciation_amount") @db.Decimal(18, 2)
+  closingNbv         Decimal @map("closing_nbv") @db.Decimal(18, 2)
+
+  tenant Tenant                    @relation(fields: [tenantId], references: [id])
+  run    FixedAssetDepreciationRun @relation(fields: [runId], references: [id])
+  asset  FixedAsset                @relation(fields: [assetId], references: [id])
+
+  @@unique([runId, assetId])
+  @@index([tenantId, assetId])
+  @@map("fixed_asset_depreciation_lines")
+}
+
+/// FixedAssetInventoryCount (spec sections 59-64) — mirrors
+/// CashPhysicalCount's own session pattern (Phase 15).
+model FixedAssetInventoryCount {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  organizationId    String    @map("organization_id")
+  scopeDepartmentId String?   @map("scope_department_id")
+  scopeWarehouseId  String?   @map("scope_warehouse_id")
+  scopeCategoryId   String?   @map("scope_category_id")
+  countDate         DateTime  @default(now()) @map("count_date")
+  status            String    @default("DRAFT") // DRAFT|SUBMITTED|APPROVED
+  approvedBy        String?   @map("approved_by")
+  approvedAt        DateTime? @map("approved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant                       @relation(fields: [tenantId], references: [id])
+  organization Organization                 @relation(fields: [organizationId], references: [id])
+  results      FixedAssetInventoryResult[]
+
+  @@map("fixed_asset_inventory_counts")
+}
+
+model FixedAssetInventoryResult {
+  id                           String  @id @default(uuid())
+  tenantId                     String  @map("tenant_id")
+  countId                      String  @map("count_id")
+  assetId                      String? @map("asset_id")
+  // FOUND|MISSING|WRONG_LOCATION|WRONG_RESPONSIBLE_PERSON|DAMAGED|UNREGISTERED_ASSET
+  resultType                   String  @map("result_type")
+  expectedLocationWarehouseId  String? @map("expected_location_warehouse_id")
+  foundLocationWarehouseId     String? @map("found_location_warehouse_id")
+  expectedResponsiblePersonId  String? @map("expected_responsible_person_id")
+  foundResponsiblePersonId     String? @map("found_responsible_person_id")
+  condition                    String?
+  notes                        String?
+  resolutionStatus             String  @default("OPEN") @map("resolution_status") // OPEN|RESOLVED
+  resolutionDocumentType       String? @map("resolution_document_type")
+  resolutionDocumentId         String? @map("resolution_document_id")
+
+  tenant Tenant                   @relation(fields: [tenantId], references: [id])
+  count  FixedAssetInventoryCount @relation(fields: [countId], references: [id])
+  asset  FixedAsset?              @relation(fields: [assetId], references: [id])
+
+  @@index([tenantId, countId])
+  @@map("fixed_asset_inventory_results")
+}
+
+/// FixedAssetOpeningBalance (spec sections 76-77) — migration entity; one
+/// per asset, reconciled against GL separately (FixedAssetReconciliationService).
+model FixedAssetOpeningBalance {
+  id                        String   @id @default(uuid())
+  tenantId                  String   @map("tenant_id")
+  assetId                   String   @unique @map("asset_id")
+  openingDate                DateTime @map("opening_date") @db.Date
+  originalCost               Decimal  @map("original_cost") @db.Decimal(18, 2)
+  accumulatedDepreciation    Decimal  @default(0) @map("accumulated_depreciation") @db.Decimal(18, 2)
+  impairment                 Decimal  @default(0) @db.Decimal(18, 2)
+  remainingUsefulLifeMonths  Int?     @map("remaining_useful_life_months")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  asset  FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@map("fixed_asset_opening_balances")
 }

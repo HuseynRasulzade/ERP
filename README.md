@@ -368,6 +368,39 @@ tenant — now backfilled idempotently instead of short-circuiting.
 
 Full write-up: [`backend/docs/CASH_DESK.md`](backend/docs/CASH_DESK.md).
 
+### Fixed Asset Subledger
+
+Acquisition Candidate → CIP (Capital Investment in Progress) → Fixed
+Asset Card → Acceptance/Commissioning → Depreciation →
+Transfer/Modernization/Impairment → Disposal, all traceable back to
+source documents. Never auto-creates an asset from a Purchase Invoice
+line (spec's own hard rule) — an acquisition candidate is only ever
+turned into a CIP cost or a capitalized asset through an explicit human
+classification. Gross cost/accumulated depreciation/accumulated
+impairment are computed live from an immutable
+`FIXED_ASSET_MOVEMENT_REGISTER` register (the fourth reuse of the Truth
+Engine principle after Stock/Cash/Bank) — `FixedAsset` carries no
+mutable balance columns at all. CIP capitalization is concurrency-safe
+(advisory lock before the remaining balance is read — caught and fixed
+by this phase's own tests before shipping, the same lock-lifecycle
+lesson this codebase already learned twice before). Straight-line
+depreciation recomputes its rate fresh every period from the asset's
+live NBV, which is what makes useful-life-change and post-impairment
+recalculation fall out of the same formula rather than needing
+special-case code, with idempotent per-period posting. Modernization/
+Impairment/Disposal are full document-framework participants (post/
+unpost, period locking, audit); physical inventory mirrors Phase 15's
+own count-session pattern, auto-correcting a wrong-location result via a
+transfer (never a write-off) while leaving missing/unregistered assets
+unresolved for a human to investigate. Along the way, found and fixed a
+real bug in the disposal posting handler: re-reading live balances
+*after* its own cost-removal movement had already been written to the
+register in the same transaction meant it saw the post-decrease value
+and skipped the GL credit almost entirely — fixed by excluding a
+document's own not-yet-finalized movements from that read.
+
+Full write-up: [`backend/docs/FIXED_ASSETS.md`](backend/docs/FIXED_ASSETS.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -401,6 +434,7 @@ Policy, Tax Profile, Access).
 | `backend/test/treasury.e2e-spec.ts` | 5 | Purchase Invoice ⇒ Payment Request ⇒ Payment Order requiring FINANCE approval, segregation of duties (approver ≠ executor), counterparty-bank-account-change re-check at posting, reconciliation against a bank statement amount, accounting-entries viewer |
 | `backend/test/treasury-bank-operations.e2e-spec.ts` | 16 | Incoming bank payment posting (named invoice + unnamed advance), internal transfer with a separately-booked fee + same-account rejection, bank fee posting, FX conversion (gain vs. an official rate, currency-mismatch rejection, never a settlement), multi-document-type statement matching (inflow/outflow/unmatched-line classification/concurrent-match safety), bank reconciliation period close + mandatory-reason reopen, payment-request amount-tier approval with partial approval and partial multi-order execution + its own concurrency test, payment calendar + liquidity forecast + cash-gap detection, treasury health, payment-order reversal |
 | `backend/test/cash-desk.e2e-spec.ts` | 15 | Cash receipt/expense posting, negative-balance block + its own concurrency safety, an ALLOWED-policy desk going negative, cashier-assignment enforcement, employee advance + return (and its own validation), cash-to-cash transfer INSTANT and TWO_STEP with partial receives (unpost blocked once received, over-receive rejected, same-desk rejection), physical count ⇒ adjustment resolution chain (shortage, CASHIER_RECEIVABLE, difference report), daily close (gated on an unresolved count, closed, reopened), cashier handover (blocked then completed), cash health (no false-positive book-vs-GL mismatch) |
+| `backend/test/fixed-assets.e2e-spec.ts` | 17 | Acquisition-candidate classification (CAPITALIZE creates an asset, EXPENSE never does), CIP cost formation across multiple sources with an expensed exclusion + capitalization into one asset, over-capitalization rejection, CIP capitalization concurrency safety, acceptance-without-commissioning staying depreciation-free, straight-line depreciation (zero residual, non-zero residual, idempotency), modernization increasing gross cost, impairment reducing NBV to the recoverable amount, transfer leaving cost/NBV unchanged, disposal (SALE with gain/loss + receivable, WRITE_OFF with a full loss and no further depreciation), physical inventory (wrong-location auto-correction, missing-asset staying unresolved), GL reconciliation reporting every account healthy after a full mixed flow |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -496,5 +530,14 @@ All run against a real PostgreSQL instance — no mocked database.
   count method doesn't withhold the book balance from the API,
   `maxCashLimit`/override permission codes are declared but not yet
   enforced — see docs/CASH_DESK.md.
-- **Inventory Costing, Payroll, Banking, Fixed Assets, ...** — not
-  started. Later phases building on this foundation.
+- **Fixed Asset Subledger** — ✅ done, tested, documented. Acquisition
+  Candidate → CIP → Fixed Asset Card → Acceptance/Commissioning →
+  Depreciation → Transfer/Modernization/Impairment → Disposal, with
+  live-computed cost/depreciation/impairment (never a mutable field) and
+  concurrency-safe CIP capitalization. Straight-line depreciation only
+  (other methods schema-ready, not implemented); single valuation book;
+  no componentization or revaluation model; no partial disposal; no
+  Purchase Invoice → Acquisition Candidate auto-wiring (Phase 9's posting
+  handler is left untouched) — see docs/FIXED_ASSETS.md.
+- **Inventory Costing, Payroll, Banking, ...** — not started. Later
+  phases building on this foundation.
