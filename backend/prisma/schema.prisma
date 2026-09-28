@@ -203,6 +203,23 @@ model Tenant {
   EmploymentStatusHistory   EmploymentStatusHistory[]
   TerminationDocument       TerminationDocument[]
 
+  // Work Time / Timesheet Engine (docx spec Phase 18)
+  ProductionCalendar     ProductionCalendar[]
+  ProductionCalendarDay  ProductionCalendarDay[]
+  WorkScheduleTemplate   WorkScheduleTemplate[]
+  ShiftTemplate          ShiftTemplate[]
+  WorkSchedulePattern    WorkSchedulePattern[]
+  EmployeeDailyWorkPlan  EmployeeDailyWorkPlan[]
+  AttendanceEvent        AttendanceEvent[]
+  AttendanceInterval     AttendanceInterval[]
+  TimeEntry              TimeEntry[]
+  Timesheet              Timesheet[]
+  TimesheetLine          TimesheetLine[]
+  OvertimeRecord         OvertimeRecord[]
+  TimeCorrection         TimeCorrection[]
+  WorkTimePeriod         WorkTimePeriod[]
+  PayrollTimeInput       PayrollTimeInput[]
+
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
   inventoryCostMovements       InventoryCostMovement[]
@@ -374,6 +391,13 @@ model Organization {
   StaffingPosition StaffingPosition[]
   HireDocument     HireDocument[]
   EmployeeTransfer EmployeeTransfer[]
+
+  // Work Time / Timesheet Engine (docx spec Phase 18)
+  ProductionCalendar    ProductionCalendar[]
+  EmployeeDailyWorkPlan EmployeeDailyWorkPlan[]
+  Timesheet             Timesheet[]
+  WorkTimePeriod        WorkTimePeriod[]
+  PayrollTimeInput      PayrollTimeInput[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -7970,4 +7994,409 @@ model TerminationDocument {
 
   @@index([employmentId])
   @@map("hr_termination_documents")
+}
+
+// ============================================================================
+// Work Time / Timesheet Engine (docx spec Phase 18)
+//
+// Three-layer model (spec section 1): Planned Work Time (ProductionCalendar +
+// WorkScheduleTemplate/Pattern + EmployeeDailyWorkPlan) vs Actual Work Time
+// (AttendanceEvent -> AttendanceInterval -> TimeEntry) vs Payroll Work-Time
+// Input (WorkTimeRegister -> PayrollTimeInput). Employment/Department/
+// Position/CostCenter are cross-module soft references (plain string
+// columns, no @relation) — same convention as every other module built on
+// top of Phase 17. WorkTimeRegister reuses the generic RegisterMovement
+// ledger (registerCode = 'WORK_TIME_REGISTER') as the approved-layer Truth
+// Engine — the fifth reuse of that principle after Stock/Cash/Bank/
+// FixedAsset.
+// ============================================================================
+
+model ProductionCalendar {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  organizationId String?  @map("organization_id")
+  countryCode    String?  @map("country_code")
+  year           Int
+  name           String
+  version        Int      @default(1)
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  status         String   @default("ACTIVE") // DRAFT|ACTIVE|SUPERSEDED
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  organization Organization?           @relation(fields: [organizationId], references: [id])
+  days         ProductionCalendarDay[]
+  dailyPlans   EmployeeDailyWorkPlan[]
+
+  @@index([tenantId, organizationId, year])
+  @@map("work_time_production_calendars")
+}
+
+model ProductionCalendarDay {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  calendarId          String    @map("calendar_id")
+  date                DateTime  @db.Date
+  dayType             String    @map("day_type") // WORKDAY|WEEKEND|HOLIDAY|SHORTENED_WORKDAY|TRANSFERRED_WORKDAY|NON_WORKING_DAY
+  defaultWorkingHours Decimal   @default(8) @map("default_working_hours") @db.Decimal(4, 2)
+  holidayCode         String?   @map("holiday_code")
+  shortenedByHours    Decimal?  @map("shortened_by_hours") @db.Decimal(4, 2)
+  transferredFromDate DateTime? @map("transferred_from_date") @db.Date
+  transferredToDate   DateTime? @map("transferred_to_date") @db.Date
+  notes               String?
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id])
+  calendar ProductionCalendar @relation(fields: [calendarId], references: [id])
+
+  @@unique([calendarId, date])
+  @@index([tenantId, date])
+  @@map("work_time_production_calendar_days")
+}
+
+model WorkScheduleTemplate {
+  id                     String  @id @default(uuid())
+  tenantId               String  @map("tenant_id")
+  code                   String
+  name                   String
+  scheduleType           String  @default("STANDARD_WEEK") @map("schedule_type")
+  cycleLengthDays        Int     @default(7) @map("cycle_length_days")
+  defaultWeeklyHours     Decimal @default(40) @map("default_weekly_hours") @db.Decimal(5, 2)
+  usesProductionCalendar Boolean @default(true) @map("uses_production_calendar")
+  active                 Boolean @default(true)
+  version                Int     @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id])
+  patterns   WorkSchedulePattern[]
+  dailyPlans EmployeeDailyWorkPlan[]
+
+  @@unique([tenantId, code])
+  @@map("work_time_schedule_templates")
+}
+
+model ShiftTemplate {
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  code                 String
+  name                 String
+  startTime            String  @map("start_time")
+  endTime              String  @map("end_time")
+  breakDurationMinutes Int     @default(0) @map("break_duration_minutes")
+  plannedHours         Decimal @map("planned_hours") @db.Decimal(4, 2)
+  crossesMidnight      Boolean @default(false) @map("crosses_midnight")
+  active               Boolean @default(true)
+
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id])
+  patterns   WorkSchedulePattern[]
+  dailyPlans EmployeeDailyWorkPlan[]
+
+  @@unique([tenantId, code])
+  @@map("work_time_shift_templates")
+}
+
+/// One row per cycle day (1-based, up to cycleLengthDays) — the weekly/
+/// rotating pattern a WorkScheduleTemplate is made of (spec section 9).
+model WorkSchedulePattern {
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  scheduleTemplateId   String  @map("schedule_template_id")
+  cycleDay             Int     @map("cycle_day")
+  dayType              String  @default("WORK") @map("day_type") // WORK|OFF
+  workStartTime        String? @map("work_start_time")
+  workEndTime          String? @map("work_end_time")
+  breakDurationMinutes Int     @default(0) @map("break_duration_minutes")
+  plannedHours         Decimal @default(0) @map("planned_hours") @db.Decimal(4, 2)
+  crossesMidnight      Boolean @default(false) @map("crosses_midnight")
+  shiftTemplateId      String? @map("shift_template_id")
+
+  tenant           Tenant               @relation(fields: [tenantId], references: [id])
+  scheduleTemplate WorkScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id])
+  shiftTemplate    ShiftTemplate?       @relation(fields: [shiftTemplateId], references: [id])
+
+  @@unique([scheduleTemplateId, cycleDay])
+  @@map("work_time_schedule_patterns")
+}
+
+/// EmployeeDailyWorkPlan — derived, not hand-edited (spec section 13):
+/// generated from ProductionCalendarDay + WorkSchedulePattern (by cycle
+/// day) + Phase 17 EmploymentService.getState() as-of that date, zeroed
+/// before hire / after termination, FTE-adjusted.
+model EmployeeDailyWorkPlan {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  organizationId         String   @map("organization_id")
+  employmentId           String   @map("employment_id")
+  date                   DateTime @db.Date
+  scheduleTemplateId     String?  @map("schedule_template_id")
+  productionCalendarId   String?  @map("production_calendar_id")
+  shiftTemplateId        String?  @map("shift_template_id")
+  plannedStart           String?  @map("planned_start")
+  plannedEnd             String?  @map("planned_end")
+  plannedHours           Decimal  @default(0) @map("planned_hours") @db.Decimal(4, 2)
+  plannedWorkdayFraction Decimal  @default(0) @map("planned_workday_fraction") @db.Decimal(3, 2)
+  plannedDayType         String   @map("planned_day_type")
+  fte                    Decimal  @default(1) @db.Decimal(4, 2)
+  departmentId           String?  @map("department_id")
+  positionId             String?  @map("position_id")
+  sourceScheduleVersion  Int?     @map("source_schedule_version")
+  sourceCalendarVersion  Int?     @map("source_calendar_version")
+  generationStatus       String   @default("GENERATED") @map("generation_status") // GENERATED|OVERRIDDEN|LOCKED
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant             Tenant                @relation(fields: [tenantId], references: [id])
+  organization       Organization          @relation(fields: [organizationId], references: [id])
+  scheduleTemplate   WorkScheduleTemplate? @relation(fields: [scheduleTemplateId], references: [id])
+  productionCalendar ProductionCalendar?   @relation(fields: [productionCalendarId], references: [id])
+  shiftTemplate      ShiftTemplate?        @relation(fields: [shiftTemplateId], references: [id])
+
+  @@unique([employmentId, date])
+  @@index([organizationId, date])
+  @@map("work_time_daily_plans")
+}
+
+/// AttendanceEvent — raw, immutable (spec section 19). Never interpreted as
+/// payroll hours directly.
+model AttendanceEvent {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  employmentId    String   @map("employment_id")
+  eventTimestamp  DateTime @map("event_timestamp")
+  eventType       String   @map("event_type") // CLOCK_IN|CLOCK_OUT|BREAK_START|BREAK_END|OTHER
+  location        String?
+  deviceId        String?  @map("device_id")
+  externalEventId String?  @map("external_event_id")
+  sourceSystem    String?  @map("source_system")
+  status          String   @default("RAW") // RAW|PROCESSED|FLAGGED
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([sourceSystem, externalEventId])
+  @@index([tenantId, employmentId, eventTimestamp])
+  @@map("work_time_attendance_events")
+}
+
+/// AttendanceInterval — interpreted work intervals derived from paired
+/// AttendanceEvent rows (spec section 20).
+model AttendanceInterval {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  employmentId    String    @map("employment_id")
+  workDate        DateTime  @db.Date
+  startTime       DateTime?
+  endTime         DateTime?
+  durationMinutes Int?      @map("duration_minutes")
+  status          String    @default("OK") // OK|MISSING_CLOCK_OUT|DUPLICATE_FLAGGED|MANUAL
+  sourceEventIds  Json?     @map("source_event_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, employmentId, workDate])
+  @@map("work_time_attendance_intervals")
+}
+
+/// TimeEntry — normalized actual record (spec section 23). Corrections
+/// never overwrite: they create a new TimeEntry and point the old one's
+/// `supersededById` at it (original preserved for audit).
+model TimeEntry {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  employmentId       String    @map("employment_id")
+  workDate           DateTime  @db.Date
+  startTime          DateTime?
+  endTime            DateTime?
+  hours              Decimal   @db.Decimal(5, 2)
+  timeCode           String    @map("time_code")
+  source             String    @default("MANUAL") // ATTENDANCE|MANUAL|LEAVE|ABSENCE|BUSINESS_TRIP|CORRECTION
+  sourceDocumentType String?   @map("source_document_type")
+  sourceDocumentId   String?   @map("source_document_id")
+  status             String    @default("ACTIVE") // ACTIVE|REPLACED
+  approvalStatus     String    @default("PENDING") @map("approval_status") // PENDING|APPROVED
+  supersededById     String?   @unique @map("superseded_by_id")
+  version            Int       @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  supersededBy TimeEntry? @relation("TimeEntryCorrection", fields: [supersededById], references: [id])
+  supersedes   TimeEntry? @relation("TimeEntryCorrection")
+
+  @@index([tenantId, employmentId, workDate])
+  @@map("work_time_time_entries")
+}
+
+/// Timesheet — period summary/control document, never a substitute for
+/// the individual source events it summarizes (spec section 30).
+model Timesheet {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  organizationId    String    @map("organization_id")
+  departmentId      String?   @map("department_id")
+  periodStart       DateTime  @map("period_start") @db.Date
+  periodEnd         DateTime  @map("period_end") @db.Date
+  timesheetNumber   String?   @map("timesheet_number")
+  responsibleUserId String?   @map("responsible_user_id")
+  status            String    @default("DRAFT") // DRAFT|GENERATED|IN_PROGRESS|PENDING_APPROVAL|APPROVED|LOCKED|REOPENED|CANCELLED
+  generatedAt       DateTime? @map("generated_at")
+  submittedAt       DateTime? @map("submitted_at")
+  approvedAt        DateTime? @map("approved_at")
+  approvedBy        String?   @map("approved_by")
+  lockedAt          DateTime? @map("locked_at")
+  lockedBy          String?   @map("locked_by")
+  reopenedAt        DateTime? @map("reopened_at")
+  reopenReason      String?   @map("reopen_reason")
+  version           Int       @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant          @relation(fields: [tenantId], references: [id])
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  lines        TimesheetLine[]
+
+  @@index([organizationId, periodStart])
+  @@map("work_time_timesheets")
+}
+
+model TimesheetLine {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  timesheetId       String   @map("timesheet_id")
+  employmentId      String   @map("employment_id")
+  workDate          DateTime @db.Date
+  departmentId      String?  @map("department_id")
+  plannedHours      Decimal  @default(0) @map("planned_hours") @db.Decimal(5, 2)
+  regularHours      Decimal  @default(0) @map("regular_hours") @db.Decimal(5, 2)
+  overtimeHours     Decimal  @default(0) @map("overtime_hours") @db.Decimal(5, 2)
+  nightHours        Decimal  @default(0) @map("night_hours") @db.Decimal(5, 2)
+  holidayHours      Decimal  @default(0) @map("holiday_hours") @db.Decimal(5, 2)
+  weekendHours      Decimal  @default(0) @map("weekend_hours") @db.Decimal(5, 2)
+  leaveHours        Decimal  @default(0) @map("leave_hours") @db.Decimal(5, 2)
+  absenceHours      Decimal  @default(0) @map("absence_hours") @db.Decimal(5, 2)
+  businessTripHours Decimal  @default(0) @map("business_trip_hours") @db.Decimal(5, 2)
+  paidHours         Decimal  @default(0) @map("paid_hours") @db.Decimal(5, 2)
+  unpaidHours       Decimal  @default(0) @map("unpaid_hours") @db.Decimal(5, 2)
+  workedDayFraction Decimal  @default(0) @map("worked_day_fraction") @db.Decimal(3, 2)
+  validationStatus  String   @default("OK") @map("validation_status") // OK|EXCEPTION
+  validationNotes   String?  @map("validation_notes")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  timesheet Timesheet @relation(fields: [timesheetId], references: [id])
+
+  @@unique([timesheetId, employmentId, workDate])
+  @@index([employmentId, workDate])
+  @@map("work_time_timesheet_lines")
+}
+
+model OvertimeRecord {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  employmentId   String    @map("employment_id")
+  date           DateTime  @db.Date
+  requestedHours Decimal?  @map("requested_hours") @db.Decimal(4, 2)
+  approvedHours  Decimal?  @map("approved_hours") @db.Decimal(4, 2)
+  actualHours    Decimal?  @map("actual_hours") @db.Decimal(4, 2)
+  reason         String?
+  status         String    @default("REQUESTED") // REQUESTED|APPROVED|REJECTED
+  approvedBy     String?   @map("approved_by")
+  approvedAt     DateTime? @map("approved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, date])
+  @@map("work_time_overtime_records")
+}
+
+/// TimeCorrection — never overwrites the original TimeEntry (spec section
+/// 58). If the affected date's Timesheet is already LOCKED,
+/// `requiresRecalculation` is set instead of silently changing locked data
+/// (spec section 59's WorkTimeRecalculationRequired).
+model TimeCorrection {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  employmentId          String    @map("employment_id")
+  workDate              DateTime  @db.Date
+  originalTimeEntryId   String?   @map("original_time_entry_id")
+  newTimeEntryId        String?   @map("new_time_entry_id")
+  correctedTimeCode     String?   @map("corrected_time_code")
+  correctedHours        Decimal?  @map("corrected_hours") @db.Decimal(5, 2)
+  reason                String
+  status                String    @default("DRAFT") // DRAFT|APPLIED
+  requiresRecalculation Boolean   @default(false) @map("requires_recalculation")
+  appliedAt             DateTime? @map("applied_at")
+  appliedBy             String?   @map("applied_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([employmentId, workDate])
+  @@map("work_time_corrections")
+}
+
+model WorkTimePeriod {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  periodStart        DateTime  @map("period_start") @db.Date
+  periodEnd          DateTime  @map("period_end") @db.Date
+  status             String    @default("OPEN") // OPEN|CALCULATING|APPROVED|LOCKED|REOPENED
+  timesheetStatus    String?   @map("timesheet_status")
+  payrollInputStatus String?   @map("payroll_input_status")
+  lockedAt           DateTime? @map("locked_at")
+  reopenedAt         DateTime? @map("reopened_at")
+  reopenReason       String?   @map("reopen_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, periodStart, periodEnd])
+  @@map("work_time_periods")
+}
+
+/// PayrollTimeInput — the stable interface Phase 19 reads (spec sections
+/// 54-56): Payroll never parses raw attendance, only APPROVED/LOCKED rows
+/// here. A correction after generation creates new rows and marks the old
+/// ones REPLACED (spec section 97) rather than mutating them in place.
+model PayrollTimeInput {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  organizationId     String   @map("organization_id")
+  employmentId       String   @map("employment_id")
+  payrollPeriodStart DateTime @map("payroll_period_start") @db.Date
+  payrollPeriodEnd   DateTime @map("payroll_period_end") @db.Date
+  timeCode           String   @map("time_code")
+  premiumType        String?  @map("premium_type")
+  hours              Decimal  @default(0) @db.Decimal(7, 2)
+  days               Decimal  @default(0) @db.Decimal(6, 2)
+  status             String   @default("DRAFT") // DRAFT|VALIDATED|APPROVED|LOCKED|REPLACED
+  calculationVersion Int      @default(1) @map("calculation_version")
+  sourceTimesheetId  String?  @map("source_timesheet_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([employmentId, payrollPeriodStart])
+  @@index([organizationId, status])
+  @@map("work_time_payroll_inputs")
 }

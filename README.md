@@ -425,6 +425,36 @@ HR Core sits entirely outside the document-framework/accounting engine
 
 Full write-up: [`backend/docs/HR_CORE.md`](backend/docs/HR_CORE.md).
 
+### Work Time / Timesheet Engine
+
+Three strictly separate layers: Planned Work Time (Production Calendar +
+Work Schedule Template/Pattern → an effective-dated `EmployeeDailyWorkPlan`
+derived fresh from Phase 17's own as-of-date employment state — hire/
+termination/mid-period-transfer dates fall out of that lookup with no
+special-case code), Actual Work Time (raw, immutable `AttendanceEvent` →
+interpreted `AttendanceInterval` → normalized `TimeEntry`), and Payroll
+Work-Time Input (`Timesheet`/`TimesheetLine` → `WorkTimeRegister`, the
+fifth reuse of the RegisterMovement Truth Engine after Stock/Cash/Bank/
+Fixed Assets, written once on timesheet lock → `PayrollTimeInput`, the
+only thing Phase 19 is allowed to read). The critical rule: REGULAR_WORK/
+OVERTIME are the only two buckets that sum into "total worked hours" —
+NIGHT/HOLIDAY/WEEKEND are independent premium overlays computed from the
+same source hours and never double-counted into that total, verified by
+an e2e case with an 8-hour night shift crossing midnight (6 night-premium
+hours, total worked stays 8, not 14). A plan-vs-actual difference is never
+silently absorbed as overtime or dropped — an unapproved excess is
+excluded from every hours bucket and flags the line as an `EXCEPTION`,
+which blocks timesheet approval until resolved. Corrections never
+overwrite: applying one against an already-`LOCKED` timesheet still
+creates a new `TimeEntry` version but flags `requiresRecalculation`
+instead of silently changing locked data. No biometric/device
+integration (manual/API attendance entry only), no AI anomaly detection,
+no per-tenant-configurable TimeCode catalog, and only the
+`PREAPPROVAL_REQUIRED` overtime policy — see docs/WORK_TIME.md for the
+full list of disclosed simplifications.
+
+Full write-up: [`backend/docs/WORK_TIME.md`](backend/docs/WORK_TIME.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -460,6 +490,7 @@ Policy, Tax Profile, Access).
 | `backend/test/cash-desk.e2e-spec.ts` | 15 | Cash receipt/expense posting, negative-balance block + its own concurrency safety, an ALLOWED-policy desk going negative, cashier-assignment enforcement, employee advance + return (and its own validation), cash-to-cash transfer INSTANT and TWO_STEP with partial receives (unpost blocked once received, over-receive rejected, same-desk rejection), physical count ⇒ adjustment resolution chain (shortage, CASHIER_RECEIVABLE, difference report), daily close (gated on an unresolved count, closed, reopened), cashier handover (blocked then completed), cash health (no false-positive book-vs-GL mismatch) |
 | `backend/test/fixed-assets.e2e-spec.ts` | 17 | Acquisition-candidate classification (CAPITALIZE creates an asset, EXPENSE never does), CIP cost formation across multiple sources with an expensed exclusion + capitalization into one asset, over-capitalization rejection, CIP capitalization concurrency safety, acceptance-without-commissioning staying depreciation-free, straight-line depreciation (zero residual, non-zero residual, idempotency), modernization increasing gross cost, impairment reducing NBV to the recoverable amount, transfer leaving cost/NBV unchanged, disposal (SALE with gain/loss + receivable, WRITE_OFF with a full loss and no further depreciation), physical inventory (wrong-location auto-correction, missing-asset staying unresolved), GL reconciliation reporting every account healthy after a full mixed flow |
 | `backend/test/hr-core.e2e-spec.ts` | 11 | Physical-person duplicate-personalId detection (blocked, then confirmed), hire lifecycle via the new-person path (draft ⇒ post), as-of-date employment state resolution before and after the hire date, employment contract create + amend with versioned history, manager hierarchy transfer + circular-hierarchy rejection, EmployeeAssignment history split at a transfer's effective date (state correct on both sides of the date), staffing-position capacity enforcement + override with permission, termination with correct Employee-status rollup, rehire reusing the same Employee row, multiple concurrent employments (secondary termination leaving primary + Employee active), org-chart/headcount/staffing-capacity/health reports |
+| `backend/test/work-time.e2e-spec.ts` | 14 | Attendance idempotency on re-import, missing-clock-out and duplicate-punch detection, a production calendar with a holiday and a shortened day, a standard 5-day schedule template, the full spec section-172 end-to-end month (hire, schedule assignment, mid-month department transfer, annual leave, approved overtime, daily plan generation reflecting calendar + transfer, regular attendance with break deduction, partial absence, a night shift crossing midnight with correct 6h night premium and no worked-hours inflation, holiday work, timesheet generate ⇒ submit ⇒ approve ⇒ lock, Work Time Register + Payroll Time Input Register generation with no money fields), a locked-timesheet direct-edit block requiring a Time Correction (which correctly flags `requiresRecalculation`), an unapproved-overtime exception that blocks timesheet approval until resolved, and the plan-vs-actual/overtime/night/holiday-weekend reports |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -575,5 +606,21 @@ All run against a real PostgreSQL instance — no mocked database.
   future-dated hire/transfer projection refresh (call `syncStatus()`);
   LeaveRecord/AbsenceRecord are foundation-only, no entitlement/accrual
   engine; no approval sub-workflow — see docs/HR_CORE.md.
-- **Work Time, Payroll, Banking, ...** — not started. Later phases
-  building on this foundation.
+- **Work Time / Timesheet Engine** — ✅ done, tested, documented. Three
+  strictly separate layers (planned/actual/payroll-input); Daily Work Plan
+  derived fresh from Production Calendar + Schedule Pattern + Phase 17
+  as-of-date employment state; raw attendance → interpreted intervals →
+  normalized time entries → timesheet → WorkTimeRegister (fifth Truth
+  Engine reuse, written once on lock) → PayrollTimeInput. REGULAR_WORK/
+  OVERTIME are the only worked-hours buckets; NIGHT/HOLIDAY/WEEKEND are
+  independent premium overlays never double-counted into the total. An
+  unapproved plan-vs-actual excess is flagged as an EXCEPTION and blocks
+  approval rather than being silently absorbed. Corrections are append-
+  only, even against a LOCKED timesheet (flags `requiresRecalculation`
+  instead of silently changing locked data). No biometric/device
+  integration, no AI anomaly detection, hardcoded TimeCode catalog, only
+  the PREAPPROVAL_REQUIRED overtime policy, no actual-clock-based break
+  deduction (uniform from the schedule pattern instead) — see
+  docs/WORK_TIME.md.
+- **Payroll, Banking, ...** — not started. Later phases building on this
+  foundation.

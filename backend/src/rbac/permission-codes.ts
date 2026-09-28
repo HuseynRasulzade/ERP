@@ -382,6 +382,26 @@ export const PermissionCodes = {
   HR_OVERRIDE_STAFFING_LIMIT: 'hr.override_staffing_limit',
   HR_REPORT_VIEW: 'hr.report.view',
 
+  // Work Time / Timesheet Engine (docx spec Phase 18)
+  TIME_VIEW: 'time.view',
+  TIME_VIEW_OWN: 'time.view_own',
+  TIME_VIEW_DEPARTMENT: 'time.view_department',
+  TIME_CALENDAR_EDIT: 'time.calendar.edit',
+  TIME_SCHEDULE_EDIT: 'time.schedule.edit',
+  TIME_ATTENDANCE_IMPORT: 'time.attendance.import',
+  TIME_ATTENDANCE_EDIT: 'time.attendance.edit',
+  TIME_TIMESHEET_CREATE: 'time.timesheet.create',
+  TIME_TIMESHEET_EDIT: 'time.timesheet.edit',
+  TIME_TIMESHEET_APPROVE: 'time.timesheet.approve',
+  TIME_TIMESHEET_LOCK: 'time.timesheet.lock',
+  TIME_TIMESHEET_REOPEN: 'time.timesheet.reopen',
+  TIME_OVERTIME_CREATE: 'time.overtime.create',
+  TIME_OVERTIME_APPROVE: 'time.overtime.approve',
+  TIME_CORRECTION_CREATE: 'time.correction.create',
+  TIME_CORRECTION_APPROVE: 'time.correction.approve',
+  TIME_VIEW_PAYROLL_INPUT: 'time.view_payroll_input',
+  TIME_OVERRIDE_VALIDATION: 'time.override_validation',
+
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_VIEW_ALL_WAREHOUSES: 'inventory.view_all_warehouses',
@@ -2069,6 +2089,97 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.HR_REPORT_VIEW,
     module: 'hr',
     description: 'View HR reports (org chart, headcount, staffing capacity)',
+  },
+
+  {
+    code: PermissionCodes.TIME_VIEW,
+    module: 'work_time',
+    description: 'View work-time data across the organization',
+  },
+  {
+    code: PermissionCodes.TIME_VIEW_OWN,
+    module: 'work_time',
+    description: 'View own attendance/timesheet data',
+  },
+  {
+    code: PermissionCodes.TIME_VIEW_DEPARTMENT,
+    module: 'work_time',
+    description: "View a manager's own department work-time data",
+  },
+  {
+    code: PermissionCodes.TIME_CALENDAR_EDIT,
+    module: 'work_time',
+    description: 'Create/edit production calendars and calendar days',
+  },
+  {
+    code: PermissionCodes.TIME_SCHEDULE_EDIT,
+    module: 'work_time',
+    description: 'Create/edit work schedule templates, patterns, and shift templates',
+  },
+  {
+    code: PermissionCodes.TIME_ATTENDANCE_IMPORT,
+    module: 'work_time',
+    description: 'Import/create raw attendance events',
+  },
+  {
+    code: PermissionCodes.TIME_ATTENDANCE_EDIT,
+    module: 'work_time',
+    description: 'Edit/flag attendance events and intervals',
+  },
+  {
+    code: PermissionCodes.TIME_TIMESHEET_CREATE,
+    module: 'work_time',
+    description: 'Generate a timesheet for a period',
+  },
+  {
+    code: PermissionCodes.TIME_TIMESHEET_EDIT,
+    module: 'work_time',
+    description: 'Edit timesheet lines',
+  },
+  {
+    code: PermissionCodes.TIME_TIMESHEET_APPROVE,
+    module: 'work_time',
+    description: 'Approve a submitted timesheet',
+  },
+  {
+    code: PermissionCodes.TIME_TIMESHEET_LOCK,
+    module: 'work_time',
+    description: 'Lock an approved timesheet, writing it to the Work Time Register',
+  },
+  {
+    code: PermissionCodes.TIME_TIMESHEET_REOPEN,
+    module: 'work_time',
+    description: 'Reopen a locked timesheet',
+  },
+  {
+    code: PermissionCodes.TIME_OVERTIME_CREATE,
+    module: 'work_time',
+    description: 'Create an overtime request',
+  },
+  {
+    code: PermissionCodes.TIME_OVERTIME_APPROVE,
+    module: 'work_time',
+    description: 'Approve an overtime request',
+  },
+  {
+    code: PermissionCodes.TIME_CORRECTION_CREATE,
+    module: 'work_time',
+    description: 'Create a time correction',
+  },
+  {
+    code: PermissionCodes.TIME_CORRECTION_APPROVE,
+    module: 'work_time',
+    description: 'Apply a time correction, including against a locked timesheet',
+  },
+  {
+    code: PermissionCodes.TIME_VIEW_PAYROLL_INPUT,
+    module: 'work_time',
+    description: 'View the generated Payroll Time Input Register',
+  },
+  {
+    code: PermissionCodes.TIME_OVERRIDE_VALIDATION,
+    module: 'work_time',
+    description: 'Override a work-time validation exception (e.g. approve a timesheet with unresolved exceptions)',
   },
 
   {
