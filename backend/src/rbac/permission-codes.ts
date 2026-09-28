@@ -355,6 +355,33 @@ export const PermissionCodes = {
   FIXED_ASSET_VIEW_ACCOUNTING: 'fixed_asset.view_accounting',
   FIXED_ASSET_PERIOD_OVERRIDE: 'fixed_asset.period_override',
 
+  // HR Core / Employment Lifecycle Engine (docx spec Phase 17)
+  HR_PERSON_VIEW: 'hr.person.view',
+  HR_PERSON_CREATE: 'hr.person.create',
+  HR_PERSON_EDIT: 'hr.person.edit',
+  HR_EMPLOYEE_VIEW: 'hr.employee.view',
+  HR_EMPLOYEE_CREATE: 'hr.employee.create',
+  HR_EMPLOYMENT_CREATE: 'hr.employment.create',
+  HR_HIRE_CREATE: 'hr.hire.create',
+  HR_HIRE_POST: 'hr.hire.post',
+  HR_TRANSFER_CREATE: 'hr.transfer.create',
+  HR_TRANSFER_POST: 'hr.transfer.post',
+  HR_TERMINATE_CREATE: 'hr.terminate.create',
+  HR_TERMINATE_POST: 'hr.terminate.post',
+  HR_CONTRACT_VIEW: 'hr.contract.view',
+  HR_CONTRACT_EDIT: 'hr.contract.edit',
+  HR_STAFFING_VIEW: 'hr.staffing.view',
+  HR_STAFFING_EDIT: 'hr.staffing.edit',
+  HR_LEAVE_VIEW: 'hr.leave.view',
+  HR_LEAVE_CREATE: 'hr.leave.create',
+  HR_ABSENCE_VIEW: 'hr.absence.view',
+  HR_ABSENCE_CREATE: 'hr.absence.create',
+  HR_VIEW_PERSONAL_DATA: 'hr.view_personal_data',
+  HR_VIEW_SENSITIVE_DATA: 'hr.view_sensitive_data',
+  HR_VIEW_HISTORY: 'hr.view_history',
+  HR_OVERRIDE_STAFFING_LIMIT: 'hr.override_staffing_limit',
+  HR_REPORT_VIEW: 'hr.report.view',
+
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_VIEW_ALL_WAREHOUSES: 'inventory.view_all_warehouses',
@@ -1916,6 +1943,132 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.FIXED_ASSET_PERIOD_OVERRIDE,
     module: 'fixed_asset',
     description: 'Post a fixed asset document into a closed period',
+  },
+
+  {
+    code: PermissionCodes.HR_PERSON_VIEW,
+    module: 'hr',
+    description: 'View physical person records',
+  },
+  {
+    code: PermissionCodes.HR_PERSON_CREATE,
+    module: 'hr',
+    description: 'Create physical person records',
+  },
+  {
+    code: PermissionCodes.HR_PERSON_EDIT,
+    module: 'hr',
+    description: 'Edit physical person records',
+  },
+  {
+    code: PermissionCodes.HR_EMPLOYEE_VIEW,
+    module: 'hr',
+    description: 'View employees, employments and their history',
+  },
+  {
+    code: PermissionCodes.HR_EMPLOYEE_CREATE,
+    module: 'hr',
+    description: 'Create new employee identities',
+  },
+  {
+    code: PermissionCodes.HR_EMPLOYMENT_CREATE,
+    module: 'hr',
+    description: 'Create employment relationships directly (non-hire path)',
+  },
+  {
+    code: PermissionCodes.HR_HIRE_CREATE,
+    module: 'hr',
+    description: 'Create hire (and rehire) documents',
+  },
+  {
+    code: PermissionCodes.HR_HIRE_POST,
+    module: 'hr',
+    description: 'Post a hire document, activating the employment',
+  },
+  {
+    code: PermissionCodes.HR_TRANSFER_CREATE,
+    module: 'hr',
+    description: 'Create employee transfer documents',
+  },
+  {
+    code: PermissionCodes.HR_TRANSFER_POST,
+    module: 'hr',
+    description: 'Post an employee transfer document',
+  },
+  {
+    code: PermissionCodes.HR_TERMINATE_CREATE,
+    module: 'hr',
+    description: 'Create termination documents',
+  },
+  {
+    code: PermissionCodes.HR_TERMINATE_POST,
+    module: 'hr',
+    description: 'Post a termination document, closing the employment',
+  },
+  {
+    code: PermissionCodes.HR_CONTRACT_VIEW,
+    module: 'hr',
+    description: 'View employment contracts and their version history',
+  },
+  {
+    code: PermissionCodes.HR_CONTRACT_EDIT,
+    module: 'hr',
+    description: 'Create/amend employment contracts',
+  },
+  {
+    code: PermissionCodes.HR_STAFFING_VIEW,
+    module: 'hr',
+    description: 'View staffing tables and planned positions',
+  },
+  {
+    code: PermissionCodes.HR_STAFFING_EDIT,
+    module: 'hr',
+    description: 'Create/edit staffing tables and planned positions',
+  },
+  {
+    code: PermissionCodes.HR_LEAVE_VIEW,
+    module: 'hr',
+    description: 'View leave records',
+  },
+  {
+    code: PermissionCodes.HR_LEAVE_CREATE,
+    module: 'hr',
+    description: 'Create leave records',
+  },
+  {
+    code: PermissionCodes.HR_ABSENCE_VIEW,
+    module: 'hr',
+    description: 'View absence records',
+  },
+  {
+    code: PermissionCodes.HR_ABSENCE_CREATE,
+    module: 'hr',
+    description: 'Create absence records',
+  },
+  {
+    code: PermissionCodes.HR_VIEW_PERSONAL_DATA,
+    module: 'hr',
+    description: 'View personal data (contact info, address, personal ID)',
+  },
+  {
+    code: PermissionCodes.HR_VIEW_SENSITIVE_DATA,
+    module: 'hr',
+    description: 'View sensitive data (compensation reference, contract conditions)',
+  },
+  {
+    code: PermissionCodes.HR_VIEW_HISTORY,
+    module: 'hr',
+    description: 'View full assignment/status/contract history for an employment',
+  },
+  {
+    code: PermissionCodes.HR_OVERRIDE_STAFFING_LIMIT,
+    module: 'hr',
+    description: 'Hire/transfer beyond a staffing position\'s headcount/FTE limit',
+  },
+  {
+    code: PermissionCodes.HR_REPORT_VIEW,
+    module: 'hr',
+    description: 'View HR reports (org chart, headcount, staffing capacity)',
   },
 
   {

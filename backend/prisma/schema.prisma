@@ -185,6 +185,24 @@ model Tenant {
   FixedAssetInventoryResult       FixedAssetInventoryResult[]
   FixedAssetOpeningBalance        FixedAssetOpeningBalance[]
 
+  // HR Core / Employment Lifecycle Engine (docx spec Phase 17)
+  PhysicalPerson            PhysicalPerson[]
+  Employee                  Employee[]
+  Employment                Employment[]
+  EmploymentContract        EmploymentContract[]
+  EmploymentContractVersion EmploymentContractVersion[]
+  Position                  Position[]
+  StaffingTable             StaffingTable[]
+  StaffingPosition          StaffingPosition[]
+  HireDocument              HireDocument[]
+  EmployeeAssignment        EmployeeAssignment[]
+  EmployeeTransfer          EmployeeTransfer[]
+  WorkScheduleAssignment    WorkScheduleAssignment[]
+  LeaveRecord               LeaveRecord[]
+  AbsenceRecord             AbsenceRecord[]
+  EmploymentStatusHistory   EmploymentStatusHistory[]
+  TerminationDocument       TerminationDocument[]
+
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
   inventoryCostMovements       InventoryCostMovement[]
@@ -349,6 +367,13 @@ model Organization {
   FixedAssetDisposal             FixedAssetDisposal[]
   FixedAssetDepreciationRun      FixedAssetDepreciationRun[]
   FixedAssetInventoryCount       FixedAssetInventoryCount[]
+
+  // HR Core / Employment Lifecycle Engine (docx spec Phase 17)
+  Employment       Employment[]
+  StaffingTable    StaffingTable[]
+  StaffingPosition StaffingPosition[]
+  HireDocument     HireDocument[]
+  EmployeeTransfer EmployeeTransfer[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -7434,4 +7459,515 @@ model FixedAssetOpeningBalance {
   asset  FixedAsset @relation(fields: [assetId], references: [id])
 
   @@map("fixed_asset_opening_balances")
+}
+
+// ----------------------------------------------------------------------------
+// HR Core / Employment Lifecycle Engine (docx spec Phase 17) — Physical
+// Person -> Employee -> Employment are three separate concepts (spec section
+// 1), never collapsed. Employment history is effective-dated and immutable
+// (EmployeeAssignment); current department/position/manager/etc. on
+// Employment itself are projections only, the assignment history is
+// authoritative for "what was true as of a given date."
+//
+// Disclosed simplification (see docs/HR_CORE.md): cross-references to
+// Department/Branch/Warehouse(-as-location)/CostCenter are plain string IDs
+// WITHOUT a declared Prisma relation — same soft-reference convention Phase
+// 16 (Fixed Assets) already established, to avoid back-relation array churn
+// on those master-data models. Position/StaffingTable/StaffingPosition/
+// Employment/Employee/PhysicalPerson are all internal to this module and DO
+// get real relations to each other.
+// ----------------------------------------------------------------------------
+
+model PhysicalPerson {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  firstName        String    @map("first_name")
+  lastName         String    @map("last_name")
+  middleName       String?   @map("middle_name")
+  fullName         String    @map("full_name")
+  gender           String?
+  birthDate        DateTime? @map("birth_date") @db.Date
+  nationality      String?
+  personalId       String?   @map("personal_id")
+  email            String?
+  phone            String?
+  address          String?
+  emergencyContact String?   @map("emergency_contact")
+  notes            String?
+  active           Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  employees Employee[]
+
+  @@index([tenantId, personalId])
+  @@map("hr_physical_persons")
+}
+
+/// Employee — the company's own HR identity for a PhysicalPerson (spec
+/// section 1: person / identity / employment are three separate concepts).
+model Employee {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  physicalPersonId      String    @map("physical_person_id")
+  personnelNumber       String    @map("personnel_number")
+  employeeCode          String?   @map("employee_code")
+  defaultOrganizationId String?   @map("default_organization_id")
+  corporateEmail        String?   @map("corporate_email")
+  status                String    @default("ACTIVE")
+  hireFirstDate         DateTime? @map("hire_first_date") @db.Date
+  lastTerminationDate   DateTime? @map("last_termination_date") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  physicalPerson PhysicalPerson   @relation(fields: [physicalPersonId], references: [id])
+  employments    Employment[]
+  hireDocuments  HireDocument[]
+
+  @@unique([tenantId, personnelNumber])
+  @@index([tenantId, physicalPersonId])
+  @@map("hr_employees")
+}
+
+/// Employment — one concrete employment relationship (spec section 1's own
+/// example: same person can have primary + secondary + past-terminated-then-
+/// rehired employments, all separate rows here).
+model Employment {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  employeeId          String    @map("employee_id")
+  organizationId      String    @map("organization_id")
+  employmentType      String    @map("employment_type")
+  employmentStartDate DateTime  @map("employment_start_date") @db.Date
+  employmentEndDate   DateTime? @map("employment_end_date") @db.Date
+  primaryEmployment   Boolean   @default(true) @map("primary_employment")
+  staffingPositionId  String?   @map("staffing_position_id")
+  departmentId        String    @map("department_id")
+  positionId          String    @map("position_id")
+  branchId            String?   @map("branch_id")
+  managerEmploymentId String?   @map("manager_employment_id")
+  workScheduleCode    String?   @map("work_schedule_code")
+  fte                 Decimal   @default(1) @db.Decimal(4, 2)
+  probationEndDate    DateTime? @map("probation_end_date") @db.Date
+  locationWarehouseId String?   @map("location_warehouse_id")
+  costCenterId        String?   @map("cost_center_id")
+  // PLANNED|ACTIVE|SUSPENDED|ON_LEAVE|TERMINATED|CANCELLED — derived from
+  // EmploymentStatusHistory; this field is the current-state projection.
+  status              String    @default("PLANNED")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  position     Position     @relation(fields: [positionId], references: [id])
+  manager      Employment?  @relation("ManagerHierarchy", fields: [managerEmploymentId], references: [id])
+
+  reports                 Employment[]               @relation("ManagerHierarchy")
+  contract                EmploymentContract?
+  hireDocument             HireDocument?
+  assignments              EmployeeAssignment[]
+  transfers                EmployeeTransfer[]
+  workScheduleAssignments  WorkScheduleAssignment[]
+  leaveRecords             LeaveRecord[]
+  absenceRecords           AbsenceRecord[]
+  statusHistory            EmploymentStatusHistory[]
+  terminations             TerminationDocument[]
+
+  @@index([organizationId, status])
+  @@index([employeeId])
+  @@index([managerEmploymentId])
+  @@map("hr_employments")
+}
+
+model EmploymentContract {
+  id                        String    @id @default(uuid())
+  tenantId                  String    @map("tenant_id")
+  employmentId              String    @unique @map("employment_id")
+  contractNumber             String   @map("contract_number")
+  contractDate                DateTime @map("contract_date") @db.Date
+  effectiveFrom                DateTime @map("effective_from") @db.Date
+  effectiveTo                  DateTime? @map("effective_to") @db.Date
+  contractType                  String @map("contract_type")
+  probationPeriodMonths          Int?  @map("probation_period_months")
+  workLocation                    String? @map("work_location")
+  workingTimeType                  String? @map("working_time_type")
+  baseCompensationReference         String? @map("base_compensation_reference")
+  conditions                          String?
+  signedStatus                         String @default("UNSIGNED") @map("signed_status")
+  attachmentId                          String? @map("attachment_id")
+  status                                String @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+  version   Int      @default(1)
+
+  tenant     Tenant                       @relation(fields: [tenantId], references: [id])
+  employment Employment                   @relation(fields: [employmentId], references: [id])
+  versions   EmploymentContractVersion[]
+
+  @@map("hr_employment_contracts")
+}
+
+/// Contract amendment history (spec section 12) — the original contract
+/// row is never overwritten; each amendment is a new version, effective-
+/// dated, so a historical as-of-date query resolves the right terms.
+model EmploymentContractVersion {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  contractId     String   @map("contract_id")
+  versionNumber  Int      @map("version_number")
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  changes        String?
+  sourceDocument String?  @map("source_document")
+  approvedBy     String?  @map("approved_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id])
+  contract EmploymentContract @relation(fields: [contractId], references: [id])
+
+  @@unique([contractId, versionNumber])
+  @@map("hr_employment_contract_versions")
+}
+
+/// Position — generic job title master data (spec section 13), distinct
+/// from StaffingPosition (spec section 16: "bir dəfə yox").
+model Position {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  code        String
+  name        String
+  jobFamily   String? @map("job_family")
+  grade       String?
+  category    String?
+  description String?
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  employments       Employment[]
+  staffingPositions StaffingPosition[]
+
+  @@unique([tenantId, code])
+  @@map("hr_positions")
+}
+
+/// StaffingTable — versioned planned org structure (spec section 82).
+model StaffingTable {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  effectiveTo    DateTime? @map("effective_to") @db.Date
+  status         String    @default("DRAFT")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  positions    StaffingPosition[]
+
+  @@index([organizationId, status])
+  @@map("hr_staffing_tables")
+}
+
+/// StaffingPosition — a specific planned seat (department + position +
+/// headcount/FTE limit), distinct from generic Position (spec section 16).
+model StaffingPosition {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  staffingTableId      String    @map("staffing_table_id")
+  organizationId       String    @map("organization_id")
+  departmentId         String    @map("department_id")
+  branchId             String?   @map("branch_id")
+  positionId           String    @map("position_id")
+  grade                String?
+  headcountLimit       Decimal   @default(1) @map("headcount_limit") @db.Decimal(6, 2)
+  fteLimit             Decimal   @default(1) @map("fte_limit") @db.Decimal(6, 2)
+  salaryRangeReference String?   @map("salary_range_reference")
+  workScheduleDefault  String?   @map("work_schedule_default")
+  locationWarehouseId  String?   @map("location_warehouse_id")
+  costCenterId         String?   @map("cost_center_id")
+  activeFrom           DateTime  @map("active_from") @db.Date
+  activeTo             DateTime? @map("active_to") @db.Date
+  status               String    @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+  staffingTable StaffingTable @relation(fields: [staffingTableId], references: [id])
+  position      Position      @relation(fields: [positionId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([staffingTableId])
+  @@map("hr_staffing_positions")
+}
+
+/// HireDocument (spec sections 19-21) — effective-dated: Employment stays
+/// PLANNED until the hire date, posting creates the initial
+/// EmployeeAssignment + EmploymentStatusHistory. Also doubles as the
+/// Rehire document (spec section 48: "Source Employee/Physical Person
+/// istifadə edir... yeni Employment yaradır") via `rehireOfEmployeeId` —
+/// no separate RehireDocument table (disclosed simplification).
+model HireDocument {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  organizationId      String    @map("organization_id")
+  employeeId          String    @map("employee_id")
+  employmentType      String    @map("employment_type")
+  hireDate            DateTime  @map("hire_date") @db.Date
+  departmentId        String    @map("department_id")
+  positionId          String    @map("position_id")
+  staffingPositionId  String?   @map("staffing_position_id")
+  branchId            String?   @map("branch_id")
+  managerEmploymentId String?   @map("manager_employment_id")
+  workScheduleCode    String?   @map("work_schedule_code")
+  fte                 Decimal   @default(1) @db.Decimal(4, 2)
+  probationEndDate    DateTime? @map("probation_end_date") @db.Date
+  locationWarehouseId String?   @map("location_warehouse_id")
+  responsibleHrUserId String?   @map("responsible_hr_user_id")
+  rehireOfEmployeeId  String?   @map("rehire_of_employee_id")
+  employmentId        String?   @unique @map("employment_id")
+  // DRAFT|POSTED|CANCELLED (spec's own PENDING_APPROVAL/APPROVED sub-
+  // workflow is Phase 26's full approval engine — disclosed simplification)
+  status              String    @default("DRAFT")
+  postedAt            DateTime? @map("posted_at")
+  postedBy            String?   @map("posted_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+  employment   Employment?  @relation(fields: [employmentId], references: [id])
+
+  @@index([organizationId, status])
+  @@map("hr_hire_documents")
+}
+
+/// EmployeeAssignment — the authoritative effective-dated history (spec
+/// section 22-23): Employment's own department/position/etc. fields are
+/// only a current-state PROJECTION of this table.
+model EmployeeAssignment {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  employmentId        String    @map("employment_id")
+  effectiveFrom       DateTime  @map("effective_from") @db.Date
+  effectiveTo         DateTime? @map("effective_to") @db.Date
+  organizationId      String    @map("organization_id")
+  departmentId        String    @map("department_id")
+  branchId            String?   @map("branch_id")
+  positionId          String    @map("position_id")
+  staffingPositionId  String?   @map("staffing_position_id")
+  managerEmploymentId String?   @map("manager_employment_id")
+  locationWarehouseId String?   @map("location_warehouse_id")
+  fte                 Decimal   @db.Decimal(4, 2)
+  costCenterId        String?   @map("cost_center_id")
+  reason              String?
+  sourceDocumentType  String?   @map("source_document_type")
+  sourceDocumentId    String?   @map("source_document_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId, effectiveFrom])
+  @@index([employmentId, effectiveTo])
+  @@map("hr_employee_assignments")
+}
+
+/// EmployeeTransfer — the document that CREATES a new EmployeeAssignment
+/// checkpoint (spec sections 24-27). Future-dated transfers are supported
+/// (spec section 28): posting closes the current-as-of-effectiveDate
+/// assignment and opens a new one, without touching Employment's live
+/// projection until that effective date is reached (see service doc).
+model EmployeeTransfer {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  organizationId         String    @map("organization_id")
+  employmentId           String    @map("employment_id")
+  // DEPARTMENT_TRANSFER|POSITION_CHANGE|PROMOTION|DEMOTION|BRANCH_TRANSFER|
+  // LOCATION_TRANSFER|MANAGER_CHANGE|FTE_CHANGE|COMBINED_TRANSFER
+  transferType           String    @map("transfer_type")
+  effectiveDate          DateTime  @map("effective_date") @db.Date
+  newDepartmentId        String?   @map("new_department_id")
+  newPositionId          String?   @map("new_position_id")
+  newStaffingPositionId  String?   @map("new_staffing_position_id")
+  newBranchId            String?   @map("new_branch_id")
+  newManagerEmploymentId String?   @map("new_manager_employment_id")
+  newLocationWarehouseId String?   @map("new_location_warehouse_id")
+  newFte                 Decimal?  @map("new_fte") @db.Decimal(4, 2)
+  reason                 String?
+  status                 String    @default("DRAFT")
+  postedAt               DateTime? @map("posted_at")
+  postedBy               String?   @map("posted_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  employment   Employment   @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId])
+  @@index([organizationId])
+  @@map("hr_employee_transfers")
+}
+
+/// WorkScheduleAssignment — history only (spec section 32); full schedule
+/// mechanics are Phase 18's own build, so `workScheduleCode` is a free
+/// string, not a foreign key to a schedule master entity that doesn't
+/// exist yet.
+model WorkScheduleAssignment {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  employmentId       String    @map("employment_id")
+  workScheduleCode   String    @map("work_schedule_code")
+  effectiveFrom      DateTime  @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  reason             String?
+  sourceDocumentType String?   @map("source_document_type")
+  sourceDocumentId   String?   @map("source_document_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId, effectiveFrom])
+  @@map("hr_work_schedule_assignments")
+}
+
+/// LeaveRecord — HR-side foundation only (spec section 38); full leave
+/// balance/entitlement calculation is Phase 18's job.
+model LeaveRecord {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  employmentId       String    @map("employment_id")
+  leaveType          String    @map("leave_type")
+  startDate          DateTime  @map("start_date") @db.Date
+  endDate            DateTime  @map("end_date") @db.Date
+  status             String    @default("REQUESTED")
+  requestDate        DateTime  @default(now()) @map("request_date")
+  approvedBy         String?   @map("approved_by")
+  approvedAt         DateTime? @map("approved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId, startDate])
+  @@map("hr_leave_records")
+}
+
+/// AbsenceRecord — foundation for Phase 18's worked-hours calculation
+/// (spec section 40).
+model AbsenceRecord {
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  employmentId       String  @map("employment_id")
+  absenceType        String  @map("absence_type")
+  startDate          DateTime @map("start_date") @db.Date
+  endDate            DateTime @map("end_date") @db.Date
+  reason             String?
+  supportingDocument String? @map("supporting_document")
+  status             String  @default("RECORDED")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId, startDate])
+  @@map("hr_absence_records")
+}
+
+/// EmploymentStatusHistory — effective-dated status changes (spec section
+/// 36), derives Employment.status as a projection.
+model EmploymentStatusHistory {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  employmentId       String    @map("employment_id")
+  status             String
+  effectiveFrom      DateTime  @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  reason             String?
+  sourceDocumentType String?   @map("source_document_type")
+  sourceDocumentId   String?   @map("source_document_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId, effectiveFrom])
+  @@map("hr_employment_status_history")
+}
+
+/// TerminationDocument (spec sections 43-49) — NEVER deletes the
+/// employee/physical person; only closes this one Employment.
+model TerminationDocument {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  employmentId        String    @map("employment_id")
+  terminationDate     DateTime  @map("termination_date") @db.Date
+  lastWorkingDate     DateTime  @map("last_working_date") @db.Date
+  terminationReason   String    @map("termination_reason")
+  legalBasis          String?   @map("legal_basis")
+  noticeDate          DateTime? @map("notice_date") @db.Date
+  responsibleHrUserId String?   @map("responsible_hr_user_id")
+  comment             String?
+  status              String    @default("DRAFT")
+  postedAt            DateTime? @map("posted_at")
+  postedBy            String?   @map("posted_by")
+  reversedAt          DateTime? @map("reversed_at")
+  reversedBy          String?   @map("reversed_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  version   Int      @default(1)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId])
+  @@map("hr_termination_documents")
 }

@@ -401,6 +401,30 @@ document's own not-yet-finalized movements from that read.
 
 Full write-up: [`backend/docs/FIXED_ASSETS.md`](backend/docs/FIXED_ASSETS.md).
 
+### HR Core / Employment Lifecycle Engine
+
+Physical Person → Employee → Hire Document → Employment, with two
+effective-dated history tables (`EmployeeAssignment` for department/
+position/manager/FTE/location, `EmploymentStatusHistory` for status) as
+the authoritative source of "what was true as of date X" — `Employment`'s
+own current-state fields are only a best-effort projection, refreshed on
+write actions and by an on-demand `syncStatus()` for a future-dated hire/
+transfer whose effective date has since arrived (no scheduled job flips
+it automatically — disclosed simplification). Rehire reuses the same
+Employee row via `rehireOfEmployeeId` rather than creating a duplicate.
+An employee can hold more than one concurrent employment (primary +
+secondary); terminating a secondary employment only rolls the Employee's
+own status to TERMINATED once every one of their employments is closed.
+`EmployeeTransfer` walks the new manager's own reporting chain before
+accepting a `newManagerEmploymentId`, rejecting anything that would
+create a circular hierarchy. Staffing-position headcount/FTE capacity is
+enforced on both hire and transfer, overridable only with an explicit
+flag plus the `HR_OVERRIDE_STAFFING_LIMIT` permission. No GL posting —
+HR Core sits entirely outside the document-framework/accounting engine
+(Phase 19's Payroll module is where HR data meets the ledger).
+
+Full write-up: [`backend/docs/HR_CORE.md`](backend/docs/HR_CORE.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -435,6 +459,7 @@ Policy, Tax Profile, Access).
 | `backend/test/treasury-bank-operations.e2e-spec.ts` | 16 | Incoming bank payment posting (named invoice + unnamed advance), internal transfer with a separately-booked fee + same-account rejection, bank fee posting, FX conversion (gain vs. an official rate, currency-mismatch rejection, never a settlement), multi-document-type statement matching (inflow/outflow/unmatched-line classification/concurrent-match safety), bank reconciliation period close + mandatory-reason reopen, payment-request amount-tier approval with partial approval and partial multi-order execution + its own concurrency test, payment calendar + liquidity forecast + cash-gap detection, treasury health, payment-order reversal |
 | `backend/test/cash-desk.e2e-spec.ts` | 15 | Cash receipt/expense posting, negative-balance block + its own concurrency safety, an ALLOWED-policy desk going negative, cashier-assignment enforcement, employee advance + return (and its own validation), cash-to-cash transfer INSTANT and TWO_STEP with partial receives (unpost blocked once received, over-receive rejected, same-desk rejection), physical count ⇒ adjustment resolution chain (shortage, CASHIER_RECEIVABLE, difference report), daily close (gated on an unresolved count, closed, reopened), cashier handover (blocked then completed), cash health (no false-positive book-vs-GL mismatch) |
 | `backend/test/fixed-assets.e2e-spec.ts` | 17 | Acquisition-candidate classification (CAPITALIZE creates an asset, EXPENSE never does), CIP cost formation across multiple sources with an expensed exclusion + capitalization into one asset, over-capitalization rejection, CIP capitalization concurrency safety, acceptance-without-commissioning staying depreciation-free, straight-line depreciation (zero residual, non-zero residual, idempotency), modernization increasing gross cost, impairment reducing NBV to the recoverable amount, transfer leaving cost/NBV unchanged, disposal (SALE with gain/loss + receivable, WRITE_OFF with a full loss and no further depreciation), physical inventory (wrong-location auto-correction, missing-asset staying unresolved), GL reconciliation reporting every account healthy after a full mixed flow |
+| `backend/test/hr-core.e2e-spec.ts` | 11 | Physical-person duplicate-personalId detection (blocked, then confirmed), hire lifecycle via the new-person path (draft ⇒ post), as-of-date employment state resolution before and after the hire date, employment contract create + amend with versioned history, manager hierarchy transfer + circular-hierarchy rejection, EmployeeAssignment history split at a transfer's effective date (state correct on both sides of the date), staffing-position capacity enforcement + override with permission, termination with correct Employee-status rollup, rehire reusing the same Employee row, multiple concurrent employments (secondary termination leaving primary + Employee active), org-chart/headcount/staffing-capacity/health reports |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -539,5 +564,16 @@ All run against a real PostgreSQL instance — no mocked database.
   no componentization or revaluation model; no partial disposal; no
   Purchase Invoice → Acquisition Candidate auto-wiring (Phase 9's posting
   handler is left untouched) — see docs/FIXED_ASSETS.md.
-- **Inventory Costing, Payroll, Banking, ...** — not started. Later
-  phases building on this foundation.
+- **HR Core / Employment Lifecycle Engine** — ✅ done, tested, documented.
+  Physical Person → Employee → Hire Document → Employment, with
+  effective-dated EmployeeAssignment/EmploymentStatusHistory as the
+  authoritative "what was true as of date X" source; rehire reuses the
+  same Employee row; multiple concurrent employments per employee;
+  manager-hierarchy cycle detection on transfer; staffing-position
+  headcount/FTE capacity enforcement with a permissioned override. No GL
+  posting (not a document-framework participant); no scheduled job for
+  future-dated hire/transfer projection refresh (call `syncStatus()`);
+  LeaveRecord/AbsenceRecord are foundation-only, no entitlement/accrual
+  engine; no approval sub-workflow — see docs/HR_CORE.md.
+- **Work Time, Payroll, Banking, ...** — not started. Later phases
+  building on this foundation.
