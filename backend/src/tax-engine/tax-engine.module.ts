@@ -10,11 +10,13 @@ import { TaxRuleResolverService } from './tax-rule-resolver.service';
 import { TaxCalculationService } from './tax-calculation.service';
 import { TaxRegisterService } from './tax-register.service';
 import { TaxRegistrationService } from './tax-registration.service';
+import { TaxRuleAdminService } from './tax-rule-admin.service';
 
 import { TaxConfigController } from './tax-config.controller';
 import { TaxCalculationController } from './tax-calculation.controller';
 import { TaxRegistrationsController } from './tax-registrations.controller';
 import { TaxRegisterController } from './tax-register.controller';
+import { TaxRuleAdminController } from './tax-rule-admin.controller';
 
 /**
  * Tax Engine (docx spec Phase 5). Depends on AccountingCoreModule for
@@ -24,7 +26,7 @@ import { TaxRegisterController } from './tax-register.controller';
  */
 @Module({
   imports: [PrismaModule, AuditModule, OrgStructureModule, AccountingCoreModule],
-  controllers: [TaxConfigController, TaxCalculationController, TaxRegistrationsController, TaxRegisterController],
+  controllers: [TaxConfigController, TaxCalculationController, TaxRegistrationsController, TaxRegisterController, TaxRuleAdminController],
   providers: [
     AzTaxLocalizationService,
     TaxRoundingService,
@@ -32,6 +34,7 @@ import { TaxRegisterController } from './tax-register.controller';
     TaxCalculationService,
     TaxRegisterService,
     TaxRegistrationService,
+    TaxRuleAdminService,
   ],
   exports: [AzTaxLocalizationService, TaxCalculationService, TaxRegisterService, TaxRegistrationService, TaxRuleResolverService],
 })

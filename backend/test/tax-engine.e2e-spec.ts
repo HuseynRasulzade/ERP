@@ -341,6 +341,103 @@ describe('Tax Engine (e2e)', () => {
     });
   });
 
+  describe('Custom TaxRule admin workflow (spec sections 6-9, 74, 97)', () => {
+    const RULE_CODE = `CUSTOM_RULE_${run}`;
+    const CATEGORY_CODE = `CUSTOM_CATEGORY_${run}`;
+    let customRateId: string;
+    let ruleId: string;
+
+    it('creates a DRAFT custom rule, walks it through review/approval/activation, and only then does the resolver pick it up', async () => {
+      const vatType = await prisma.taxType.findUniqueOrThrow({ where: { code: 'VAT' } });
+      const rate = await prisma.taxRate.create({
+        data: { taxTypeId: vatType.id, jurisdiction: 'AZ', code: `CUSTOM_RATE_${run}`, rate: '7.5000', rateType: 'SPECIAL', effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), status: 'ACTIVE', systemDefined: false },
+      });
+      customRateId = rate.id;
+
+      // Not yet active — falls back to STANDARD_VAT's own system rule
+      // (18%), never the not-yet-activated custom one.
+      const before = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/tax/calculate`))
+        .send({ operationType: 'SALE', taxCategoryCode: CATEGORY_CODE, taxpayerSide: 'SELLER', amount: '100', priceIncludesTax: false, taxPointDate: '2026-06-15' })
+        .expect(422); // no rule at all yet for this category
+
+      const created = await auth1(request(app.getHttpServer()).post('/tax/rules'))
+        .send({
+          taxTypeCode: 'VAT',
+          code: RULE_CODE,
+          name: 'Custom 7.5% rate',
+          ruleCategory: 'STANDARD',
+          treatment: 'SPECIAL_RATE',
+          effectiveFrom: '2026-01-01',
+          priority: 500,
+          rateId: customRateId,
+          conditionTaxCategoryCode: CATEGORY_CODE,
+        })
+        .expect(201);
+      expect(created.body.status).toBe('DRAFT');
+      ruleId = created.body.id;
+      expect(before.status).toBe(422);
+
+      // A DRAFT rule is invisible to the resolver.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/tax/calculate`))
+        .send({ operationType: 'SALE', taxCategoryCode: CATEGORY_CODE, taxpayerSide: 'SELLER', amount: '100', priceIncludesTax: false, taxPointDate: '2026-06-15' })
+        .expect(422);
+
+      // Cannot approve/activate out of order.
+      await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/approve`)).expect(400);
+      await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/activate`)).expect(400);
+
+      const reviewed = await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/submit-for-review`)).expect(201);
+      expect(reviewed.body.status).toBe('REVIEWED');
+
+      // Still editable while REVIEWED.
+      const edited = await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}`))
+        .send({ name: 'Custom 7.5% rate (revised)' })
+        .expect(201);
+      expect(edited.body.name).toBe('Custom 7.5% rate (revised)');
+
+      const approved = await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/approve`)).expect(201);
+      expect(approved.body.status).toBe('APPROVED');
+
+      const activated = await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/activate`)).expect(201);
+      expect(activated.body.status).toBe('ACTIVE');
+
+      // Now the resolver actually selects it.
+      const afterActivation = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/tax/calculate`))
+        .send({ operationType: 'SALE', taxCategoryCode: CATEGORY_CODE, taxpayerSide: 'SELLER', amount: '100', priceIncludesTax: false, taxPointDate: '2026-06-15' })
+        .expect(201);
+      expect(Number(afterActivation.body.rate)).toBeCloseTo(7.5, 2);
+
+      // No longer editable once ACTIVE — must repeal + create a new rule instead.
+      await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}`)).send({ name: 'nope' }).expect(400);
+    });
+
+    it('repeals the ACTIVE rule, and the resolver no longer selects it for a date on/after repeal', async () => {
+      const repealed = await auth1(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/repeal`))
+        .send({ effectiveTo: '2026-07-01', reason: 'Superseded by a new negotiated rate' })
+        .expect(201);
+      expect(repealed.body.status).toBe('REPEALED');
+
+      // REPEALED rows are excluded from resolution outright, even inside
+      // their historical window (matches the shared REPEALED-exclusion
+      // behavior proven earlier in this file) — since this was the ONLY
+      // rule for this made-up category, resolution now fails outright.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/tax/calculate`))
+        .send({ operationType: 'SALE', taxCategoryCode: CATEGORY_CODE, taxpayerSide: 'SELLER', amount: '100', priceIncludesTax: false, taxPointDate: '2026-06-15' })
+        .expect(422);
+    });
+
+    it('never lets tenant 2 see or edit tenant 1\'s custom tax rule', async () => {
+      const listTenant2 = await auth2(request(app.getHttpServer()).get('/tax/rules')).expect(200);
+      expect(listTenant2.body.find((r: any) => r.id === ruleId)).toBeUndefined();
+
+      await auth2(request(app.getHttpServer()).get(`/tax/rules/${ruleId}`)).expect(404);
+      await auth2(request(app.getHttpServer()).post(`/tax/rules/${ruleId}/repeal`)).send({ effectiveTo: '2026-01-01', reason: 'hostile takeover attempt' }).expect(404);
+
+      const listTenant1 = await auth1(request(app.getHttpServer()).get('/tax/rules')).expect(200);
+      expect(listTenant1.body.some((r: any) => r.id === ruleId)).toBe(true);
+    });
+  });
+
   describe('Atomic Tax Register + GL posting (spec sections 5, 67, 123-125)', () => {
     const sourceDocumentType = 'TEST_SALE';
     const sourceDocumentId = `test-sale-${run}`;

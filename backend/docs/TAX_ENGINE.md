@@ -212,12 +212,26 @@ side effect of calculation.
 
 ## R. Technical debt
 
-- **Tax rule admin CRUD** (create/edit/approve/activate a custom
-  `TaxRule`, manage `TaxRate`/`TaxCategory`/`TaxExemption`/
-  `TaxLegalSource`) has no endpoint — the versioning/ambiguity/repealed-
-  rule tests write rows directly via Prisma to prove the engine's
-  *resolution* logic is correct, but there's no admin surface yet to do
-  this through the API.
+- **Tax rule admin CRUD — partially closed.** `TaxRuleAdminController`
+  (`/tax/rules`, tenant-scoped) now covers the full custom-`TaxRule`
+  lifecycle the spec asks for (section 74: "legal source detected ->
+  proposed rule -> human/legal review -> activation"): create (DRAFT),
+  edit (only while DRAFT/REVIEWED — matches section 8's "never
+  destructively edited" once ACTIVE), submit-for-review, approve,
+  activate, and repeal (sets `effectiveTo`, never deletes). Deliberately
+  NOT built: create/manage endpoints for `TaxRate`/`TaxCategory`/
+  `TaxExemption`/`TaxLegalSource` — none of those four models has a
+  `tenantId` column in this schema (they are shared, system-wide reference
+  data seeded by `AzTaxLocalizationService`), so a tenant-facing "create a
+  new global rate" endpoint would be a real cross-tenant data-isolation
+  risk, not a small gap-fill. A custom `TaxRule` instead REFERENCES an
+  existing `TaxRate`/`TaxLegalSource` by id (or the seeding admin creates
+  one directly via Prisma, as the versioning e2e test already does) —
+  giving those four models real per-tenant scoping is a separate, larger
+  schema change than this pass's scope. The `GET /tax/rules` this
+  replaced (`TaxConfigController.rules()`) had NO `tenantId` filter at all
+  — a genuine cross-tenant read leak, never exercised by any test — and
+  has been removed in favor of the new, properly tenant-scoped endpoint.
 - **Tax override** (spec sections 76-77) — no endpoint, no `TaxOverride`
   audit trail; `tax.override` permission exists but is unused.
 - **Recoverability rules** — `TaxRecoverabilityRule` (effective-dated,

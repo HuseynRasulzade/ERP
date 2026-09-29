@@ -35,9 +35,10 @@ export class TaxConfigController {
     return this.prisma.taxCategory.findMany();
   }
 
-  @RequirePermissions(PermissionCodes.TAX_RULE_VIEW)
-  @Get('rules')
-  rules() {
-    return this.prisma.taxRule.findMany({ include: { rate: true, legalSource: true }, orderBy: [{ effectiveFrom: 'asc' }] });
-  }
+  // The unscoped `GET /tax/rules` that used to live here (returning EVERY
+  // tenant's TaxRule rows with no tenantId filter — a real cross-tenant
+  // isolation bug, never exercised by any test) has been replaced by
+  // `TaxRuleAdminController`'s tenant-scoped `GET /tax/rules` /
+  // `GET /tax/rules/:id`, part of this phase's custom-rule admin workflow
+  // — see docs/TAX_ENGINE.md.
 }

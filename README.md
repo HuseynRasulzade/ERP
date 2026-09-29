@@ -591,7 +591,7 @@ Policy, Tax Profile, Access).
 | `backend/test/phase3.e2e-spec.ts` | 15 | Unit conversions, counterparty CRUD/addresses/contacts, price lists/prices, price resolution, isolation |
 | `backend/test/phase4.e2e-spec.ts` | 17 | Price snapshotting, explicit-price override, customer-only guard, isolation/concurrency, post/unpost/cancel with movements, closed-period block, invoice flow with real GL/Tax Register posting + unpost/repost, order ⇒ invoice CreateBasedOn |
 | `backend/test/accounting-core.e2e-spec.ts` | 18 | Idempotent chart adoption, account hierarchy, non-postable reporting nodes, mapping resolution + override, balance/dimension validation, manual operation lifecycle incl. reversal, closed-period block, Trial Balance/GL/Account Card, tenant isolation |
-| `backend/test/tax-engine.e2e-spec.ts` | 18 | Idempotent VAT localization seed, exclusive/inclusive calculation, zero-rated/exempt/out-of-scope distinction, missing/ambiguous rule detection, legal rule versioning + repealed-rule exclusion, recoverability split, atomic Tax+GL posting, duplicate prevention, reversal, shared Period Guard, tax registrations, tenant isolation |
+| `backend/test/tax-engine.e2e-spec.ts` | 21 | Idempotent VAT localization seed, exclusive/inclusive calculation, zero-rated/exempt/out-of-scope distinction, missing/ambiguous rule detection, legal rule versioning + repealed-rule exclusion, recoverability split, a custom TaxRule's full DRAFT⇒REVIEWED⇒APPROVED⇒ACTIVE⇒REPEALED admin workflow (invisible to the resolver until activated, uneditable once ACTIVE, excluded from resolution once repealed) + tenant isolation on that workflow, atomic Tax+GL posting, duplicate prevention, reversal, shared Period Guard, tax registrations, tenant isolation |
 | `backend/test/sales-preorder.e2e-spec.ts` | 17 | Customer Request create/cancel, Commercial Offer price resolution/discount/Tax Preview, offer lifecycle + derived expiry, Request⇒Offer and Offer⇒SalesOrder conversion with price preservation, order confirmation with credit check + hold gating and an explicit no-GL/no-tax-register assertion, reservation create/oversubscription/release, fulfillment computation, shipment plan limits, payment schedule rounding, tenant isolation |
 | `backend/test/sales-execution.e2e-spec.ts` | 8 | Order⇒Shipment defaulting to remaining quantity, draft-vs-posted fulfillment counting, partial shipment + over-shipment rejection, insufficient-stock rejection, reservation consumption on post + restoration on unpost, Shipment⇒Invoice with balanced GL + SettlementObligation + invoiceable-quantity cap, physical Sales Return with prorated historical tax + contra GL + inventory receipt + excessive-return rejection + invoice-unpost-blocked-by-return, tenant isolation |
 | `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
@@ -625,7 +625,16 @@ All run against a real PostgreSQL instance — no mocked database.
   opening-balance endpoint, currency/quantity requiredness).
 - **Tax Engine** — ✅ done, tested, documented. VAT implemented deeply;
   other tax types (corporate income, withholding, ...) exist as concepts
-  only, per the spec's own scoping. No frontend UI yet.
+  only, per the spec's own scoping. A tenant can now create/edit/submit-
+  for-review/approve/activate/repeal its own custom `TaxRule` through
+  `/tax/rules` (previously flagged as missing — no admin surface existed
+  for the versioning/resolution logic the engine already had); this also
+  fixed a genuine cross-tenant read leak in the `GET /tax/rules` it
+  replaced, which had no `tenantId` filter at all. `TaxRate`/`TaxCategory`/
+  `TaxExemption`/`TaxLegalSource` remain shared, system-wide reference
+  data with no tenant-facing create endpoint (none of those four models
+  has a `tenantId` column in this schema — see docs/TAX_ENGINE.md). No
+  frontend UI yet.
 - **Sales ⇄ Accounting/Tax reconciliation** — ✅ done for Sales Invoice
   (real GL + Tax Register posting, atomically). Sales Order intentionally
   untouched (no revenue event at order stage). COGS/Inventory posting now
