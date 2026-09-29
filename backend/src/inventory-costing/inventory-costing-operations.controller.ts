@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { InventoryCostingReportingService } from './inventory-costing-reporting.service';
 import { InventoryCostRecalculationService } from './inventory-cost-recalculation.service';
+import { InventoryCostBackfillService } from './inventory-cost-backfill.service';
 import { CostingPeriodService } from './costing-period.service';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
@@ -9,6 +10,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PermissionCodes } from '../rbac/permission-codes';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
 import { ValidationAppError } from '../common/errors/app-error';
+import { InventoryCostBackfillDto } from './dto/inventory-cost-backfill.dto';
 
 /**
  * Costing calculations/reports API (spec section 114) — deliberately a
@@ -21,6 +23,7 @@ export class InventoryCostingOperationsController {
   constructor(
     private readonly reporting: InventoryCostingReportingService,
     private readonly recalculation: InventoryCostRecalculationService,
+    private readonly backfill: InventoryCostBackfillService,
     private readonly periods: CostingPeriodService,
     private readonly access: OrganizationAccessService,
   ) {}
@@ -84,6 +87,18 @@ export class InventoryCostingOperationsController {
   ) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     return this.recalculation.processPendingQueue(tenantId, organizationId, user.userId);
+  }
+
+  @RequirePermissions(PermissionCodes.INVENTORY_COST_RECALCULATE)
+  @Post('calculations/backfill')
+  async backfillCosts(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: InventoryCostBackfillDto,
+  ) {
+    return this.backfill.backfill(tenantId, membershipId, organizationId, user.userId, dto);
   }
 
   @RequirePermissions(PermissionCodes.INVENTORY_COST_VIEW)

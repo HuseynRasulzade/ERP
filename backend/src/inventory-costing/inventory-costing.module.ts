@@ -13,6 +13,7 @@ import { FifoCostingStrategy } from './fifo-costing.strategy';
 import { WeightedAverageCostingStrategy } from './weighted-average-costing.strategy';
 import { InventoryCostingService } from './inventory-costing.service';
 import { InventoryCostRecalculationService } from './inventory-cost-recalculation.service';
+import { InventoryCostBackfillService } from './inventory-cost-backfill.service';
 import { InventoryCostingReportingService } from './inventory-costing-reporting.service';
 import { InventoryCostingPolicyController } from './inventory-costing-policy.controller';
 import { InventoryCostingOperationsController } from './inventory-costing-operations.controller';
@@ -42,6 +43,7 @@ import { InventoryCostAdjustmentController } from './inventory-cost-adjustment.c
     WeightedAverageCostingStrategy,
     InventoryCostingService,
     InventoryCostRecalculationService,
+    InventoryCostBackfillService,
     InventoryCostingReportingService,
     InventoryCostAdjustmentRepository,
     InventoryCostAdjustmentPostingHandler,

@@ -294,12 +294,17 @@ movement queues a full recalculation of its costing key, replayed in
 correct chronological order, raising a DRAFT adjustment for every
 consumption whose cost changes rather than silently rewriting history.
 Costing Periods gate further cost-affecting postings once finalized.
-Disclosed gaps: Purchase Return-to-supplier is not wired into this module
-at all (no COGS reversal on a return to the supplier); a movement dated
-before an organization's first-ever costing policy is never retroactively
-costed even after a policy is later adopted (the health check now
-distinguishes this expected state from a genuine anomaly, but there is no
-automated backfill) — see docs/INVENTORY_COSTING.md.
+Purchase Return-to-supplier is now wired in too, targeting the exact
+source FIFO layer when traceable (directly or through the invoice's own
+receipt-line link) rather than blind FIFO order — the GL entry's own
+inventory-credit amount still uses the return's recorded price rather than
+the live cost, a smaller disclosed gap. A movement dated before an
+organization's first-ever costing policy adopts a backdated `effectiveFrom`
+can now be backfilled (replaying `receiveCost`/`consumeCost` in
+chronological order, subledger-only — it never posts a GL entry into an
+already-closed historical period), scoped to single-document receipts/
+consumptions; Warehouse Transfer and Adjustment SURPLUS are not
+backfillable — see docs/INVENTORY_COSTING.md.
 
 Full write-up: [`backend/docs/INVENTORY_COSTING.md`](backend/docs/INVENTORY_COSTING.md).
 
@@ -595,9 +600,9 @@ Policy, Tax Profile, Access).
 | `backend/test/sales-preorder.e2e-spec.ts` | 17 | Customer Request create/cancel, Commercial Offer price resolution/discount/Tax Preview, offer lifecycle + derived expiry, Request⇒Offer and Offer⇒SalesOrder conversion with price preservation, order confirmation with credit check + hold gating and an explicit no-GL/no-tax-register assertion, reservation create/oversubscription/release, fulfillment computation, shipment plan limits, payment schedule rounding, tenant isolation |
 | `backend/test/sales-execution.e2e-spec.ts` | 8 | Order⇒Shipment defaulting to remaining quantity, draft-vs-posted fulfillment counting, partial shipment + over-shipment rejection, insufficient-stock rejection, reservation consumption on post + restoration on unpost, Shipment⇒Invoice with balanced GL + SettlementObligation + invoiceable-quantity cap, physical Sales Return with prorated historical tax + contra GL + inventory receipt + excessive-return rejection + invoice-unpost-blocked-by-return, tenant isolation |
 | `backend/test/procurement.e2e-spec.ts` | 10 | Manual Purchase Requirement create/cancel, demand aggregation across requirement lines, supplier-candidate comparison with tax preview, customer-only-counterparty rejection, PO confirmation with zero GL/TaxMovement + Expected Supply computed from confirmed lines + line cancellation, purchase order hold blocking/allowing confirmation, requirement⇒PO multi-supplier partial allocation (OPEN→PARTIALLY_ORDERED→FULLY_ORDERED) with over-allocation rejection, payment schedule rounding, demand-supply pegging with over-peg rejection, tenant isolation |
-| `backend/test/purchase-execution.e2e-spec.ts` | 8 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, tenant isolation |
+| `backend/test/purchase-execution.e2e-spec.ts` | 14 | Partial Goods Receipt (twice) with live remaining recomputation + over-receipt rejection + balanced GRNI clearing GL + physical inventory movement, Receipt⇒Invoice clearing GRNI without double-debiting inventory + real input VAT + SupplierPayable, duplicate supplier invoice rejection, invoice-without-receipt direct inventory debit, Purchase Return with prorated tax + contra GL + excessive-return rejection, Purchase Return costing-engine integration (targets the exact source FIFO layer directly or via the invoice's own receipt-line link, never blind FIFO order, fully reversed on unpost), Additional Purchase Cost BY_VALUE allocation with balanced GL, three-way matching (MATCHED/QUANTITY_MISMATCH) with persisted history, Goods Receipt approval-gating on PO approval + over-delivery approval, price/tax visibility gating, invoice price-variance approval, tenant isolation |
 | `backend/test/warehouse-inventory.e2e-spec.ts` | 7 | Instant warehouse transfer (source decrease + destination increase in one post), negative-stock-blocked transfer, two-step transfer (ship ⇒ IN_TRANSIT, partial receive, over-receive rejection, unpost blocked after any receive), internal consumption physical decrease, inventory adjustment write-off/surplus, inventory status transfer (quantity unchanged, only status moves), tenant isolation |
-| `backend/test/inventory-costing.e2e-spec.ts` | 11 | The no-policy no-op and its health-check signal, a FIFO policy opening layers on receipt and consuming strictly oldest-first across two differently-priced layers with exact math (re-verified at real COGS-GL-posting time via a Sales Invoice reading back the exact per-line cost), FIFO layer reopening on unpost, a MOVING_AVERAGE policy receiving/consuming at the exact running average with no per-receipt layers, Internal Consumption and Inventory Adjustment (WRITE_OFF/SURPLUS) balanced GL posting at the real cost, a manual cost adjustment's on-hand/COGS split by remaining-vs-consumed layer quantity with a balanced GL entry, backdated-movement recalculation queueing and correct-order layer rebuilding, costing-period finalize blocking a cost-affecting posting and reopen un-blocking it, the negative-stock policy never blocking the physical posting, and the COGS/health report endpoints |
+| `backend/test/inventory-costing.e2e-spec.ts` | 12 | The no-policy no-op and its health-check signal, a FIFO policy opening layers on receipt and consuming strictly oldest-first across two differently-priced layers with exact math (re-verified at real COGS-GL-posting time via a Sales Invoice reading back the exact per-line cost), FIFO layer reopening on unpost, a MOVING_AVERAGE policy receiving/consuming at the exact running average with no per-receipt layers, Internal Consumption and Inventory Adjustment (WRITE_OFF/SURPLUS) balanced GL posting at the real cost, a manual cost adjustment's on-hand/COGS split by remaining-vs-consumed layer quantity with a balanced GL entry, backdated-movement recalculation queueing and correct-order layer rebuilding, costing-period finalize blocking a cost-affecting posting and reopen un-blocking it, the negative-stock policy never blocking the physical posting, backfilling a pre-policy receipt+shipment once the policy's effectiveFrom is backdated (health check drops to zero, re-running with nothing left is refused, no GL entry is posted), and the COGS/health report endpoints |
 | `backend/test/inventory-count.e2e-spec.ts` | 13 | Zero-variance count with no adjustment, shortage/surplus full lifecycle (variance ⇒ decide ⇒ approve ⇒ post ⇒ reconcile), blind count, post-snapshot movement reconciliation under NO_FREEZE, location and batch mismatch surfaced even at a net-zero product total, serial mismatch at matching quantity, recount (original preserved, final approved count wins), HARD_FREEZE blocking an unrelated posting, uncounted vs. explicit zero, idempotent adjustment posting, stale-reconciliation block under a concurrent movement, tenant isolation |
 | `backend/test/settlement.e2e-spec.ts` | 17 | Basic receivable + full payment, partial payment, multiple payments accumulating to zero, one payment auto-allocated FIFO across multiple invoices, customer/supplier advances incl. partial application, overpayment becoming a customer advance, sales return after full payment producing a credit position, AR/AP offset, write-off with segregation of duties (self-approval rejected), due-date ageing on the remaining balance only, realized FX on full and partial foreign-currency payments, concurrent over-allocation safety, invoice-unpost blocked by an active allocation, counterparty reconciliation statement, tenant isolation |
 | `backend/test/treasury.e2e-spec.ts` | 5 | Purchase Invoice ⇒ Payment Request ⇒ Payment Order requiring FINANCE approval, segregation of duties (approver ≠ executor), counterparty-bank-account-change re-check at posting, reconciliation against a bank statement amount, accounting-entries viewer |
@@ -681,15 +686,18 @@ All run against a real PostgreSQL instance — no mocked database.
 - **Inventory Costing Engine** — ✅ done, tested, documented (the module
   itself predates this entry; tests/docs/a latent GL-dimension bug fix
   were what was missing). FIFO/Weighted-Average, wired into Goods
-  Receipt/Shipment/Sales Invoice (real COGS)/Sales Return/Internal
+  Receipt/Shipment/Sales Invoice (real COGS)/Sales Return/Purchase Return
+  (targets the exact source FIFO layer when traceable)/Internal
   Consumption/Inventory Adjustment/Warehouse Transfer; manual cost
   adjustments split on-hand-vs-COGS by remaining layer quantity; backdated
   recalculation with correct-order layer rebuilding; costing periods.
-  Purchase Return-to-supplier is NOT wired in (no COGS reversal there); a
-  movement dated before an org's first-ever costing policy is never
-  retroactively costed (the health check now distinguishes this from a
-  genuine anomaly, but there is no automated backfill) — see
-  docs/INVENTORY_COSTING.md.
+  Purchase Return's own GL inventory-credit amount still uses its recorded
+  price rather than the live cost (a smaller disclosed gap); a pre-policy
+  movement can now be backfilled once the policy's `effectiveFrom` is
+  backdated to cover it (subledger-only, never a GL entry into an
+  already-closed period), scoped to single-document receipts/
+  consumptions — Warehouse Transfer/Adjustment SURPLUS are not
+  backfillable — see docs/INVENTORY_COSTING.md.
 - **Inventory Count / Reconciliation Engine** — ✅ done, tested,
   documented. Variance never collapses to a per-product net; reuses
   Phase 10's existing `InventoryAdjustment`/`WarehouseTransfer`/

@@ -467,6 +467,99 @@ describe('Inventory Costing Engine (e2e)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // Backfill for pre-policy uncosted movements
+  // ---------------------------------------------------------------------
+
+  it('backfills a receipt+shipment that predate when the policy was actually adopted, once effectiveFrom is backdated to cover them', async () => {
+    // A fresh organization that adopts costing LATE, with effectiveFrom
+    // backdated — the exact real-world story this gap describes: goods
+    // moved for months before anyone configured a policy at all.
+    const org2 = await auth1(request(app.getHttpServer()).post('/organizations'))
+      .send({ code: `ICOST2-${run}`, name: 'Late Costing Adopter Org' })
+      .expect(201);
+    const org2Id = org2.body.id;
+
+    const wh2 = await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/warehouses`))
+      .send({ code: `WH-IC2-${run}`, name: 'Late Adopter Warehouse' })
+      .expect(201);
+    const warehouse2Id = wh2.body.id;
+
+    const productId = (
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/products`))
+        .send({ code: `BACKFILL-${run}`, name: 'Backfill Widget', productType: 'GOODS', baseUnitId: unitId })
+        .expect(201)
+    ).body.id;
+    const supplier2Id = (
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/counterparties`))
+        .send({ counterpartyType: 'SUPPLIER', code: `SUP-IC2-${run}`, name: 'Late Adopter Supply Co' })
+        .expect(201)
+    ).body.id;
+    const customer2Id = (
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/counterparties`))
+        .send({ counterpartyType: 'CUSTOMER', code: `CUST-IC2-${run}`, name: 'Late Adopter Customer Co' })
+        .expect(201)
+    ).body.id;
+
+    // Receive 40 @ 9 on 2026-05-01, ship 15 on 2026-05-10 — BEFORE any
+    // costing policy exists for org2 at all, so both movements post with
+    // costingStatus null and no cost-register consequence whatsoever.
+    const receipt = await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/goods-receipts`))
+      .send({ counterpartyId: supplier2Id, warehouseId: warehouse2Id, documentDate: '2026-05-01', lines: [{ productId, unitId, quantity: 40, price: 9 }] })
+      .expect(201);
+    const postedReceipt = await postDocument(GOODS_RECEIPT_TYPE, receipt.body.id, receipt.body.version);
+    expect(postedReceipt.body.postingStatus).toBe('POSTED');
+
+    const shipment = await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/shipments`))
+      .send({ documentDate: '2026-05-10', counterpartyId: customer2Id, warehouseId: warehouse2Id, lines: [{ productId, unitId, quantity: '15' }] })
+      .expect(201);
+    const postedShipment = await postDocument(SHIPMENT_TYPE, shipment.body.id, shipment.body.version);
+    expect(postedShipment.body.postingStatus).toBe('POSTED');
+
+    const beforePolicy = await prisma.inventoryMovement.findMany({ where: { tenantId: tenant1Id, organizationId: org2Id, productId } });
+    expect(beforePolicy.every((m) => m.costingStatus === null)).toBe(true);
+
+    // Only NOW does the org adopt costing — backdated to before either
+    // movement above, exactly matching the real gap this closes.
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/inventory-costing/policy`))
+      .send({ effectiveFrom: '2026-04-01', costingMethod: 'FIFO', costByWarehouse: true })
+      .expect(201);
+
+    const health1 = await auth1(request(app.getHttpServer()).get(`/organizations/${org2Id}/inventory-costing/health`)).expect(200);
+    expect(health1.body.uncostedMovementsWithActivePolicy).toBeGreaterThanOrEqual(2); // now a genuine anomaly, not the expected pre-policy state
+
+    const backfilled = await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/inventory-costing/calculations/backfill`))
+      .send({ productId, warehouseId: warehouse2Id })
+      .expect(201);
+    expect(backfilled.body.received).toBe(1);
+    expect(backfilled.body.consumed).toBe(1);
+    expect(backfilled.body.skippedUnsupported).toHaveLength(0);
+
+    const layer = await prisma.inventoryCostLayer.findFirst({ where: { tenantId: tenant1Id, productId } });
+    expect(layer).not.toBeNull();
+    expect(layer!.originalUnitCost.toString()).toBe('9');
+    expect(Number(layer!.remainingQuantity)).toBeCloseTo(25, 6); // 40 - 15
+
+    const consumption = await prisma.inventoryCostConsumption.findFirst({ where: { tenantId: tenant1Id, outgoingDocumentType: SHIPMENT_TYPE, outgoingDocumentId: shipment.body.id } });
+    expect(consumption).not.toBeNull();
+    expect(Number(consumption!.consumedCost)).toBeCloseTo(135, 2); // 15 * 9
+
+    const afterPolicy = await prisma.inventoryMovement.findMany({ where: { tenantId: tenant1Id, organizationId: org2Id, productId } });
+    expect(afterPolicy.every((m) => m.costingStatus === 'FINAL')).toBe(true);
+
+    const health2 = await auth1(request(app.getHttpServer()).get(`/organizations/${org2Id}/inventory-costing/health`)).expect(200);
+    expect(health2.body.uncostedMovementsWithActivePolicy).toBe(0);
+
+    // Never posts a GL entry — subledger-only, disclosed boundary.
+    const journal = await prisma.journalEntry.findFirst({ where: { tenantId: tenant1Id, sourceDocumentType: 'InventoryMovement' } });
+    expect(journal).toBeNull();
+
+    // Re-running with nothing left to backfill is refused, not a silent no-op.
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org2Id}/inventory-costing/calculations/backfill`))
+      .send({ productId, warehouseId: warehouse2Id })
+      .expect(400);
+  });
+
+  // ---------------------------------------------------------------------
   // Reporting
   // ---------------------------------------------------------------------
 

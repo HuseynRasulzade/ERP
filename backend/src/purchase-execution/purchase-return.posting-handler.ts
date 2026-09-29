@@ -17,6 +17,7 @@ import { TaxLineResult } from '../tax-engine/tax-calculation-result';
 import { BatchSerialService } from '../warehouse-inventory/batch-serial.service';
 import { SettlementMovementService } from '../settlement/settlement-movement.service';
 import { CurrencyService } from '../currency/currency.service';
+import { InventoryCostingService } from '../inventory-costing/inventory-costing.service';
 
 const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
 
@@ -39,7 +40,20 @@ const DEFAULT_TAX_CATEGORY = 'STANDARD_VAT';
  *     Dr Goods Received Not Invoiced (538)  returnNet
  *     Cr Inventory (205)                    returnNet
  * A physical inventory ISSUE movement is always written when a warehouse
- * is known (spec section 16: "DECREASE stock").
+ * is known (spec section 16: "DECREASE stock"), alongside a matching
+ * `InventoryCostingService.consumeCost` call so the cost subledger
+ * (FIFO layer / weighted-average pool) correctly reflects the return —
+ * this was previously the one document type in the platform that moved
+ * physical stock with no cost-register consequence at all (see
+ * docs/INVENTORY_COSTING.md). When the return traces back to a specific
+ * Goods Receipt line (directly via `sourceReceiptLineId`, or indirectly
+ * through `sourceInvoiceLineId -> PurchaseInvoiceLine.goodsReceiptLineId`),
+ * it targets that EXACT FIFO layer (spec section 28: never blind FIFO
+ * order for a return-to-supplier) rather than consuming whatever layer
+ * happens to be oldest. The GL entry's own inventory-credit amount still
+ * uses the return line's own recorded price, not the live costing-engine
+ * cost — see docs/INVENTORY_COSTING.md for why that's a disclosed,
+ * separate gap from the subledger fix here.
  */
 @Injectable()
 export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
@@ -55,6 +69,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     private readonly batchSerial: BatchSerialService,
     private readonly settlementMovements: SettlementMovementService,
     private readonly currencyService: CurrencyService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   async validateForPosting(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
@@ -210,25 +225,38 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     }
 
     // Physical stock decrease (spec section 16) whenever a warehouse is
-    // known — always for a physical return (goods actually leave).
+    // known — always for a physical return (goods actually leave) — with
+    // a matching cost-subledger consumption (spec section 28: target the
+    // exact source layer when traceable, never blind FIFO order).
     if (ret.warehouseId) {
       for (const line of ret.lines) {
         const capturedSerials = await this.batchSerial.getCapturedSerials(tenantId, PURCHASE_RETURN_TYPE, line.id, tx);
+        const preferSourceLayerId = await this.resolveSourceLayerId(tenantId, line, tx);
 
         if (capturedSerials.length > 0) {
           const warehouse = await tx.warehouse.findFirst({ where: { id: ret.warehouseId, tenantId } });
           const serialIds = await this.batchSerial.issueSerials(tenantId, organizationId, line.productId, ret.warehouseId, warehouse?.code ?? ret.warehouseId, PURCHASE_RETURN_TYPE, line.id, tx);
           for (const serialId of serialIds) {
-            await this.inventory.recordMovement(
+            const movement = await this.inventory.recordMovement(
               tenantId,
               { productId: line.productId, warehouseId: ret.warehouseId, quantity: '1', movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId, serialId },
               tx,
             );
+            await this.costing.consumeCost(
+              tenantId,
+              { organizationId, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, quantity: '1', effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, movementType: 'ISSUE', preferSourceLayerId },
+              tx,
+            );
           }
         } else {
-          await this.inventory.recordMovement(
+          const movement = await this.inventory.recordMovement(
             tenantId,
             { productId: line.productId, warehouseId: ret.warehouseId, quantity: line.quantity.toString(), movementType: 'ISSUE', businessDate, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceLineId: line.id, batchId: line.batchId },
+            tx,
+          );
+          await this.costing.consumeCost(
+            tenantId,
+            { organizationId, productId: line.productId, warehouseId: ret.warehouseId, batchId: line.batchId, quantity: line.quantity.toString(), effectiveDate: businessDate, sourceInventoryMovementId: movement.id, sourceDocumentType: PURCHASE_RETURN_TYPE, sourceDocumentId: ret.id, sourceDocumentLineId: line.id, movementType: 'ISSUE', preferSourceLayerId },
             tx,
           );
         }
@@ -257,6 +285,7 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
   }
 
   async undoSideEffects(tenantId: string, document: BaseDocumentFields, tx: PrismaTransactionClient): Promise<void> {
+    await this.costing.reverseConsumption(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     await this.inventory.deleteMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
     const ret = await tx.purchaseReturn.findFirst({ where: { id: document.id, tenantId } });
     if (ret?.warehouseId) {
@@ -265,6 +294,28 @@ export class PurchaseReturnPostingHandler implements DocumentPostingHandler {
     }
     await tx.documentLineLink.deleteMany({ where: { tenantId, targetDocumentType: PURCHASE_RETURN_TYPE, targetDocumentId: document.id } });
     await this.settlementMovements.reverseMovementsFor(tenantId, PURCHASE_RETURN_TYPE, document.id, tx);
+  }
+
+  /** Resolves the exact FIFO layer this return line's goods originally
+   * came from, when traceable — directly via `sourceReceiptLineId`, or
+   * indirectly through `sourceInvoiceLineId ->
+   * PurchaseInvoiceLine.goodsReceiptLineId` (Model A: Receipt -> Invoice).
+   * Returns `undefined` (never a fabricated guess) when neither path
+   * resolves, letting `consumeCost` fall back to blind FIFO/weighted-
+   * average order. */
+  private async resolveSourceLayerId(
+    tenantId: string,
+    line: { sourceReceiptLineId: string | null; sourceInvoiceLineId: string | null },
+    tx: PrismaTransactionClient,
+  ): Promise<string | undefined> {
+    let receiptLineId = line.sourceReceiptLineId;
+    if (!receiptLineId && line.sourceInvoiceLineId) {
+      const invoiceLine = await tx.purchaseInvoiceLine.findFirst({ where: { id: line.sourceInvoiceLineId, tenantId } });
+      receiptLineId = invoiceLine?.goodsReceiptLineId ?? null;
+    }
+    if (!receiptLineId) return undefined;
+    const layer = await this.costing.findLayerByReceiptLine(tenantId, receiptLineId, tx);
+    return layer?.id;
   }
 
   private async convertToBase(tenantId: string, currencyId: string, baseCurrencyId: string, amount: Decimal, businessDate: Date, tx: PrismaTransactionClient): Promise<Decimal> {

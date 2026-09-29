@@ -2,10 +2,10 @@
 
 The module (`src/inventory-costing/`) already existed in this codebase — this
 write-up, and `test/inventory-costing.e2e-spec.ts`, are what was missing. It
-is fully wired into every other module that moves stock: Goods Receipt,
-Shipment, Sales Invoice (COGS), Sales Return, Purchase Return*, Internal
-Consumption, Inventory Adjustment (write-off/surplus), and Warehouse
-Transfer. (*See Disclosed gaps — Purchase Return is the one exception.)
+is fully wired into every module that moves stock: Goods Receipt, Shipment,
+Sales Invoice (COGS), Sales Return, Purchase Return (wired in during this
+pass — see below), Internal Consumption, Inventory Adjustment (write-off/
+surplus), and Warehouse Transfer.
 
 ## Architecture: a thin facade over two pluggable strategies
 
@@ -136,6 +136,46 @@ what was originally recorded gets a DRAFT `InventoryCostAdjustment` line
 (`reason: SYSTEM_RECALCULATION`) — a human decides whether/how to post the
 correction; nothing is silently rewritten.
 
+## Backfill for movements that predate any costing policy
+
+`InventoryCostBackfillService` (`POST .../inventory-costing/calculations/backfill`)
+closes the "no automated backfill" half of the no-policy-no-op gap above:
+it replays raw `InventoryMovement` rows — not `InventoryCostMovement` rows,
+which is why `InventoryCostRecalculationService` cannot help here — in
+chronological order for a given product/warehouse/batch, calling the exact
+same `receiveCost`/`consumeCost` entry points every live posting handler
+uses. A `GOODS_RECEIPT`-sourced receipt backfills at `GoodsReceiptLine.price`
+(the same input every live receipt uses); a `Shipment`/`Internal
+Consumption`/`Write-off`/`Purchase Return` consumption draws from whatever
+layers exist so far in the SAME replay. Already-costed movements in the
+same chronological range are simply skipped (additive, never a destructive
+rebuild) — their layer/consumption already stands from when they
+originally posted.
+
+Deliberately scoped to what has a well-defined, single-document cost.
+Explicitly NOT handled, reported back as `skippedUnsupported` rather than
+silently skipped: Warehouse Transfer (`TRANSFER_OUT`/`TRANSFER_IN` — the
+destination's cost must equal the source's own outgoing cost from the SAME
+coordinated operation, which an independent movement-by-movement replay
+cannot reconstruct), Inventory Status Transfer (no value consequence to
+begin with), and Adjustment SURPLUS/opening balance (no natural per-unit
+price on the raw movement — fabricating one would violate this module's
+own "never a guessed cost" rule).
+
+**Never posts a GL entry.** The physical documents this replays are
+already posted, in already-closed accounting periods in the common case;
+retroactively injecting a GL consequence into old periods is a separate,
+harder problem this pass does not attempt. This is subledger-only — it
+makes `InventoryCostLayer`/valuation reports and FUTURE cost calculations
+(consuming from a now-backfilled layer) correct, without touching the
+General Ledger. Verified end-to-end in
+`test/inventory-costing.e2e-spec.ts`: a receipt and shipment posted months
+before a costing policy existed get backfilled correctly once the policy
+is adopted with a backdated `effectiveFrom`, the health check's
+`uncostedMovementsWithActivePolicy` count drops to zero, and re-running
+the backfill with nothing left to process is refused rather than a silent
+no-op.
+
 ## Costing Periods
 
 `CostingPeriodService` is a costing-specific period gate alongside Phase
@@ -208,19 +248,51 @@ needs its pre-policy history costed retroactively has no automated path
 today; the practical workaround is a manual `InventoryCostAdjustment` per
 affected receipt.
 
+## Purchase Return — now wired in
+
+`PurchaseReturnPostingHandler` now calls `InventoryCostingService.consumeCost`
+for every return line, at the same point it writes the physical ISSUE
+movement — the cost subledger (FIFO layer consumption / weighted-average
+pool decrease) correctly reflects a purchase return exactly like every
+other outgoing document type does, and `undoSideEffects` reverses it via
+`reverseConsumption` on unpost. `resolveSourceLayerId` targets the EXACT
+FIFO layer the return traces back to (spec section 28: "consume the ONE
+layer the return traces back to, never blind FIFO order") — directly via
+`sourceReceiptLineId` when the return references a Goods Receipt line
+directly, or indirectly through `sourceInvoiceLineId ->
+PurchaseInvoiceLine.goodsReceiptLineId` (the Model A Receipt -> Invoice
+chain) when it only references an invoice line. When neither resolves
+(the return line has no traceable source at all), `consumeCost` falls back
+to blind FIFO/weighted-average order rather than skipping the cost
+subledger entirely — verified in `test/purchase-execution.e2e-spec.ts`'s
+own "Purchase Return wired into the Inventory Costing Engine" tests (a
+five-unit return targets a specific newer layer while an older, cheaper
+layer for the same product stays completely untouched, and is fully
+restored on unpost).
+
+**Deliberately NOT changed**: the GL entry's own inventory-credit amount
+still uses the return line's own recorded `originalUnitPrice`, not the
+live FIFO/weighted-average cost the engine just computed. In the normal
+case these agree exactly (a return is priced at what was originally
+paid), but they CAN diverge if additional purchase costs were capitalized
+onto the source layer after the fact (`InventoryCostingService.applyCostDelta`,
+via `AdditionalPurchaseCost`) — the layer's `currentUnitCost` would then be
+higher than the return line's stale `originalUnitPrice`. Reconciling the
+GL amount itself to the live costing engine would require restructuring
+the existing AP/VAT-reduction math (which is anchored to the ORIGINAL
+invoice price, not the current cost) and likely a purchase-price-variance
+account to absorb the difference — a bigger, riskier change than this
+pass's scope, so it stays a disclosed gap rather than something silently
+half-fixed.
+
 ## Disclosed gaps
 
-- **Purchase Return-to-supplier is not wired into this module at all** —
-  `PurchaseReturnPostingHandler` has no `InventoryCostingService`
-  dependency, even though `FifoCostingStrategy.consume`'s
-  `preferSourceLayerId` parameter exists specifically for this case (spec
-  section 28: "consume the ONE layer the return traces back to, never
-  blind FIFO order"). A purchase return today decreases physical stock
-  with no cost-register consequence and no COGS reversal. Sales Return, by
-  contrast, IS wired (`restoreCostFromOriginalConsumption`). This is the
-  clearest remaining integration gap and the natural next step for this
-  module.
-- **The pre-policy uncosted-movement gap** above has no automated backfill.
+- **The GL-amount-basis gap** on Purchase Return above.
+- **The backfill's own scope**: Warehouse Transfer, Inventory Status
+  Transfer, and Adjustment SURPLUS/opening balance are not backfillable
+  (see "Backfill for movements that predate any costing policy" above),
+  and backfilling never posts a GL entry into the (likely already closed)
+  historical period.
 - **AllocationDriverValue rounding**, cross-batch costing, and
   `costByCharacteristic` (a third dimension flag exists on the policy but
   no caller resolves a characteristic value) are unimplemented — same

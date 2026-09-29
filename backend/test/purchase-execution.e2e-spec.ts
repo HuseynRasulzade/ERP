@@ -389,6 +389,111 @@ describe('Purchase Execution (e2e)', () => {
     });
   });
 
+  describe('Purchase Return wired into the Inventory Costing Engine (spec section 28)', () => {
+    it('consumes the exact source FIFO layer on a receipt-only return — never blind oldest-first order — and reopens it on unpost', async () => {
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-costing/policy`))
+        .send({ effectiveFrom: '2026-01-01', costingMethod: 'FIFO', costByWarehouse: true })
+        .expect(201);
+
+      const returnProductId = (
+        await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+          .send({ code: `P9-RETCOST-${run}`, name: 'Return Costing Widget', productType: 'GOODS', baseUnitId: unitId })
+          .expect(201)
+      ).body.id;
+
+      // Two receipts at different prices — layer1 (older, 12/unit) must
+      // stay untouched; the return must target layer2 (newer, 15/unit)
+      // specifically, never fall through to blind FIFO order.
+      const order1 = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: returnProductId, unitId, quantity: 20, price: 12 }] })
+        .expect(201);
+      await fullyApprovePurchaseOrder(order1.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${order1.body.id}/confirm`)).send({ expectedVersion: order1.body.version }).expect(201);
+      const gr1 = await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_ORDER_TYPE}/${order1.body.id}/create-based-on/${GOODS_RECEIPT_TYPE}`)).expect(201);
+      const gr1Fresh = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${gr1.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr1Fresh.body.id}/post`)).send({ expectedVersion: gr1Fresh.body.version }).expect(201);
+
+      const order2 = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: returnProductId, unitId, quantity: 20, price: 15 }] })
+        .expect(201);
+      await fullyApprovePurchaseOrder(order2.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${order2.body.id}/confirm`)).send({ expectedVersion: order2.body.version }).expect(201);
+      const gr2 = await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_ORDER_TYPE}/${order2.body.id}/create-based-on/${GOODS_RECEIPT_TYPE}`)).expect(201);
+      const gr2Fresh = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${gr2.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${gr2Fresh.body.id}/post`)).send({ expectedVersion: gr2Fresh.body.version }).expect(201);
+      const gr2LineId = gr2Fresh.body.lines[0].id;
+
+      const ret = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-returns`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, returnReason: 'DAMAGED', lines: [{ sourceReceiptLineId: gr2LineId, productId: returnProductId, unitId, quantity: 5, originalUnitPrice: 15 }] })
+        .expect(201);
+      const retPosted = await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_RETURN/${ret.body.id}/post`))
+        .send({ expectedVersion: ret.body.version })
+        .expect(201);
+      expect(retPosted.body.postingStatus).toBe('POSTED');
+
+      const layers = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/inventory-costing/layers?productId=${returnProductId}`),
+      ).expect(200);
+      const layer1 = layers.body.find((l: any) => l.originalUnitCost === '12');
+      const layer2 = layers.body.find((l: any) => l.originalUnitCost === '15');
+      expect(Number(layer1.remainingQuantity)).toBeCloseTo(20, 6); // untouched — the return never fell through to it
+      expect(Number(layer2.remainingQuantity)).toBeCloseTo(15, 6); // 20 - 5 returned
+
+      const consumption = await prisma.inventoryCostConsumption.findFirst({ where: { tenantId: tenant1Id, outgoingDocumentType: 'PURCHASE_RETURN', outgoingDocumentId: ret.body.id } });
+      expect(consumption).not.toBeNull();
+      expect(Number(consumption!.unitCost)).toBeCloseTo(15, 2);
+      expect(Number(consumption!.consumedCost)).toBeCloseTo(75, 2); // 5 * 15
+
+      await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_RETURN/${ret.body.id}/unpost`))
+        .send({ expectedVersion: retPosted.body.version })
+        .expect(201);
+
+      const layersAfterUnpost = await auth1(
+        request(app.getHttpServer()).get(`/organizations/${org1Id}/inventory-costing/layers?productId=${returnProductId}`),
+      ).expect(200);
+      const layer2AfterUnpost = layersAfterUnpost.body.find((l: any) => l.originalUnitCost === '15');
+      expect(Number(layer2AfterUnpost.remainingQuantity)).toBeCloseTo(20, 6); // fully restored
+    });
+
+    it('traces a return through sourceInvoiceLineId -> PurchaseInvoiceLine.goodsReceiptLineId to the same receipt layer', async () => {
+      const returnProductId = (
+        await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+          .send({ code: `P9-RETCOST2-${run}`, name: 'Return Costing Widget 2', productType: 'GOODS', baseUnitId: unitId })
+          .expect(201)
+      ).body.id;
+
+      const order = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: returnProductId, unitId, quantity: 10, price: 8 }] })
+        .expect(201);
+      await fullyApprovePurchaseOrder(order.body.id);
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders/${order.body.id}/confirm`)).send({ expectedVersion: order.body.version }).expect(201);
+      const gr = await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_ORDER_TYPE}/${order.body.id}/create-based-on/${GOODS_RECEIPT_TYPE}`)).expect(201);
+      const grFresh = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/goods-receipts/${gr.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${grFresh.body.id}/post`)).send({ expectedVersion: grFresh.body.version }).expect(201);
+
+      const invCreated = await auth1(request(app.getHttpServer()).post(`/documents/${GOODS_RECEIPT_TYPE}/${grFresh.body.id}/create-based-on/${PURCHASE_INVOICE_TYPE}`)).expect(201);
+      const invFresh = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-invoices/${invCreated.body.id}`)).expect(200);
+      await auth1(request(app.getHttpServer()).post(`/documents/${PURCHASE_INVOICE_TYPE}/${invFresh.body.id}/post`)).send({ expectedVersion: invFresh.body.version }).expect(201);
+      const invoiceLineId = invFresh.body.lines[0].id;
+
+      const ret = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-returns`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, originalPurchaseInvoiceId: invFresh.body.id, warehouseId, returnReason: 'DAMAGED', lines: [{ sourceInvoiceLineId: invoiceLineId, productId: returnProductId, unitId, quantity: 2, originalUnitPrice: 8 }] })
+        .expect(201);
+      const retPosted = await auth1(request(app.getHttpServer()).post(`/documents/PURCHASE_RETURN/${ret.body.id}/post`))
+        .send({ expectedVersion: ret.body.version })
+        .expect(201);
+      expect(retPosted.body.postingStatus).toBe('POSTED');
+
+      // Traced indirectly through the invoice line's own goodsReceiptLineId
+      // back to the ONE receipt layer that exists — still costed for real,
+      // not silently skipped for lack of a direct sourceReceiptLineId.
+      const consumption = await prisma.inventoryCostConsumption.findFirst({ where: { tenantId: tenant1Id, outgoingDocumentType: 'PURCHASE_RETURN', outgoingDocumentId: ret.body.id } });
+      expect(consumption).not.toBeNull();
+      expect(Number(consumption!.unitCost)).toBeCloseTo(8, 2);
+      expect(Number(consumption!.consumedCost)).toBeCloseTo(16, 2); // 2 * 8
+    });
+  });
+
   describe('Additional Purchase Cost (spec sections 12-13, 54) — BY_VALUE allocation', () => {
     it('allocates transport cost proportionally by received value and posts a balanced GL entry', async () => {
       const orderA = await createConfirmedSupplierOrder(10, 100); // value 1000
