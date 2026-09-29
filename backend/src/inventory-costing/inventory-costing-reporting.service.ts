@@ -106,7 +106,9 @@ export class InventoryCostingReportingService {
   /**
    * Costing Health report (spec section 82) — the minimum checks: negative
    * quantity, unresolved errors, pending recalculation, provisional
-   * movements, quantity/cost-layer reconciliation.
+   * movements, quantity/cost-layer reconciliation, and (see
+   * `uncostedInventoryMovements` below) movements the costing engine never
+   * processed at all.
    */
   async health(tenantId: string, organizationId: string) {
     const [negativeLayers, pendingRecalc, unresolvedErrors, provisionalMovements] = await Promise.all([
@@ -117,6 +119,7 @@ export class InventoryCostingReportingService {
     ]);
 
     const zeroQuantityWithValue = await this.zeroQuantityWithValueCostingKeys(tenantId, organizationId);
+    const uncosted = await this.uncostedInventoryMovements(tenantId, organizationId);
 
     return {
       negativeRemainingLayers: negativeLayers,
@@ -124,8 +127,50 @@ export class InventoryCostingReportingService {
       provisionalCostMovements: provisionalMovements,
       unresolvedErrors: unresolvedErrors.map((e) => ({ id: e.id, errorCode: e.errorCode, description: e.description, severity: e.severity, blocking: e.blocking, sourceDocumentType: e.sourceDocumentType, sourceDocumentId: e.sourceDocumentId })),
       zeroQuantityWithValueCostingKeys: zeroQuantityWithValue,
-      healthy: negativeLayers === 0 && pendingRecalc === 0 && unresolvedErrors.filter((e) => e.blocking).length === 0 && zeroQuantityWithValue.length === 0,
+      uncostedMovementsBeforeAnyPolicy: uncosted.beforeAnyPolicy,
+      uncostedMovementsWithActivePolicy: uncosted.withActivePolicy,
+      healthy:
+        negativeLayers === 0 &&
+        pendingRecalc === 0 &&
+        unresolvedErrors.filter((e) => e.blocking).length === 0 &&
+        zeroQuantityWithValue.length === 0 &&
+        uncosted.withActivePolicy === 0,
     };
+  }
+
+  /**
+   * Uncosted `InventoryMovement` rows (`costingStatus IS NULL`) — this
+   * codebase's own disclosed gap: `InventoryCostingService.receiveCost`/
+   * `consumeCost` are a complete no-op for any movement dated before the
+   * organization's FIRST costing policy was ever adopted, and — unlike a
+   * backdated movement that lands within an already-costed window — that
+   * gap is never retroactively closed by `InventoryCostRecalculationService`
+   * (it only rebuilds from `InventoryCostMovement` rows that already
+   * exist; a movement the engine skipped never wrote one). Split into two
+   * buckets so the expected, disclosed case (dated before any policy ever
+   * existed) doesn't read as unhealthy, while a movement dated ON OR AFTER
+   * the earliest policy — which the engine SHOULD have costed and, for
+   * some other reason (e.g. a document type not yet wired into this
+   * module, such as Purchase Return-to-supplier — see docs/
+   * INVENTORY_COSTING.md), did not — genuinely fails the health check.
+   */
+  private async uncostedInventoryMovements(tenantId: string, organizationId: string): Promise<{ beforeAnyPolicy: number; withActivePolicy: number }> {
+    const earliestPolicy = await this.prisma.inventoryCostingPolicy.findFirst({
+      where: { tenantId, organizationId },
+      orderBy: { effectiveFrom: 'asc' },
+    });
+
+    const uncostedWhere = { tenantId, organizationId, costingStatus: null } as const;
+    if (!earliestPolicy) {
+      const total = await this.prisma.inventoryMovement.count({ where: uncostedWhere });
+      return { beforeAnyPolicy: total, withActivePolicy: 0 };
+    }
+
+    const [beforeAnyPolicy, withActivePolicy] = await Promise.all([
+      this.prisma.inventoryMovement.count({ where: { ...uncostedWhere, effectiveDate: { lt: earliestPolicy.effectiveFrom } } }),
+      this.prisma.inventoryMovement.count({ where: { ...uncostedWhere, effectiveDate: { gte: earliestPolicy.effectiveFrom } } }),
+    ]);
+    return { beforeAnyPolicy, withActivePolicy };
   }
 
   /** Quantity/value consistency (spec sections 65-66): a costing key with

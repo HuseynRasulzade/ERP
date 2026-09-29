@@ -184,15 +184,16 @@ export class InventoryAdjustmentPostingHandler implements DocumentPostingHandler
         continue;
       }
 
+      const inventoryDims = [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: line.productId }];
       if (isOut) {
         lines.push(
-          { accountId: counterAccount.id, side: 'DEBIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory write-off — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: line.productId }] },
-          { accountId: inventory.id, side: 'CREDIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory decrease — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
+          { accountId: counterAccount.id, side: 'DEBIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory write-off — ${adjustment.number ?? adjustment.id}`, dimensions: inventoryDims },
+          { accountId: inventory.id, side: 'CREDIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory decrease — ${adjustment.number ?? adjustment.id}`, dimensions: inventoryDims },
         );
       } else {
         lines.push(
-          { accountId: inventory.id, side: 'DEBIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory surplus — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }] },
-          { accountId: counterAccount.id, side: 'CREDIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory increase — ${adjustment.number ?? adjustment.id}`, dimensions: [{ dimensionCode: 'WAREHOUSE', referenceId: adjustment.warehouseId }, { dimensionCode: 'PRODUCT', referenceId: line.productId }] },
+          { accountId: inventory.id, side: 'DEBIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory surplus — ${adjustment.number ?? adjustment.id}`, dimensions: inventoryDims },
+          { accountId: counterAccount.id, side: 'CREDIT', amountBase: lineTotal, sourceDocumentLineId: line.id, description: `Inventory increase — ${adjustment.number ?? adjustment.id}`, dimensions: inventoryDims },
         );
       }
     }

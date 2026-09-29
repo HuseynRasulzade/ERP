@@ -500,7 +500,7 @@ describe('Phase 4 — Sales documents (e2e)', () => {
   });
 
   describe('Create Based On SALES_ORDER => SALES_INVOICE', () => {
-    it('should draft a header-only invoice, link it, then post it after adding lines', async () => {
+    it('should draft an invoice with the order lines already copied across, link it, then post it as-is', async () => {
       const order = await createOrder([
         { productId, unitId: unitPieceId, quantity: 2, taxRate: 10 },
       ]);
@@ -520,13 +520,18 @@ describe('Phase 4 — Sales documents (e2e)', () => {
       expect(draft.body.number).toMatch(/^SI-2026-\d+$/);
       expect(draft.body.tenantId).toBe(tenant1Id);
 
-      // Header copied, no lines yet — totals are zero until lines are added.
+      // SalesOrderToSalesInvoiceMapper copies the order's own resolved
+      // price/tax snapshot straight across (never re-resolved) — the
+      // draft invoice already carries the order's line and total, no
+      // separate "add lines" step needed.
       const fetched = await auth1(
         request(app.getHttpServer()).get(`/organizations/${org1Id}/sales-invoices/${draft.body.id}`),
       ).expect(200);
       expect(fetched.body.counterpartyId).toBe(customerId);
-      expect(fetched.body.lines).toHaveLength(0);
-      expect(Number(fetched.body.grandTotal)).toBe(0);
+      expect(fetched.body.lines).toHaveLength(1);
+      expect(fetched.body.lines[0].sourceOrderLineId).toBe(order.lines[0].id);
+      expect(Number(fetched.body.lines[0].quantity)).toBe(2);
+      expect(Number(fetched.body.grandTotal)).toBeCloseTo(220, 2);
 
       const links = await auth1(request(app.getHttpServer()).get('/document-links'))
         .query({ documentType: SALES_ORDER_TYPE, documentId: order.id })
@@ -537,21 +542,10 @@ describe('Phase 4 — Sales documents (e2e)', () => {
         ),
       ).toBe(true);
 
-      // Add the order's snapshot lines, then post.
-      const withLines = await auth1(
-        request(app.getHttpServer()).patch(`/organizations/${org1Id}/sales-invoices/${draft.body.id}`),
-      )
-        .send({
-          expectedVersion: fetched.body.version,
-          lines: [{ productId, unitId: unitPieceId, quantity: 2, price: 100, taxRate: 10 }],
-        })
-        .expect(200);
-      expect(Number(withLines.body.grandTotal)).toBeCloseTo(220, 2);
-
       const posted = await auth1(
         request(app.getHttpServer()).post(`/documents/${SALES_INVOICE_TYPE}/${draft.body.id}/post`),
       )
-        .send({ expectedVersion: withLines.body.version })
+        .send({ expectedVersion: fetched.body.version })
         .expect(201);
       expect(posted.body.postingStatus).toBe('POSTED');
       expect(posted.body.movementCount).toBe(1);
