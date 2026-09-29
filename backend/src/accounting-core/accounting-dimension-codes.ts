@@ -29,6 +29,14 @@ export const DimensionCodes = {
   // dimension can never be required there.
   FIXED_ASSET: 'FIXED_ASSET',
   CIP_PROJECT: 'CIP_PROJECT',
+  // Expenses / Cost Centers (docx spec Phase 20) — the financial-
+  // responsibility dimension a claim line/allocation lands on. Deliberately
+  // its own dimension, never DEPARTMENT (spec sections 4-5: Cost Center and
+  // Department are not the same master). PROJECT has no backing master
+  // entity in this build yet (disclosed simplification, see
+  // docs/EXPENSES.md) — the reference is an opaque string today.
+  COST_CENTER: 'COST_CENTER',
+  PROJECT: 'PROJECT',
 } as const;
 
 export type DimensionCode =
@@ -56,6 +64,8 @@ export const DIMENSION_REFERENCE_ENTITY_TYPE: Record<string, string> = {
   [DimensionCodes.EMPLOYEE]: 'RESPONSIBLE_PERSON',
   [DimensionCodes.FIXED_ASSET]: 'FIXED_ASSET',
   [DimensionCodes.CIP_PROJECT]: 'CIP_PROJECT',
+  [DimensionCodes.COST_CENTER]: 'COST_CENTER',
+  [DimensionCodes.PROJECT]: 'PROJECT',
 };
 
 /**
@@ -126,6 +136,12 @@ export const MappingKeys = {
   UNEMPLOYMENT_INSURANCE_PAYABLE: 'UNEMPLOYMENT_INSURANCE_PAYABLE',
   MEDICAL_INSURANCE_PAYABLE: 'MEDICAL_INSURANCE_PAYABLE',
   EXECUTION_ORDER_PAYABLE: 'EXECUTION_ORDER_PAYABLE',
+  // Expenses / Cost Centers / Employee Expenses (docx spec Phase 20,
+  // sections 92-96): an employee-personal-funds expense is never a cash/
+  // bank payment (spec's own critical rule) — it's this liability until
+  // Phase 14/15 actually pays it.
+  PREPAID_EXPENSE_ASSET: 'PREPAID_EXPENSE_ASSET',
+  EMPLOYEE_REIMBURSEMENT_PAYABLE: 'EMPLOYEE_REIMBURSEMENT_PAYABLE',
 } as const;
 
 export type MappingKey = (typeof MappingKeys)[keyof typeof MappingKeys];

@@ -486,6 +486,54 @@ docs/PAYROLL.md.
 
 Full write-up: [`backend/docs/PAYROLL.md`](backend/docs/PAYROLL.md).
 
+### Expenses / Cost Centers / Employee Expenses
+
+`CostCenter` (deliberately distinct from Phase 17's `Department` — Shared
+Services can be its own cost center with no department behind it) feeds an
+`ExpenseClaim`/`ExpenseClaimLine`/`ExpenseReceipt` lifecycle gated by
+effective-dated `ExpensePolicy` limits, duplicate-receipt detection, and a
+business-purpose-required check enforced BEFORE submission is even
+allowed. Approval reuses the Tax Engine for a gross-input VAT split (`Dr
+Expense = net amount`, VAT posted on its own recoverable/nonrecoverable
+line — the same convention Purchase Invoices already use, never folded
+into the expense account) and Phase 15's `AccountablePerson` advance ledger
+for settlement, bridged through a caller-supplied `responsiblePersonId`
+field since Phase 15's ledger keys off Phase 0's `ResponsiblePerson`, not
+Phase 17's `Employment` — a genuine pre-existing identity gap this phase
+resolves pragmatically rather than by unifying the two schema-wide. An
+Expense Classification Engine sorts each line into CURRENT_EXPENSE/
+PREPAID_EXPENSE/FIXED_ASSET/INVENTORY_COST/SUPPLIER_SETTLEMENT — the last
+excluded from GL and the register outright, so a cost a Supplier Invoice
+already recognized is never double-counted. `ExpenseClaimPostingHandler`
+is a full document-framework participant writing a balanced GL entry plus
+`EXPENSE_MOVEMENT_REGISTER` movements (the seventh Truth Engine reuse) and,
+when approved expenses exceed any advance, an
+`EMPLOYEE_EXPENSE_REIMBURSEMENT_REGISTER` movement (a new register, the
+"company owes employee" direction). A Prepaid Expense subledger recognizes
+straight-line on an idempotent monthly run (retrying a period recognizes
+nothing further); Cost Allocation (drivers backed by real Phase 17
+headcount/FTE and Phase 18 worked-hours data, DIRECT or DRIVER_BASED rules
+with self-loop + direct-reciprocal cycle detection) reclassifies shared
+cost between cost centers with the last target absorbing any rounding
+residual so the total always reconciles exactly, and never changes total
+company expense — the same invariant an `ExpenseAdjustment`
+cost-center reclassification (the only sanctioned way to move a posted
+line's cost center after the fact) also preserves. Budget-vs-actual always
+reads `actual` from the posted register, never from claim totals.
+`ExpensePeriod.close()` gates on no unresolved/unposted claim, no
+un-recognized prepaid schedule row, and — only when the period actually
+has unallocated cost-allocation source amount, never a blanket "any active
+rule exists anywhere" check — a posted `CostAllocationRun`. Disclosed
+simplifications: cost-allocation cycle detection is self-loop + direct
+two-rule reciprocal only, not full topological cycle detection; the
+reclassification GL entry assumes a single account for the whole allocated
+pool; budget commitment is a manually-entered field, not a live
+commitment engine; INVENTORY_COST/FIXED_ASSET classifications are flagged
+but not auto-wired into a Phase 9/11 receipt or a Phase 16 acquisition
+candidate — see docs/EXPENSES.md.
+
+Full write-up: [`backend/docs/EXPENSES.md`](backend/docs/EXPENSES.md).
+
 ### Frontend
 
 A dark-themed React SPA covering all phases: login/register, tenant
@@ -523,6 +571,7 @@ Policy, Tax Profile, Access).
 | `backend/test/hr-core.e2e-spec.ts` | 11 | Physical-person duplicate-personalId detection (blocked, then confirmed), hire lifecycle via the new-person path (draft ⇒ post), as-of-date employment state resolution before and after the hire date, employment contract create + amend with versioned history, manager hierarchy transfer + circular-hierarchy rejection, EmployeeAssignment history split at a transfer's effective date (state correct on both sides of the date), staffing-position capacity enforcement + override with permission, termination with correct Employee-status rollup, rehire reusing the same Employee row, multiple concurrent employments (secondary termination leaving primary + Employee active), org-chart/headcount/staffing-capacity/health reports |
 | `backend/test/work-time.e2e-spec.ts` | 14 | Attendance idempotency on re-import, missing-clock-out and duplicate-punch detection, a production calendar with a holiday and a shortened day, a standard 5-day schedule template, the full spec section-172 end-to-end month (hire, schedule assignment, mid-month department transfer, annual leave, approved overtime, daily plan generation reflecting calendar + transfer, regular attendance with break deduction, partial absence, a night shift crossing midnight with correct 6h night premium and no worked-hours inflation, holiday work, timesheet generate ⇒ submit ⇒ approve ⇒ lock, Work Time Register + Payroll Time Input Register generation with no money fields), a locked-timesheet direct-edit block requiring a Time Correction (which correctly flags `requiresRecalculation`), an unapproved-overtime exception that blocks timesheet approval until resolved, and the plan-vs-actual/overtime/night/holiday-weekend reports |
 | `backend/test/payroll.e2e-spec.ts` | 3 | Full base-salary proration with progressive AZ income tax/social/unemployment/medical contributions against a real Work Time Register month, a backdated salary raise recalculated into a new version with the original preserved as SUPERSEDED, and the full GL-posting pipeline (approve ⇒ draft PayrollPosting ⇒ post through the generic document-framework command ⇒ balanced journal entry assertion ⇒ payment batch payout ⇒ second-batch-against-fully-paid-period and unpost-after-payment both refused ⇒ register/payslip/employer-cost/liability reports ⇒ close) |
+| `backend/test/expenses.e2e-spec.ts` | 16 | Claim create/submit with mandatory-receipt block + duplicate-receipt rejection, business-purpose-required rejection, employee advance settlement (fully settled, overspend producing a reimbursement payable, no-advance producing a full reimbursement payable), partial approval, gross-to-net VAT split via the Tax Engine, balanced GL posting (net expense + recoverable VAT = employee reimbursement payable), SUPPLIER_SETTLEMENT exclusion from GL and the register, 12-month straight-line prepaid recognition with same-period-retry idempotency, headcount-driver cost allocation reconciling to the exact total with zero residual + balanced GL, reciprocal/self-loop cycle detection, budget-vs-actual from the posted register, a cost-center reclassification adjustment with balanced GL + cost-center P&L verification, expense-period close gated on an unresolved claim then an unposted claim then an unrecognized prepaid schedule row + successful close/reopen, and the health check surfacing a real approved-but-unposted claim |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -672,5 +721,27 @@ All run against a real PostgreSQL instance — no mocked database.
   the statutory-minimum overtime/night/holiday multiplier; a payment batch
   confirms immediately rather than a separate draft/confirm step; reopen
   does not cascade-undo GL posting or payments — see docs/PAYROLL.md.
+- **Expenses / Cost Centers / Employee Expenses** — ✅ done, tested,
+  documented. `CostCenter` distinct from Department; effective-dated
+  Expense Category/Policy; claim/line/receipt lifecycle with policy/
+  duplicate/business-purpose validation before submission; Tax Engine
+  reuse for the gross-to-net VAT split (never folded into the expense
+  account); Phase 15 `AccountablePerson` advance settlement bridged via a
+  caller-supplied `responsiblePersonId`; a Classification Engine
+  excluding SUPPLIER_SETTLEMENT lines from GL/register outright;
+  `ExpenseClaimPostingHandler` as a full document-framework participant
+  (seventh Truth Engine reuse) plus a new
+  `EMPLOYEE_EXPENSE_REIMBURSEMENT_REGISTER`; an idempotent straight-line
+  Prepaid Expense recognition run; Cost Allocation (DIRECT/DRIVER_BASED,
+  drivers backed by real Phase 17/18 data, self-loop + direct-reciprocal
+  cycle detection, exact-total reconciliation); cost-center
+  reclassification adjustments; budget-vs-actual from the posted
+  register; period close gated on the period's own unallocated cost, not
+  a blanket rule-exists check. Cost-allocation cycle detection is
+  partial (no full topological detection); the reclassification GL entry
+  assumes a single account for the pool; budget commitment is manually
+  entered; INVENTORY_COST/FIXED_ASSET classifications are flagged but not
+  auto-wired into a receipt or acquisition candidate — see
+  docs/EXPENSES.md.
 - **Banking, ...** — not started. Later phases building on this
   foundation.

@@ -1110,4 +1110,7 @@ export const AZ_DEFAULT_MAPPINGS: Record<string, string> = {
   UNEMPLOYMENT_INSURANCE_PAYABLE: '523', // Digər məcburi ödənişlər üzrə öhdəliklər
   MEDICAL_INSURANCE_PAYABLE: '523',
   EXECUTION_ORDER_PAYABLE: '538', // Digər qısamüddətli kreditor borcları
+  // Expenses / Cost Centers / Employee Expenses (docx spec Phase 20)
+  PREPAID_EXPENSE_ASSET: '242', // Gələcək hesabat dövrünün xərcləri
+  EMPLOYEE_REIMBURSEMENT_PAYABLE: '533', // Əməyin ödənişi üzrə işçi heyətinə olan borclar — no COUNTERPARTY dimension requirement, unlike 538
 };

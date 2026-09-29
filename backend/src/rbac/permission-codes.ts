@@ -423,6 +423,29 @@ export const PermissionCodes = {
   PAYROLL_VIEW_ACCOUNTING: 'payroll.view_accounting',
   PAYROLL_VIEW_LEGAL_TRACE: 'payroll.view_legal_trace',
 
+  // Expenses / Cost Centers / Employee Expenses (docx spec Phase 20)
+  EXPENSE_VIEW: 'expense.view',
+  EXPENSE_VIEW_OWN: 'expense.view_own',
+  EXPENSE_VIEW_DEPARTMENT: 'expense.view_department',
+  EXPENSE_CLAIM_CREATE: 'expense.claim_create',
+  EXPENSE_CLAIM_SUBMIT: 'expense.claim_submit',
+  EXPENSE_CLAIM_APPROVE: 'expense.claim_approve',
+  EXPENSE_CLAIM_POST: 'expense.claim_post',
+  EXPENSE_RECEIPT_REVIEW: 'expense.receipt_review',
+  EXPENSE_POLICY_OVERRIDE: 'expense.policy_override',
+  EXPENSE_TAX_OVERRIDE: 'expense.tax_override',
+  EXPENSE_ALLOCATION_EDIT: 'expense.allocation_edit',
+  EXPENSE_ALLOCATION_RUN: 'expense.allocation_run',
+  EXPENSE_PREPAID_CREATE: 'expense.prepaid_create',
+  EXPENSE_PREPAID_ADJUST: 'expense.prepaid_adjust',
+  EXPENSE_RECLASSIFY: 'expense.reclassify',
+  EXPENSE_VIEW_EMPLOYEE_BALANCE: 'expense.view_employee_balance',
+  EXPENSE_VIEW_COST_CENTER: 'expense.view_cost_center',
+  EXPENSE_VIEW_ACCOUNTING: 'expense.view_accounting',
+  EXPENSE_PERIOD_REOPEN: 'expense.period_reopen',
+  EXPENSE_MANAGE_CATALOG: 'expense.manage_catalog',
+  EXPENSE_MANAGE_BUDGET: 'expense.manage_budget',
+
   // Warehouse / Stock Engine (docx spec Phase 10, section 65)
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_VIEW_ALL_WAREHOUSES: 'inventory.view_all_warehouses',
@@ -2297,6 +2320,112 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.PAYROLL_VIEW_LEGAL_TRACE,
     module: 'payroll',
     description: 'View the legal/config rule trace behind a payroll calculation line',
+  },
+
+  {
+    code: PermissionCodes.EXPENSE_VIEW,
+    module: 'expense',
+    description: 'View expense data across the organization',
+  },
+  {
+    code: PermissionCodes.EXPENSE_VIEW_OWN,
+    module: 'expense',
+    description: 'View own expense claims',
+  },
+  {
+    code: PermissionCodes.EXPENSE_VIEW_DEPARTMENT,
+    module: 'expense',
+    description: "View a manager's own department/team expense claims",
+  },
+  {
+    code: PermissionCodes.EXPENSE_CLAIM_CREATE,
+    module: 'expense',
+    description: 'Create/edit an expense claim',
+  },
+  {
+    code: PermissionCodes.EXPENSE_CLAIM_SUBMIT,
+    module: 'expense',
+    description: 'Submit an expense claim for approval',
+  },
+  {
+    code: PermissionCodes.EXPENSE_CLAIM_APPROVE,
+    module: 'expense',
+    description: 'Approve/reject expense claim lines',
+  },
+  {
+    code: PermissionCodes.EXPENSE_CLAIM_POST,
+    module: 'expense',
+    description: 'Post an approved expense claim to the general ledger',
+  },
+  {
+    code: PermissionCodes.EXPENSE_RECEIPT_REVIEW,
+    module: 'expense',
+    description: 'Review/validate expense receipts',
+  },
+  {
+    code: PermissionCodes.EXPENSE_POLICY_OVERRIDE,
+    module: 'expense',
+    description: 'Approve a claim line that exceeds expense policy limits',
+  },
+  {
+    code: PermissionCodes.EXPENSE_TAX_OVERRIDE,
+    module: 'expense',
+    description: 'Manually correct a tax/VAT assessment on an expense line',
+  },
+  {
+    code: PermissionCodes.EXPENSE_ALLOCATION_EDIT,
+    module: 'expense',
+    description: 'Create/edit allocation rules and driver values',
+  },
+  {
+    code: PermissionCodes.EXPENSE_ALLOCATION_RUN,
+    module: 'expense',
+    description: 'Preview, calculate, and post a cost allocation run',
+  },
+  {
+    code: PermissionCodes.EXPENSE_PREPAID_CREATE,
+    module: 'expense',
+    description: 'Create a prepaid expense and its recognition schedule',
+  },
+  {
+    code: PermissionCodes.EXPENSE_PREPAID_ADJUST,
+    module: 'expense',
+    description: 'Adjust a prepaid expense schedule (early cancellation, correction)',
+  },
+  {
+    code: PermissionCodes.EXPENSE_RECLASSIFY,
+    module: 'expense',
+    description: 'Reclassify a posted expense line (cost center/project/tax correction)',
+  },
+  {
+    code: PermissionCodes.EXPENSE_VIEW_EMPLOYEE_BALANCE,
+    module: 'expense',
+    description: "View an employee's advance/reimbursement/debt settlement balance",
+  },
+  {
+    code: PermissionCodes.EXPENSE_VIEW_COST_CENTER,
+    module: 'expense',
+    description: 'View cost center expense/allocation reports',
+  },
+  {
+    code: PermissionCodes.EXPENSE_VIEW_ACCOUNTING,
+    module: 'expense',
+    description: 'View the accounting/GL side of expense postings',
+  },
+  {
+    code: PermissionCodes.EXPENSE_PERIOD_REOPEN,
+    module: 'expense',
+    description: 'Reopen a closed expense period',
+  },
+  {
+    code: PermissionCodes.EXPENSE_MANAGE_CATALOG,
+    module: 'expense',
+    description: 'Manage expense categories, policies, cost centers, and allocation drivers',
+  },
+  {
+    code: PermissionCodes.EXPENSE_MANAGE_BUDGET,
+    module: 'expense',
+    description: 'Create/edit expense budgets',
   },
 
   {

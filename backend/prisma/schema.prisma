@@ -241,6 +241,26 @@ model Tenant {
   PayrollPaymentAllocation       PayrollPaymentAllocation[]
   PayrollPosting                 PayrollPosting[]
 
+  // Expenses / Cost Centers / Employee Expenses (docx spec Phase 20)
+  CostCenter             CostCenter[]
+  ExpenseCategory        ExpenseCategory[]
+  ExpensePolicy          ExpensePolicy[]
+  ExpenseClaim           ExpenseClaim[]
+  ExpenseClaimLine       ExpenseClaimLine[]
+  ExpenseReceipt         ExpenseReceipt[]
+  ExpenseTaxAssessment   ExpenseTaxAssessment[]
+  ExpenseAllocation      ExpenseAllocation[]
+  PrepaidExpense         PrepaidExpense[]
+  PrepaidExpenseSchedule PrepaidExpenseSchedule[]
+  PrepaidRecognitionRun  PrepaidRecognitionRun[]
+  AllocationDriver       AllocationDriver[]
+  AllocationRule         AllocationRule[]
+  CostAllocationRun      CostAllocationRun[]
+  CostAllocationLine     CostAllocationLine[]
+  ExpenseAdjustment      ExpenseAdjustment[]
+  ExpensePeriod          ExpensePeriod[]
+  ExpenseBudget          ExpenseBudget[]
+
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
   inventoryCostMovements       InventoryCostMovement[]
@@ -425,6 +445,17 @@ model Organization {
   PayrollCalculationRun  PayrollCalculationRun[]
   PayrollPaymentBatch    PayrollPaymentBatch[]
   PayrollPosting         PayrollPosting[]
+
+  // Expenses / Cost Centers / Employee Expenses (docx spec Phase 20)
+  CostCenter            CostCenter[]
+  ExpenseClaim          ExpenseClaim[]
+  PrepaidExpense        PrepaidExpense[]
+  PrepaidRecognitionRun PrepaidRecognitionRun[]
+  AllocationRule        AllocationRule[]
+  CostAllocationRun     CostAllocationRun[]
+  ExpenseAdjustment     ExpenseAdjustment[]
+  ExpensePeriod         ExpensePeriod[]
+  ExpenseBudget         ExpenseBudget[]
 
   // Inventory Costing Engine (docx spec Phase 11)
   inventoryCostingPolicies     InventoryCostingPolicy[]
@@ -8998,4 +9029,577 @@ model PayrollPosting {
 
   @@index([organizationId, postingStatus])
   @@map("payroll_postings")
+}
+
+// ===========================================================================
+// Expenses / Cost Centers / Employee Expenses (docx spec Phase 20)
+// ===========================================================================
+
+/// CostCenter — financial responsibility/expense-collection dimension,
+/// deliberately NOT the same master as Department (spec sections 4-5): one
+/// department can contain several cost centers.
+model CostCenter {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  organizationId          String    @map("organization_id")
+  code                    String
+  name                    String
+  parentCostCenterId      String?   @map("parent_cost_center_id")
+  departmentId            String?   @map("department_id")
+  responsiblePersonId     String?   @map("responsible_person_id")
+  effectiveFrom           DateTime  @default(dbgenerated("'1970-01-01'")) @map("effective_from") @db.Date
+  effectiveTo             DateTime? @map("effective_to") @db.Date
+  active                  Boolean   @default(true)
+  accountingDimensionCode String?   @map("accounting_dimension_code")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  parent       CostCenter?  @relation("CostCenterHierarchy", fields: [parentCostCenterId], references: [id])
+  children     CostCenter[] @relation("CostCenterHierarchy")
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@map("cost_centers")
+}
+
+/// ExpenseCategory (spec sections 7-8) — configurable catalog, not a fixed
+/// enum: each category carries its own default GL mapping, VAT profile,
+/// and eligibility flags so the classification engine never hardcodes
+/// per-category behavior.
+model ExpenseCategory {
+  id                          String   @id @default(uuid())
+  tenantId                    String   @map("tenant_id")
+  code                        String
+  name                        String
+  defaultAccountingMappingKey String?  @map("default_accounting_mapping_key")
+  vatTreatmentProfile         String?  @map("vat_treatment_profile")
+  receiptRequirement          String   @default("OPTIONAL") @map("receipt_requirement") // REQUIRED|OPTIONAL|NOT_REQUIRED|REQUIRED_ABOVE_THRESHOLD
+  receiptRequiredThreshold    Decimal? @map("receipt_required_threshold") @db.Decimal(14, 2)
+  businessPurposeRequired     Boolean  @default(false) @map("business_purpose_required")
+  allowedPaymentMethods       Json?    @map("allowed_payment_methods")
+  prepaidEligible             Boolean  @default(false) @map("prepaid_eligible")
+  capitalizableEligible       Boolean  @default(false) @map("capitalizable_eligible")
+  inventoryCostEligible       Boolean  @default(false) @map("inventory_cost_eligible")
+  allocationRequired          Boolean  @default(false) @map("allocation_required")
+  approvalProfile             String?  @map("approval_profile")
+  active                      Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@map("expense_categories")
+}
+
+/// ExpensePolicy (spec sections 9-10) — effective-dated rule rows resolved
+/// by (category, organization, and optional finer dimensions) at claim
+/// time; never a hardcoded per-category limit in the validation engine.
+model ExpensePolicy {
+  id                       String    @id @default(uuid())
+  tenantId                 String    @map("tenant_id")
+  organizationId           String?   @map("organization_id")
+  expenseCategoryId        String?   @map("expense_category_id")
+  employeeGrade            String?   @map("employee_grade")
+  positionId               String?   @map("position_id")
+  departmentId             String?   @map("department_id")
+  travelType               String?   @map("travel_type")
+  country                  String?
+  city                     String?
+  paymentMethod            String?   @map("payment_method")
+  currencyId               String?   @map("currency_id")
+  maxAmount                Decimal?  @map("max_amount") @db.Decimal(14, 2)
+  maxAmountPeriod          String?   @map("max_amount_period") // PER_DAY|PER_NIGHT|PER_TRIP|PER_CLAIM
+  receiptRequiredOverride  String?   @map("receipt_required_override")
+  businessPurposeRequired  Boolean?  @map("business_purpose_required")
+  priority                 Int       @default(100)
+  effectiveFrom            DateTime  @map("effective_from") @db.Date
+  effectiveTo              DateTime? @map("effective_to") @db.Date
+  active                   Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, expenseCategoryId, effectiveFrom])
+  @@map("expense_policies")
+}
+
+/// ExpenseClaim (spec sections 11-12) — a full BaseDocumentFields-shaped
+/// document-framework participant (like FixedAssetDisposal): `status`/
+/// `postingStatus` drive the generic post/unpost engine, while
+/// `claimStatus` carries the richer business lifecycle
+/// (DRAFT..SETTLED/CANCELLED/REVERSED) the generic DocumentStatus enum
+/// doesn't model.
+model ExpenseClaim {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  documentType       String    @default("EXPENSE_CLAIM") @map("document_type")
+  number             String?
+  employmentId       String    @map("employment_id")
+  // Phase 15's AccountablePersonMovement.personId has a real foreign key
+  // to ResponsiblePerson (Phase 0's own, User-linked identity) — NOT the
+  // same master as Phase 17's Employment. This is the bridge: the
+  // ResponsiblePerson who actually holds the Phase 15 advance for this
+  // claim's employee, supplied by the caller (whoever issued the
+  // advance already knows this id). Null means "no advance to settle
+  // against" — the full employee-funded amount becomes a reimbursement
+  // due instead (see EmployeeExpenseSettlementService).
+  responsiblePersonId String?  @map("responsible_person_id")
+  claimDate          DateTime  @map("claim_date") @db.Date
+  expensePeriodStart DateTime? @map("expense_period_start") @db.Date
+  expensePeriodEnd   DateTime? @map("expense_period_end") @db.Date
+  currencyId         String?   @map("currency_id")
+  totalClaimedAmount    Decimal @default(0) @map("total_claimed_amount") @db.Decimal(14, 2)
+  totalApprovedAmount  Decimal @default(0) @map("total_approved_amount") @db.Decimal(14, 2)
+  advanceAppliedAmount Decimal @default(0) @map("advance_applied_amount") @db.Decimal(14, 2)
+  reimbursementDue    Decimal @default(0) @map("reimbursement_due") @db.Decimal(14, 2)
+  employeeDebtDue     Decimal @default(0) @map("employee_debt_due") @db.Decimal(14, 2)
+  claimStatus        String    @default("DRAFT") @map("claim_status") // DRAFT|SUBMITTED|PENDING_APPROVAL|PARTIALLY_APPROVED|APPROVED|REJECTED|POSTED|PARTIALLY_SETTLED|SETTLED|CANCELLED|REVERSED
+  responsibleManagerId String? @map("responsible_manager_id")
+  comment            String?
+
+  documentDate  DateTime  @map("document_date") @db.Date
+  postingDate   DateTime? @map("posting_date") @db.Date
+  status        String    @default("DRAFT")
+  postingStatus String    @default("NOT_POSTED") @map("posting_status")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  postedAt    DateTime? @map("posted_at")
+  postedBy    String?   @map("posted_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancelledBy String?   @map("cancelled_by")
+  version     Int       @default(1)
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  lines        ExpenseClaimLine[]
+
+  @@index([organizationId, claimStatus])
+  @@index([employmentId])
+  @@map("expense_claims")
+}
+
+/// ExpenseClaimLine (spec section 13).
+model ExpenseClaimLine {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  claimId                String   @map("claim_id")
+  expenseDate            DateTime @map("expense_date") @db.Date
+  expenseCategoryId      String   @map("expense_category_id")
+  merchant               String?
+  supplierId             String?  @map("supplier_id")
+  supplierTaxId          String?  @map("supplier_tax_id")
+  description            String?
+  businessPurpose        String?  @map("business_purpose")
+  transactionCurrencyId  String   @map("transaction_currency_id")
+  transactionAmount      Decimal  @map("transaction_amount") @db.Decimal(14, 2)
+  exchangeRate           Decimal  @default(1) @map("exchange_rate") @db.Decimal(20, 10)
+  baseAmount             Decimal  @map("base_amount") @db.Decimal(14, 2)
+  taxAmount              Decimal  @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  vatAmount              Decimal  @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  recoverableVat         Decimal  @default(0) @map("recoverable_vat") @db.Decimal(14, 2)
+  nonrecoverableVat      Decimal  @default(0) @map("nonrecoverable_vat") @db.Decimal(14, 2)
+  approvedAmount         Decimal? @map("approved_amount") @db.Decimal(14, 2)
+  paymentSourceType      String   @map("payment_source_type") // EMPLOYEE_PERSONAL_FUNDS|EMPLOYEE_ADVANCE|CASH_DESK|BANK|CORPORATE_CARD|SUPPLIER_PAYABLE|OTHER
+  costCenterId           String?  @map("cost_center_id")
+  projectId              String?  @map("project_id")
+  departmentId           String?  @map("department_id")
+  allocationRuleId       String?  @map("allocation_rule_id")
+  sourceDocumentType     String?  @map("source_document_type")
+  sourceDocumentId       String?  @map("source_document_id")
+  prepaidCandidate       Boolean  @default(false) @map("prepaid_candidate")
+  capitalizableCandidate Boolean  @default(false) @map("capitalizable_candidate")
+  policyStatus           String   @default("OK") @map("policy_status") // OK|EXCEEDED|EXCEPTION_APPROVED
+  taxStatus              String   @default("NOT_APPLICABLE") @map("tax_status") // VALID|MISSING|INVALID|DUPLICATE|REVIEW_REQUIRED|NOT_APPLICABLE
+  classification         String?  @map("classification") // CURRENT_EXPENSE|PREPAID_EXPENSE|INVENTORY_COST|FIXED_ASSET|CIP|EMPLOYEE_RECEIVABLE|SUPPLIER_SETTLEMENT|NONDEDUCTIBLE_EXPENSE|OTHER
+  taxDeductible          Boolean  @default(true) @map("tax_deductible")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant        Tenant                @relation(fields: [tenantId], references: [id])
+  claim         ExpenseClaim          @relation(fields: [claimId], references: [id])
+  receipts      ExpenseReceipt[]
+  taxAssessment ExpenseTaxAssessment?
+
+  @@index([claimId])
+  @@index([expenseCategoryId])
+  @@index([costCenterId])
+  @@map("expense_claim_lines")
+}
+
+/// ExpenseReceipt (spec sections 14-18) — supporting documents; duplicate
+/// detection matches on (supplier, documentNumber, documentDate, amount)
+/// plus an optional attachment hash.
+model ExpenseReceipt {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  claimLineId      String    @map("claim_line_id")
+  fileId           String?   @map("file_id")
+  documentType     String    @map("document_type") // FISCAL_RECEIPT|INVOICE|E_INVOICE|TICKET|HOTEL_INVOICE|BOARDING_PASS|CONTRACT|PAYMENT_CONFIRMATION|OTHER
+  documentNumber   String?   @map("document_number")
+  supplier         String?
+  supplierTaxId    String?   @map("supplier_tax_id")
+  documentDate     DateTime? @map("document_date") @db.Date
+  amount           Decimal?  @db.Decimal(14, 2)
+  currencyId       String?   @map("currency_id")
+  taxAmount        Decimal?  @map("tax_amount") @db.Decimal(14, 2)
+  attachmentHash   String?   @map("attachment_hash")
+  uploadedBy       String?   @map("uploaded_by")
+  uploadedAt       DateTime  @default(now()) @map("uploaded_at")
+  validationStatus String    @default("REVIEW_REQUIRED") @map("validation_status") // VALID|MISSING|INVALID|DUPLICATE|REVIEW_REQUIRED|NOT_APPLICABLE
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id])
+  line   ExpenseClaimLine @relation(fields: [claimLineId], references: [id])
+
+  @@index([claimLineId])
+  @@index([tenantId, supplier, documentNumber, documentDate, amount])
+  @@map("expense_receipts")
+}
+
+/// ExpenseTaxAssessment (spec sections 44-49) — Phase 5 Tax Engine's
+/// verdict for one claim line, kept as its own history row rather than
+/// mutated fields on the line so a later TAX_CORRECTION adjustment has
+/// something concrete to point back to.
+model ExpenseTaxAssessment {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  claimLineId        String   @unique @map("claim_line_id")
+  taxable            Boolean  @default(true)
+  vatPresent         Boolean  @default(false) @map("vat_present")
+  recoverable        Boolean  @default(false)
+  nonrecoverable     Boolean  @default(false)
+  exempt             Boolean  @default(false)
+  recoverableAmount  Decimal  @default(0) @map("recoverable_amount") @db.Decimal(14, 2)
+  nonrecoverableAmount Decimal @default(0) @map("nonrecoverable_amount") @db.Decimal(14, 2)
+  taxDocumentStatus  String   @default("NOT_APPLICABLE") @map("tax_document_status")
+  deductibleForTax   Boolean  @default(true) @map("deductible_for_tax")
+  sourceRule         String?  @map("source_rule")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id])
+  line   ExpenseClaimLine @relation(fields: [claimLineId], references: [id])
+
+  @@map("expense_tax_assessments")
+}
+
+/// ExpenseAllocation (spec sections 54-56) — one row per (source line,
+/// target cost object) split; `Σ allocatedAmount` per source line must
+/// equal the eligible expense amount exactly (rounding residual aside).
+model ExpenseAllocation {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  sourceClaimLineId  String?  @map("source_claim_line_id")
+  sourceCostAllocationLineId String? @map("source_cost_allocation_line_id")
+  targetType         String   @map("target_type") // COST_CENTER|PROJECT|DEPARTMENT|BRANCH|PRODUCT|CUSTOMER|CAMPAIGN|FIXED_ASSET|PRODUCTION_ORDER|CONTRACT|OTHER
+  targetId           String   @map("target_id")
+  allocationMethod   String   @map("allocation_method") // MANUAL_PERCENTAGE|DRIVER_BASED|FIXED_WEIGHT
+  allocationPercentage Decimal? @map("allocation_percentage") @db.Decimal(7, 4)
+  allocationQuantity Decimal? @map("allocation_quantity") @db.Decimal(14, 4)
+  allocatedAmount    Decimal  @map("allocated_amount") @db.Decimal(14, 2)
+  effectivePeriodYear  Int?   @map("effective_period_year")
+  effectivePeriodMonth Int?   @map("effective_period_month")
+  sourceDriverId     String?  @map("source_driver_id")
+  status             String   @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([sourceClaimLineId])
+  @@index([targetType, targetId])
+  @@map("expense_allocations")
+}
+
+/// PrepaidExpense (spec sections 33-39). Initial posting: Dr Prepaid
+/// Expense / Cr AP-Employee-Settlement-Cash-Bank (whichever funded it).
+/// Period recognition: Dr Expense / Cr Prepaid Expense, driven by
+/// PrepaidExpenseSchedule rows below — `recognizedAmount`/
+/// `remainingAmount` here are a cached mirror of that schedule, never the
+/// sole source of truth.
+model PrepaidExpense {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  organizationId       String    @map("organization_id")
+  sourceClaimLineId    String?   @map("source_claim_line_id")
+  expenseCategoryId    String    @map("expense_category_id")
+  originalAmount       Decimal   @map("original_amount") @db.Decimal(14, 2)
+  currencyId           String?   @map("currency_id")
+  baseAmount           Decimal   @map("base_amount") @db.Decimal(14, 2)
+  recognitionStartDate DateTime  @map("recognition_start_date") @db.Date
+  recognitionEndDate   DateTime  @map("recognition_end_date") @db.Date
+  allocationMethod     String    @default("STRAIGHT_LINE_BY_MONTH") @map("allocation_method") // STRAIGHT_LINE_BY_MONTH|STRAIGHT_LINE_BY_DAY|FIXED_SCHEDULE|MANUAL|USAGE_BASED
+  costCenterId         String?   @map("cost_center_id")
+  projectId            String?   @map("project_id")
+  recognizedAmount     Decimal   @default(0) @map("recognized_amount") @db.Decimal(14, 2)
+  remainingAmount      Decimal   @map("remaining_amount") @db.Decimal(14, 2)
+  status               String    @default("DRAFT") // DRAFT|ACTIVE|FULLY_RECOGNIZED|CANCELLED|ADJUSTED
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant                   @relation(fields: [tenantId], references: [id])
+  organization Organization             @relation(fields: [organizationId], references: [id])
+  schedule     PrepaidExpenseSchedule[]
+
+  @@index([organizationId, status])
+  @@map("prepaid_expenses")
+}
+
+/// PrepaidExpenseSchedule (spec section 40) — one row per recognition
+/// period; the actual source of truth `PrepaidExpense.recognizedAmount`
+/// mirrors.
+model PrepaidExpenseSchedule {
+  id                        String   @id @default(uuid())
+  tenantId                  String   @map("tenant_id")
+  prepaidExpenseId          String   @map("prepaid_expense_id")
+  periodYear                Int      @map("period_year")
+  periodMonth               Int      @map("period_month")
+  plannedRecognitionAmount  Decimal  @map("planned_recognition_amount") @db.Decimal(14, 2)
+  recognizedAmount          Decimal  @default(0) @map("recognized_amount") @db.Decimal(14, 2)
+  status                    String   @default("PLANNED") // PLANNED|RECOGNIZED|ADJUSTED|CANCELLED
+  postingReference          String?  @map("posting_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id])
+  prepaid PrepaidExpense @relation(fields: [prepaidExpenseId], references: [id])
+
+  @@unique([prepaidExpenseId, periodYear, periodMonth])
+  @@map("prepaid_expense_schedules")
+}
+
+/// PrepaidRecognitionRun (spec section 41) — idempotent per-period batch;
+/// Phase 22 Month Close is expected to call this.
+model PrepaidRecognitionRun {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  periodYear     Int       @map("period_year")
+  periodMonth    Int       @map("period_month")
+  status         String    @default("RUNNING")
+  itemsProcessed Int       @default(0) @map("items_processed")
+  totalAmount    Decimal   @default(0) @map("total_amount") @db.Decimal(16, 2)
+  errors         Json?
+
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, periodYear, periodMonth])
+  @@map("prepaid_recognition_runs")
+}
+
+/// AllocationDriver (spec sections 57-58) — a tenant-configurable catalog
+/// (same convention as PayrollEarningDefinition), not a hardcoded enum.
+model AllocationDriver {
+  id     String  @id @default(uuid())
+  tenantId String @map("tenant_id")
+  code   String
+  name   String
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant                  @relation(fields: [tenantId], references: [id])
+  values AllocationDriverValue[]
+
+  @@unique([tenantId, code])
+  @@map("allocation_drivers")
+}
+
+/// AllocationDriverValue (spec section 58) — one value per driver/period/
+/// cost object; `source` records where the value came from (manual entry
+/// vs Phase 17 headcount/FTE vs Phase 18 worked hours) for traceability.
+model AllocationDriverValue {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  allocationDriverId String   @map("allocation_driver_id")
+  periodYear         Int      @map("period_year")
+  periodMonth        Int      @map("period_month")
+  targetType         String   @map("target_type")
+  targetId           String   @map("target_id")
+  value              Decimal  @db.Decimal(18, 4)
+  source             String   @default("MANUAL") // MANUAL|PHASE17_HEADCOUNT|PHASE17_FTE|PHASE18_WORKED_HOURS|PHASE7_REVENUE
+  status             String   @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  driver AllocationDriver @relation(fields: [allocationDriverId], references: [id])
+
+  @@unique([allocationDriverId, periodYear, periodMonth, targetType, targetId])
+  @@map("allocation_driver_values")
+}
+
+/// AllocationRule (spec sections 64-65) — DIRECT and DRIVER_BASED are the
+/// two types this build fully implements (spec's own stated minimum);
+/// `targets` (a JSON array of `{targetType, targetId, fixedWeight?}`) is
+/// deliberately inline rather than a separate table since it is always
+/// read as a whole with its parent rule.
+model AllocationRule {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  organizationId         String    @map("organization_id")
+  code                   String
+  name                   String
+  sourceCostCenterId     String    @map("source_cost_center_id")
+  expenseCategoryFilter  Json?     @map("expense_category_filter")
+  allocationType         String    @map("allocation_type") // DIRECT|DRIVER_BASED|MANUAL
+  allocationDriverId     String?   @map("allocation_driver_id")
+  targets                Json      // [{targetType, targetId, fixedWeight?}]
+  allocationFrequency    String    @default("MONTHLY") @map("allocation_frequency")
+  roundingRule           String    @default("LARGEST_REMAINDER") @map("rounding_rule")
+  effectiveFrom          DateTime  @map("effective_from") @db.Date
+  effectiveTo            DateTime? @map("effective_to") @db.Date
+  status                 String    @default("ACTIVE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([tenantId, code])
+  @@index([organizationId, sourceCostCenterId])
+  @@map("allocation_rules")
+}
+
+/// CostAllocationRun (spec sections 68-70) — one run covers every active
+/// AllocationRule for an organization/period; PREVIEW never writes a GL
+/// movement (spec section 70).
+model CostAllocationRun {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  organizationId  String    @map("organization_id")
+  periodYear      Int       @map("period_year")
+  periodMonth     Int       @map("period_month")
+  status          String    @default("PREVIEW") // PREVIEW|CALCULATING|CALCULATED|APPROVED|POSTED|REVERSED|ERROR
+  sourceAmount    Decimal   @default(0) @map("source_amount") @db.Decimal(16, 2)
+  allocatedAmount Decimal   @default(0) @map("allocated_amount") @db.Decimal(16, 2)
+  residual        Decimal   @default(0) @db.Decimal(16, 4)
+  calculationVersion Int    @default(1) @map("calculation_version")
+  postingBatch    String?   @map("posting_batch")
+  errors          Json?
+
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  lines        CostAllocationLine[]
+
+  @@index([organizationId, periodYear, periodMonth])
+  @@map("cost_allocation_runs")
+}
+
+/// CostAllocationLine — one row per (rule, target) result within a run;
+/// posting a run turns each of these into an ExpenseAllocation +
+/// EXPENSE_MOVEMENT_REGISTER pair.
+model CostAllocationLine {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  runId            String   @map("run_id")
+  allocationRuleId String   @map("allocation_rule_id")
+  sourceCostCenterId String @map("source_cost_center_id")
+  targetType       String   @map("target_type")
+  targetId         String   @map("target_id")
+  driverValue      Decimal? @map("driver_value") @db.Decimal(18, 4)
+  percentage       Decimal? @db.Decimal(7, 4)
+  allocatedAmount  Decimal  @map("allocated_amount") @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id])
+  run    CostAllocationRun @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@map("cost_allocation_lines")
+}
+
+/// ExpenseAdjustment (spec sections 106-109) — the only sanctioned way to
+/// change a posted claim's cost-center/tax/prepaid classification;
+/// reclassification nets to zero on the total (spec section 107: A -1,000
+/// / B +1,000).
+model ExpenseAdjustment {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  organizationId      String    @map("organization_id")
+  adjustmentType      String    @map("adjustment_type") // RECLASSIFY_COST_CENTER|RECLASSIFY_PROJECT|TAX_CORRECTION|PREPAID_CORRECTION|EMPLOYEE_SETTLEMENT_CORRECTION|ACCOUNTING_CORRECTION|OTHER
+  sourceClaimLineId   String?   @map("source_claim_line_id")
+  sourcePrepaidExpenseId String? @map("source_prepaid_expense_id")
+  fromValue           Json?     @map("from_value")
+  toValue              Json?    @map("to_value")
+  amount              Decimal?  @db.Decimal(14, 2)
+  reason              String
+  status              String    @default("DRAFT") // DRAFT|POSTED
+  postedAt            DateTime? @map("posted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, adjustmentType])
+  @@map("expense_adjustments")
+}
+
+/// ExpensePeriod (spec sections 116-118).
+model ExpensePeriod {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  organizationId String    @map("organization_id")
+  year           Int
+  month          Int
+  periodStart    DateTime  @map("period_start") @db.Date
+  periodEnd      DateTime  @map("period_end") @db.Date
+  status         String    @default("OPEN") // OPEN|REVIEW|ALLOCATION_PENDING|PREPAID_PENDING|READY_TO_CLOSE|CLOSED|REOPENED|ERROR
+  closedAt       DateTime? @map("closed_at")
+  reopenedAt     DateTime? @map("reopened_at")
+  reopenReason   String?   @map("reopen_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, year, month])
+  @@map("expense_periods")
+}
+
+/// ExpenseBudget (spec sections 76-77) — a basic foundation only: no
+/// commitment engine, `committedAmount` is a manually-entered/foundation
+/// field, not computed from live purchase orders/expense requests (spec
+/// section 79's fuller ask is out of this phase's scope).
+model ExpenseBudget {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  organizationId      String   @map("organization_id")
+  periodYear          Int      @map("period_year")
+  periodMonth         Int      @map("period_month")
+  costCenterId        String?  @map("cost_center_id")
+  expenseCategoryId   String?  @map("expense_category_id")
+  projectId           String?  @map("project_id")
+  currencyId          String?  @map("currency_id")
+  budgetAmount        Decimal  @default(0) @map("budget_amount") @db.Decimal(16, 2)
+  revisedBudgetAmount Decimal? @map("revised_budget_amount") @db.Decimal(16, 2)
+  committedAmount     Decimal  @default(0) @map("committed_amount") @db.Decimal(16, 2)
+  notes               String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, periodYear, periodMonth])
+  @@map("expense_budgets")
 }
