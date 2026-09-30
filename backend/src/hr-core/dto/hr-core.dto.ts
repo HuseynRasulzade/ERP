@@ -497,6 +497,25 @@ export class ApproveLeaveRecordDto {
   expectedVersion!: number;
 }
 
+export class UpsertLeavePolicyDto {
+  @IsNumber()
+  @Min(0.01)
+  annualEntitlementDays!: number;
+
+  @IsDateString()
+  effectiveFrom!: string;
+}
+
+export class RunLeaveAccrualDto {
+  @IsInt()
+  @Min(2000)
+  periodYear!: number;
+
+  @IsInt()
+  @Min(1)
+  periodMonth!: number;
+}
+
 const ABSENCE_TYPES = [
   'UNEXCUSED',
   'BUSINESS_TRIP',

@@ -169,21 +169,21 @@ model Tenant {
   CashierHandover                         CashierHandover[]
 
   // Fixed Asset Subledger (docx spec Phase 16)
-  FixedAssetCategory              FixedAssetCategory[]
-  FixedAssetAcquisitionCandidate  FixedAssetAcquisitionCandidate[]
-  CapitalInvestmentProject        CapitalInvestmentProject[]
-  CapitalInvestmentCost           CapitalInvestmentCost[]
-  FixedAsset                      FixedAsset[]
-  FixedAssetTransfer              FixedAssetTransfer[]
-  FixedAssetPolicyChange          FixedAssetPolicyChange[]
-  FixedAssetModernization         FixedAssetModernization[]
-  FixedAssetImpairment            FixedAssetImpairment[]
-  FixedAssetDisposal              FixedAssetDisposal[]
-  FixedAssetDepreciationRun       FixedAssetDepreciationRun[]
-  FixedAssetDepreciationLine      FixedAssetDepreciationLine[]
-  FixedAssetInventoryCount        FixedAssetInventoryCount[]
-  FixedAssetInventoryResult       FixedAssetInventoryResult[]
-  FixedAssetOpeningBalance        FixedAssetOpeningBalance[]
+  FixedAssetCategory             FixedAssetCategory[]
+  FixedAssetAcquisitionCandidate FixedAssetAcquisitionCandidate[]
+  CapitalInvestmentProject       CapitalInvestmentProject[]
+  CapitalInvestmentCost          CapitalInvestmentCost[]
+  FixedAsset                     FixedAsset[]
+  FixedAssetTransfer             FixedAssetTransfer[]
+  FixedAssetPolicyChange         FixedAssetPolicyChange[]
+  FixedAssetModernization        FixedAssetModernization[]
+  FixedAssetImpairment           FixedAssetImpairment[]
+  FixedAssetDisposal             FixedAssetDisposal[]
+  FixedAssetDepreciationRun      FixedAssetDepreciationRun[]
+  FixedAssetDepreciationLine     FixedAssetDepreciationLine[]
+  FixedAssetInventoryCount       FixedAssetInventoryCount[]
+  FixedAssetInventoryResult      FixedAssetInventoryResult[]
+  FixedAssetOpeningBalance       FixedAssetOpeningBalance[]
 
   // HR Core / Employment Lifecycle Engine (docx spec Phase 17)
   PhysicalPerson            PhysicalPerson[]
@@ -202,23 +202,26 @@ model Tenant {
   AbsenceRecord             AbsenceRecord[]
   EmploymentStatusHistory   EmploymentStatusHistory[]
   TerminationDocument       TerminationDocument[]
+  LeavePolicy               LeavePolicy[]
+  LeaveBalanceMovement      LeaveBalanceMovement[]
+  LeaveAccrualRun           LeaveAccrualRun[]
 
   // Work Time / Timesheet Engine (docx spec Phase 18)
-  ProductionCalendar     ProductionCalendar[]
-  ProductionCalendarDay  ProductionCalendarDay[]
-  WorkScheduleTemplate   WorkScheduleTemplate[]
-  ShiftTemplate          ShiftTemplate[]
-  WorkSchedulePattern    WorkSchedulePattern[]
-  EmployeeDailyWorkPlan  EmployeeDailyWorkPlan[]
-  AttendanceEvent        AttendanceEvent[]
-  AttendanceInterval     AttendanceInterval[]
-  TimeEntry              TimeEntry[]
-  Timesheet              Timesheet[]
-  TimesheetLine          TimesheetLine[]
-  OvertimeRecord         OvertimeRecord[]
-  TimeCorrection         TimeCorrection[]
-  WorkTimePeriod         WorkTimePeriod[]
-  PayrollTimeInput       PayrollTimeInput[]
+  ProductionCalendar    ProductionCalendar[]
+  ProductionCalendarDay ProductionCalendarDay[]
+  WorkScheduleTemplate  WorkScheduleTemplate[]
+  ShiftTemplate         ShiftTemplate[]
+  WorkSchedulePattern   WorkSchedulePattern[]
+  EmployeeDailyWorkPlan EmployeeDailyWorkPlan[]
+  AttendanceEvent       AttendanceEvent[]
+  AttendanceInterval    AttendanceInterval[]
+  TimeEntry             TimeEntry[]
+  Timesheet             Timesheet[]
+  TimesheetLine         TimesheetLine[]
+  OvertimeRecord        OvertimeRecord[]
+  TimeCorrection        TimeCorrection[]
+  WorkTimePeriod        WorkTimePeriod[]
+  PayrollTimeInput      PayrollTimeInput[]
 
   // Payroll / Gross-to-Net Engine (docx spec Phase 19)
   PayrollPeriod                  PayrollPeriod[]
@@ -432,6 +435,8 @@ model Organization {
   StaffingPosition StaffingPosition[]
   HireDocument     HireDocument[]
   EmployeeTransfer EmployeeTransfer[]
+  LeavePolicy      LeavePolicy[]
+  LeaveAccrualRun  LeaveAccrualRun[]
 
   // Work Time / Timesheet Engine (docx spec Phase 18)
   ProductionCalendar    ProductionCalendar[]
@@ -441,10 +446,10 @@ model Organization {
   PayrollTimeInput      PayrollTimeInput[]
 
   // Payroll / Gross-to-Net Engine (docx spec Phase 19)
-  PayrollPeriod          PayrollPeriod[]
-  PayrollCalculationRun  PayrollCalculationRun[]
-  PayrollPaymentBatch    PayrollPaymentBatch[]
-  PayrollPosting         PayrollPosting[]
+  PayrollPeriod         PayrollPeriod[]
+  PayrollCalculationRun PayrollCalculationRun[]
+  PayrollPaymentBatch   PayrollPaymentBatch[]
+  PayrollPosting        PayrollPosting[]
 
   // Expenses / Cost Centers / Employee Expenses (docx spec Phase 20)
   CostCenter            CostCenter[]
@@ -7182,39 +7187,39 @@ model CapitalInvestmentCost {
 /// depreciation, impairment, NBV) are deliberately NOT columns here — see
 /// FixedAssetBalanceService, which derives them from RegisterMovement.
 model FixedAsset {
-  id                     String    @id @default(uuid())
-  tenantId               String    @map("tenant_id")
-  organizationId         String    @map("organization_id")
-  assetNumber            String?   @map("asset_number")
-  inventoryNumber        String?   @map("inventory_number")
-  name                   String
-  description            String?
-  categoryId             String    @map("category_id")
-  parentAssetId          String?   @map("parent_asset_id")
-  cipProjectId           String?   @map("cip_project_id")
-  acquisitionDate        DateTime  @map("acquisition_date") @db.Date
-  acceptanceDate         DateTime? @map("acceptance_date") @db.Date
-  commissioningDate      DateTime? @map("commissioning_date") @db.Date
-  depreciationStartDate  DateTime? @map("depreciation_start_date") @db.Date
-  disposalDate           DateTime? @map("disposal_date") @db.Date
-  locationWarehouseId    String?   @map("location_warehouse_id")
-  departmentId           String?   @map("department_id")
-  responsiblePersonId    String?   @map("responsible_person_id")
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  assetNumber           String?   @map("asset_number")
+  inventoryNumber       String?   @map("inventory_number")
+  name                  String
+  description           String?
+  categoryId            String    @map("category_id")
+  parentAssetId         String?   @map("parent_asset_id")
+  cipProjectId          String?   @map("cip_project_id")
+  acquisitionDate       DateTime  @map("acquisition_date") @db.Date
+  acceptanceDate        DateTime? @map("acceptance_date") @db.Date
+  commissioningDate     DateTime? @map("commissioning_date") @db.Date
+  depreciationStartDate DateTime? @map("depreciation_start_date") @db.Date
+  disposalDate          DateTime? @map("disposal_date") @db.Date
+  locationWarehouseId   String?   @map("location_warehouse_id")
+  departmentId          String?   @map("department_id")
+  responsiblePersonId   String?   @map("responsible_person_id")
   // ACQUISITION|UNDER_CONSTRUCTION|ACCEPTED|NOT_COMMISSIONED|ACTIVE|SUSPENDED|
   // CONSERVED|UNDER_MODERNIZATION|IMPAIRED|HELD_FOR_SALE|PARTIALLY_DISPOSED|
   // DISPOSED|WRITTEN_OFF
-  status                 String    @default("ACQUISITION")
-  ownershipType          String    @default("OWNED") @map("ownership_type")
-  serialNumber           String?   @map("serial_number")
-  manufacturer           String?
-  model                  String?
-  usefulLifeMonths       Int?      @map("useful_life_months")
-  depreciationMethod     String    @default("STRAIGHT_LINE") @map("depreciation_method")
-  residualValue          Decimal   @default(0) @map("residual_value") @db.Decimal(18, 2)
+  status                String    @default("ACQUISITION")
+  ownershipType         String    @default("OWNED") @map("ownership_type")
+  serialNumber          String?   @map("serial_number")
+  manufacturer          String?
+  model                 String?
+  usefulLifeMonths      Int?      @map("useful_life_months")
+  depreciationMethod    String    @default("STRAIGHT_LINE") @map("depreciation_method")
+  residualValue         Decimal   @default(0) @map("residual_value") @db.Decimal(18, 2)
   // FROM_COMMISSIONING_DATE|NEXT_DAY|NEXT_MONTH|FIRST_DAY_NEXT_MONTH
-  depreciationStartRule  String    @default("FIRST_DAY_NEXT_MONTH") @map("depreciation_start_rule")
-  initialCost            Decimal   @default(0) @map("initial_cost") @db.Decimal(18, 2)
-  currencyId             String?   @map("currency_id")
+  depreciationStartRule String    @default("FIRST_DAY_NEXT_MONTH") @map("depreciation_start_rule")
+  initialCost           Decimal   @default(0) @map("initial_cost") @db.Decimal(18, 2)
+  currencyId            String?   @map("currency_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -7228,7 +7233,7 @@ model FixedAsset {
   cipProject   CapitalInvestmentProject? @relation(fields: [cipProjectId], references: [id])
   parentAsset  FixedAsset?               @relation("AssetComponents", fields: [parentAssetId], references: [id])
 
-  components        FixedAsset[]                      @relation("AssetComponents")
+  components        FixedAsset[]                     @relation("AssetComponents")
   candidates        FixedAssetAcquisitionCandidate[]
   transfers         FixedAssetTransfer[]
   policyChanges     FixedAssetPolicyChange[]
@@ -7275,17 +7280,17 @@ model FixedAssetTransfer {
 /// life / residual value / depreciation method history. Prospective only
 /// (spec section 35): past periods are never rewritten.
 model FixedAssetPolicyChange {
-  id                     String   @id @default(uuid())
-  tenantId               String   @map("tenant_id")
-  assetId                String   @map("asset_id")
-  effectiveDate          DateTime @map("effective_date") @db.Date
-  oldUsefulLifeMonths    Int?     @map("old_useful_life_months")
-  newUsefulLifeMonths    Int?     @map("new_useful_life_months")
-  oldResidualValue       Decimal? @map("old_residual_value") @db.Decimal(18, 2)
-  newResidualValue       Decimal? @map("new_residual_value") @db.Decimal(18, 2)
-  oldDepreciationMethod  String?  @map("old_depreciation_method")
-  newDepreciationMethod  String?  @map("new_depreciation_method")
-  reason                 String?
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  assetId               String   @map("asset_id")
+  effectiveDate         DateTime @map("effective_date") @db.Date
+  oldUsefulLifeMonths   Int?     @map("old_useful_life_months")
+  newUsefulLifeMonths   Int?     @map("new_useful_life_months")
+  oldResidualValue      Decimal? @map("old_residual_value") @db.Decimal(18, 2)
+  newResidualValue      Decimal? @map("new_residual_value") @db.Decimal(18, 2)
+  oldDepreciationMethod String?  @map("old_depreciation_method")
+  newDepreciationMethod String?  @map("new_depreciation_method")
+  reason                String?
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -7392,16 +7397,16 @@ model FixedAssetDisposal {
   status         DocumentStatus @default(DRAFT)
   postingStatus  PostingStatus  @default(NOT_POSTED) @map("posting_status")
 
-  assetId                            String   @map("asset_id")
-  disposalType                       String   @map("disposal_type") // SALE|WRITE_OFF|SCRAP|DONATION|LOSS|THEFT|PARTIAL_DISPOSAL
-  proceeds                           Decimal? @db.Decimal(18, 2)
-  buyerId                            String?  @map("buyer_id")
-  disposalCosts                      Decimal  @default(0) @map("disposal_costs") @db.Decimal(18, 2)
-  sourceSalesInvoiceId               String?  @map("source_sales_invoice_id")
-  reason                             String?
-  grossCostAtDisposal                Decimal? @map("gross_cost_at_disposal") @db.Decimal(18, 2)
-  accumulatedDepreciationAtDisposal  Decimal? @map("accumulated_depreciation_at_disposal") @db.Decimal(18, 2)
-  gainLoss                           Decimal? @map("gain_loss") @db.Decimal(18, 2)
+  assetId                           String   @map("asset_id")
+  disposalType                      String   @map("disposal_type") // SALE|WRITE_OFF|SCRAP|DONATION|LOSS|THEFT|PARTIAL_DISPOSAL
+  proceeds                          Decimal? @db.Decimal(18, 2)
+  buyerId                           String?  @map("buyer_id")
+  disposalCosts                     Decimal  @default(0) @map("disposal_costs") @db.Decimal(18, 2)
+  sourceSalesInvoiceId              String?  @map("source_sales_invoice_id")
+  reason                            String?
+  grossCostAtDisposal               Decimal? @map("gross_cost_at_disposal") @db.Decimal(18, 2)
+  accumulatedDepreciationAtDisposal Decimal? @map("accumulated_depreciation_at_disposal") @db.Decimal(18, 2)
+  gainLoss                          Decimal? @map("gain_loss") @db.Decimal(18, 2)
 
   createdAt   DateTime  @default(now()) @map("created_at")
   createdBy   String?   @map("created_by")
@@ -7490,29 +7495,29 @@ model FixedAssetInventoryCount {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant       Tenant                       @relation(fields: [tenantId], references: [id])
-  organization Organization                 @relation(fields: [organizationId], references: [id])
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id])
+  organization Organization                @relation(fields: [organizationId], references: [id])
   results      FixedAssetInventoryResult[]
 
   @@map("fixed_asset_inventory_counts")
 }
 
 model FixedAssetInventoryResult {
-  id                           String  @id @default(uuid())
-  tenantId                     String  @map("tenant_id")
-  countId                      String  @map("count_id")
-  assetId                      String? @map("asset_id")
+  id                          String  @id @default(uuid())
+  tenantId                    String  @map("tenant_id")
+  countId                     String  @map("count_id")
+  assetId                     String? @map("asset_id")
   // FOUND|MISSING|WRONG_LOCATION|WRONG_RESPONSIBLE_PERSON|DAMAGED|UNREGISTERED_ASSET
-  resultType                   String  @map("result_type")
-  expectedLocationWarehouseId  String? @map("expected_location_warehouse_id")
-  foundLocationWarehouseId     String? @map("found_location_warehouse_id")
-  expectedResponsiblePersonId  String? @map("expected_responsible_person_id")
-  foundResponsiblePersonId     String? @map("found_responsible_person_id")
-  condition                    String?
-  notes                        String?
-  resolutionStatus             String  @default("OPEN") @map("resolution_status") // OPEN|RESOLVED
-  resolutionDocumentType       String? @map("resolution_document_type")
-  resolutionDocumentId         String? @map("resolution_document_id")
+  resultType                  String  @map("result_type")
+  expectedLocationWarehouseId String? @map("expected_location_warehouse_id")
+  foundLocationWarehouseId    String? @map("found_location_warehouse_id")
+  expectedResponsiblePersonId String? @map("expected_responsible_person_id")
+  foundResponsiblePersonId    String? @map("found_responsible_person_id")
+  condition                   String?
+  notes                       String?
+  resolutionStatus            String  @default("OPEN") @map("resolution_status") // OPEN|RESOLVED
+  resolutionDocumentType      String? @map("resolution_document_type")
+  resolutionDocumentId        String? @map("resolution_document_id")
 
   tenant Tenant                   @relation(fields: [tenantId], references: [id])
   count  FixedAssetInventoryCount @relation(fields: [countId], references: [id])
@@ -7528,11 +7533,11 @@ model FixedAssetOpeningBalance {
   id                        String   @id @default(uuid())
   tenantId                  String   @map("tenant_id")
   assetId                   String   @unique @map("asset_id")
-  openingDate                DateTime @map("opening_date") @db.Date
-  originalCost               Decimal  @map("original_cost") @db.Decimal(18, 2)
-  accumulatedDepreciation    Decimal  @default(0) @map("accumulated_depreciation") @db.Decimal(18, 2)
-  impairment                 Decimal  @default(0) @db.Decimal(18, 2)
-  remainingUsefulLifeMonths  Int?     @map("remaining_useful_life_months")
+  openingDate               DateTime @map("opening_date") @db.Date
+  originalCost              Decimal  @map("original_cost") @db.Decimal(18, 2)
+  accumulatedDepreciation   Decimal  @default(0) @map("accumulated_depreciation") @db.Decimal(18, 2)
+  impairment                Decimal  @default(0) @db.Decimal(18, 2)
+  remainingUsefulLifeMonths Int?     @map("remaining_useful_life_months")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -7611,8 +7616,8 @@ model Employee {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant         Tenant           @relation(fields: [tenantId], references: [id])
-  physicalPerson PhysicalPerson   @relation(fields: [physicalPersonId], references: [id])
+  tenant         Tenant         @relation(fields: [tenantId], references: [id])
+  physicalPerson PhysicalPerson @relation(fields: [physicalPersonId], references: [id])
   employments    Employment[]
   hireDocuments  HireDocument[]
 
@@ -7659,16 +7664,17 @@ model Employment {
   position     Position     @relation(fields: [positionId], references: [id])
   manager      Employment?  @relation("ManagerHierarchy", fields: [managerEmploymentId], references: [id])
 
-  reports                 Employment[]               @relation("ManagerHierarchy")
+  reports                 Employment[]              @relation("ManagerHierarchy")
   contract                EmploymentContract?
-  hireDocument             HireDocument?
-  assignments              EmployeeAssignment[]
-  transfers                EmployeeTransfer[]
-  workScheduleAssignments  WorkScheduleAssignment[]
-  leaveRecords             LeaveRecord[]
-  absenceRecords           AbsenceRecord[]
-  statusHistory            EmploymentStatusHistory[]
-  terminations             TerminationDocument[]
+  hireDocument            HireDocument?
+  assignments             EmployeeAssignment[]
+  transfers               EmployeeTransfer[]
+  workScheduleAssignments WorkScheduleAssignment[]
+  leaveRecords            LeaveRecord[]
+  absenceRecords          AbsenceRecord[]
+  statusHistory           EmploymentStatusHistory[]
+  terminations            TerminationDocument[]
+  leaveBalanceMovements   LeaveBalanceMovement[]
 
   @@index([organizationId, status])
   @@index([employeeId])
@@ -7680,19 +7686,19 @@ model EmploymentContract {
   id                        String    @id @default(uuid())
   tenantId                  String    @map("tenant_id")
   employmentId              String    @unique @map("employment_id")
-  contractNumber             String   @map("contract_number")
-  contractDate                DateTime @map("contract_date") @db.Date
-  effectiveFrom                DateTime @map("effective_from") @db.Date
-  effectiveTo                  DateTime? @map("effective_to") @db.Date
-  contractType                  String @map("contract_type")
-  probationPeriodMonths          Int?  @map("probation_period_months")
-  workLocation                    String? @map("work_location")
-  workingTimeType                  String? @map("working_time_type")
-  baseCompensationReference         String? @map("base_compensation_reference")
-  conditions                          String?
-  signedStatus                         String @default("UNSIGNED") @map("signed_status")
-  attachmentId                          String? @map("attachment_id")
-  status                                String @default("ACTIVE")
+  contractNumber            String    @map("contract_number")
+  contractDate              DateTime  @map("contract_date") @db.Date
+  effectiveFrom             DateTime  @map("effective_from") @db.Date
+  effectiveTo               DateTime? @map("effective_to") @db.Date
+  contractType              String    @map("contract_type")
+  probationPeriodMonths     Int?      @map("probation_period_months")
+  workLocation              String?   @map("work_location")
+  workingTimeType           String?   @map("working_time_type")
+  baseCompensationReference String?   @map("base_compensation_reference")
+  conditions                String?
+  signedStatus              String    @default("UNSIGNED") @map("signed_status")
+  attachmentId              String?   @map("attachment_id")
+  status                    String    @default("ACTIVE")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -7700,8 +7706,8 @@ model EmploymentContract {
   updatedBy String?  @map("updated_by")
   version   Int      @default(1)
 
-  tenant     Tenant                       @relation(fields: [tenantId], references: [id])
-  employment Employment                   @relation(fields: [employmentId], references: [id])
+  tenant     Tenant                      @relation(fields: [tenantId], references: [id])
+  employment Employment                  @relation(fields: [employmentId], references: [id])
   versions   EmploymentContractVersion[]
 
   @@map("hr_employment_contracts")
@@ -7964,16 +7970,16 @@ model WorkScheduleAssignment {
 /// LeaveRecord — HR-side foundation only (spec section 38); full leave
 /// balance/entitlement calculation is Phase 18's job.
 model LeaveRecord {
-  id                 String    @id @default(uuid())
-  tenantId           String    @map("tenant_id")
-  employmentId       String    @map("employment_id")
-  leaveType          String    @map("leave_type")
-  startDate          DateTime  @map("start_date") @db.Date
-  endDate            DateTime  @map("end_date") @db.Date
-  status             String    @default("REQUESTED")
-  requestDate        DateTime  @default(now()) @map("request_date")
-  approvedBy         String?   @map("approved_by")
-  approvedAt         DateTime? @map("approved_at")
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  employmentId String    @map("employment_id")
+  leaveType    String    @map("leave_type")
+  startDate    DateTime  @map("start_date") @db.Date
+  endDate      DateTime  @map("end_date") @db.Date
+  status       String    @default("REQUESTED")
+  requestDate  DateTime  @default(now()) @map("request_date")
+  approvedBy   String?   @map("approved_by")
+  approvedAt   DateTime? @map("approved_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -7989,15 +7995,15 @@ model LeaveRecord {
 /// AbsenceRecord — foundation for Phase 18's worked-hours calculation
 /// (spec section 40).
 model AbsenceRecord {
-  id                 String  @id @default(uuid())
-  tenantId           String  @map("tenant_id")
-  employmentId       String  @map("employment_id")
-  absenceType        String  @map("absence_type")
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  employmentId       String   @map("employment_id")
+  absenceType        String   @map("absence_type")
   startDate          DateTime @map("start_date") @db.Date
   endDate            DateTime @map("end_date") @db.Date
   reason             String?
-  supportingDocument String? @map("supporting_document")
-  status             String  @default("RECORDED")
+  supportingDocument String?  @map("supporting_document")
+  status             String   @default("RECORDED")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -8062,6 +8068,83 @@ model TerminationDocument {
 
   @@index([employmentId])
   @@map("hr_termination_documents")
+}
+
+/// LeavePolicy — effective-dated ANNUAL leave entitlement policy, one per
+/// organization (docx spec Phase 17 continuation, closes the "no accrual
+/// engine" gap disclosed on LeaveRecordService). One rate applies to every
+/// employment in the org — disclosed simplification: no per-employment-
+/// type/contract-type differentiation, same "per-org, not per-line-item"
+/// scope as InventoryCostingPolicy elsewhere in this codebase.
+model LeavePolicy {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  annualEntitlementDays Decimal   @map("annual_entitlement_days") @db.Decimal(6, 2)
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  status                String    @default("ACTIVE")
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, effectiveFrom])
+  @@map("hr_leave_policies")
+}
+
+/// LeaveBalanceMovement — append-only ANNUAL-leave balance ledger (same
+/// Truth-Engine convention as InventoryCostMovement/RegisterMovement
+/// elsewhere in this codebase): never a mutable balance field on
+/// Employment, always summed as-of a date by LeaveBalanceService. Scoped
+/// to ANNUAL leave only — SICK/UNPAID/MATERNITY/etc. never consume
+/// balance (disclosed simplification, same as LeaveRecord's own leaveType
+/// list not distinguishing paid/unpaid categories beyond this).
+model LeaveBalanceMovement {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  employmentId       String   @map("employment_id")
+  /// ACCRUAL|CONSUMPTION|ADJUSTMENT
+  movementType       String   @map("movement_type")
+  /// Signed: positive for ACCRUAL/a credit ADJUSTMENT, negative for
+  /// CONSUMPTION/a debit ADJUSTMENT.
+  quantityDays       Decimal  @map("quantity_days") @db.Decimal(6, 2)
+  effectiveDate      DateTime @map("effective_date") @db.Date
+  sourceDocumentType String?  @map("source_document_type")
+  sourceDocumentId   String?  @map("source_document_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  employment Employment @relation(fields: [employmentId], references: [id])
+
+  @@index([employmentId, effectiveDate])
+  @@map("hr_leave_balance_movements")
+}
+
+/// LeaveAccrualRun — idempotent monthly ANNUAL-leave accrual, one row per
+/// organization+period (the `@@unique` is the idempotency guard). Credits
+/// every employment ACTIVE at any point during the period with
+/// `LeavePolicy.annualEntitlementDays / 12`.
+model LeaveAccrualRun {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  organizationId     String   @map("organization_id")
+  periodYear         Int      @map("period_year")
+  periodMonth        Int      @map("period_month")
+  employmentsAccrued Int      @map("employments_accrued")
+  totalDaysAccrued   Decimal  @map("total_days_accrued") @db.Decimal(10, 2)
+  runAt              DateTime @default(now()) @map("run_at")
+  runBy              String?  @map("run_by")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, periodYear, periodMonth])
+  @@map("hr_leave_accrual_runs")
 }
 
 // ============================================================================
@@ -8510,12 +8593,12 @@ model PayrollPeriod {
   reopenedAt         DateTime? @map("reopened_at")
   reopenReason       String?   @map("reopen_reason")
 
-  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
-  organization     Organization              @relation(fields: [organizationId], references: [id])
-  calculationRuns  PayrollCalculationRun[]
-  results          PayrollCalculationResult[]
-  paymentBatches   PayrollPaymentBatch[]
-  posting          PayrollPosting?
+  tenant          Tenant                     @relation(fields: [tenantId], references: [id])
+  organization    Organization               @relation(fields: [organizationId], references: [id])
+  calculationRuns PayrollCalculationRun[]
+  results         PayrollCalculationResult[]
+  paymentBatches  PayrollPaymentBatch[]
+  posting         PayrollPosting?
 
   @@unique([organizationId, year, month])
   @@index([organizationId, status])
@@ -8526,21 +8609,21 @@ model PayrollPeriod {
 /// a mid-period change never overwrites the prior row; the calculation
 /// engine splits the period into segments at each effectiveFrom boundary.
 model EmployeeCompensationAssignment {
-  id                String    @id @default(uuid())
-  tenantId          String    @map("tenant_id")
-  employmentId      String    @map("employment_id")
-  effectiveFrom     DateTime  @map("effective_from") @db.Date
-  effectiveTo       DateTime? @map("effective_to") @db.Date
-  compensationType  String    @default("REGULAR") @map("compensation_type")
-  payBasis          String    @map("pay_basis") // MONTHLY_SALARY|HOURLY|DAILY|PIECE_RATE|FIXED_PERIOD_AMOUNT
-  baseSalary        Decimal?  @map("base_salary") @db.Decimal(14, 2)
-  hourlyRate        Decimal?  @map("hourly_rate") @db.Decimal(10, 4)
-  dailyRate         Decimal?  @map("daily_rate") @db.Decimal(12, 2)
-  currencyId        String?   @map("currency_id")
-  fteBasis          String    @default("ACTUAL_ASSIGNED_SALARY") @map("fte_basis") // FULL_FTE_RATE|ACTUAL_ASSIGNED_SALARY
-  salaryGrade       String?   @map("salary_grade")
-  sourceDocument     String?   @map("source_document")
-  status            String    @default("ACTIVE")
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  employmentId     String    @map("employment_id")
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  effectiveTo      DateTime? @map("effective_to") @db.Date
+  compensationType String    @default("REGULAR") @map("compensation_type")
+  payBasis         String    @map("pay_basis") // MONTHLY_SALARY|HOURLY|DAILY|PIECE_RATE|FIXED_PERIOD_AMOUNT
+  baseSalary       Decimal?  @map("base_salary") @db.Decimal(14, 2)
+  hourlyRate       Decimal?  @map("hourly_rate") @db.Decimal(10, 4)
+  dailyRate        Decimal?  @map("daily_rate") @db.Decimal(12, 2)
+  currencyId       String?   @map("currency_id")
+  fteBasis         String    @default("ACTUAL_ASSIGNED_SALARY") @map("fte_basis") // FULL_FTE_RATE|ACTUAL_ASSIGNED_SALARY
+  salaryGrade      String?   @map("salary_grade")
+  sourceDocument   String?   @map("source_document")
+  status           String    @default("ACTIVE")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -8664,18 +8747,18 @@ model PayrollTaxBracket {
 /// sections 54-58: never mix employee/employer, never assume one flat
 /// threshold across years).
 model PayrollContributionBracket {
-  id              String    @id @default(uuid())
-  tenantId        String    @map("tenant_id")
-  contributionType String   @map("contribution_type") // SOCIAL_INSURANCE|UNEMPLOYMENT|MEDICAL_INSURANCE
-  payerType       String    @map("payer_type") // EMPLOYEE|EMPLOYER
-  regime          String?
-  thresholdFrom   Decimal   @map("threshold_from") @db.Decimal(14, 2)
-  thresholdTo     Decimal?  @map("threshold_to") @db.Decimal(14, 2)
-  fixedComponent  Decimal   @default(0) @map("fixed_component") @db.Decimal(14, 2)
-  percentage      Decimal   @db.Decimal(7, 4)
-  sequence        Int
-  effectiveFrom   DateTime  @map("effective_from") @db.Date
-  effectiveTo     DateTime? @map("effective_to") @db.Date
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  contributionType String    @map("contribution_type") // SOCIAL_INSURANCE|UNEMPLOYMENT|MEDICAL_INSURANCE
+  payerType        String    @map("payer_type") // EMPLOYEE|EMPLOYER
+  regime           String?
+  thresholdFrom    Decimal   @map("threshold_from") @db.Decimal(14, 2)
+  thresholdTo      Decimal?  @map("threshold_to") @db.Decimal(14, 2)
+  fixedComponent   Decimal   @default(0) @map("fixed_component") @db.Decimal(14, 2)
+  percentage       Decimal   @db.Decimal(7, 4)
+  sequence         Int
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  effectiveTo      DateTime? @map("effective_to") @db.Date
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -8709,18 +8792,18 @@ model PayrollTaxRelief {
 /// EmployeeTaxProfile — effective-dated (spec section 48). Sensitive/legal
 /// attributes; permission-controlled at the service layer.
 model PayrollTaxProfile {
-  id                          String    @id @default(uuid())
-  tenantId                    String    @map("tenant_id")
-  employmentId                String    @map("employment_id")
-  taxResidency                String    @default("RESIDENT") @map("tax_residency")
-  mainWorkplace               Boolean   @default(true) @map("main_workplace")
-  sectorCategory               String?   @map("sector_category")
-  exemptionCodes              Json?     @map("exemption_codes")
-  statutoryReliefReference     String?   @map("statutory_relief_reference")
-  taxRegime                   String    @default("STANDARD") @map("tax_regime")
-  effectiveFrom                DateTime  @map("effective_from") @db.Date
-  effectiveTo                  DateTime? @map("effective_to") @db.Date
-  supportingDocument           String?   @map("supporting_document")
+  id                       String    @id @default(uuid())
+  tenantId                 String    @map("tenant_id")
+  employmentId             String    @map("employment_id")
+  taxResidency             String    @default("RESIDENT") @map("tax_residency")
+  mainWorkplace            Boolean   @default(true) @map("main_workplace")
+  sectorCategory           String?   @map("sector_category")
+  exemptionCodes           Json?     @map("exemption_codes")
+  statutoryReliefReference String?   @map("statutory_relief_reference")
+  taxRegime                String    @default("STANDARD") @map("tax_regime")
+  effectiveFrom            DateTime  @map("effective_from") @db.Date
+  effectiveTo              DateTime? @map("effective_to") @db.Date
+  supportingDocument       String?   @map("supporting_document")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -8764,22 +8847,22 @@ model PayrollVariableInput {
 /// `carryForwardBalance` is the legally-uncollectable-this-period remainder
 /// (spec section 130) — never silently dropped.
 model PayrollExecutionOrder {
-  id                      String    @id @default(uuid())
-  tenantId                String    @map("tenant_id")
-  employmentId            String    @map("employment_id")
-  orderType               String    @map("order_type") // ALIMONY|EXECUTION_ORDER|UNION_DUES|EMPLOYEE_LOAN|OTHER
-  creditor                String?
-  executionDocumentReference String? @map("execution_document_reference")
-  calculationMethod       String    @map("calculation_method") // PERCENTAGE|FIXED
-  percentage              Decimal?  @db.Decimal(7, 4)
-  fixedAmount             Decimal?  @map("fixed_amount") @db.Decimal(14, 2)
-  priority                Int       @default(100)
-  effectiveFrom           DateTime  @map("effective_from") @db.Date
-  effectiveTo             DateTime? @map("effective_to") @db.Date
-  capAmount               Decimal?  @map("cap_amount") @db.Decimal(14, 2)
-  protectedMinimumRule    String?   @map("protected_minimum_rule")
-  carryForwardBalance     Decimal   @default(0) @map("carry_forward_balance") @db.Decimal(14, 2)
-  status                  String    @default("ACTIVE")
+  id                         String    @id @default(uuid())
+  tenantId                   String    @map("tenant_id")
+  employmentId               String    @map("employment_id")
+  orderType                  String    @map("order_type") // ALIMONY|EXECUTION_ORDER|UNION_DUES|EMPLOYEE_LOAN|OTHER
+  creditor                   String?
+  executionDocumentReference String?   @map("execution_document_reference")
+  calculationMethod          String    @map("calculation_method") // PERCENTAGE|FIXED
+  percentage                 Decimal?  @db.Decimal(7, 4)
+  fixedAmount                Decimal?  @map("fixed_amount") @db.Decimal(14, 2)
+  priority                   Int       @default(100)
+  effectiveFrom              DateTime  @map("effective_from") @db.Date
+  effectiveTo                DateTime? @map("effective_to") @db.Date
+  capAmount                  Decimal?  @map("cap_amount") @db.Decimal(14, 2)
+  protectedMinimumRule       String?   @map("protected_minimum_rule")
+  carryForwardBalance        Decimal   @default(0) @map("carry_forward_balance") @db.Decimal(14, 2)
+  status                     String    @default("ACTIVE")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -8795,21 +8878,21 @@ model PayrollExecutionOrder {
 /// earnings, adjustment coefficients, and the resulting average — fully
 /// traceable per spec section 39.
 model AverageEarningsCalculation {
-  id                     String    @id @default(uuid())
-  tenantId               String    @map("tenant_id")
-  employmentId           String    @map("employment_id")
-  calculationType        String    @map("calculation_type") // LEAVE_PAY|SICK_PAY|TERMINATION|BUSINESS_TRIP
-  referencePeriodStart   DateTime  @map("reference_period_start") @db.Date
-  referencePeriodEnd     DateTime  @map("reference_period_end") @db.Date
-  includedEarnings       Json?     @map("included_earnings")
-  excludedEarnings       Json?     @map("excluded_earnings")
-  substitutionPeriods    Json?     @map("substitution_periods")
-  adjustmentCoefficient  Decimal?  @map("adjustment_coefficient") @db.Decimal(7, 3)
-  averageMonthly         Decimal?  @map("average_monthly") @db.Decimal(14, 2)
-  averageDaily           Decimal?  @map("average_daily") @db.Decimal(14, 4)
-  paidDays               Decimal?  @map("paid_days") @db.Decimal(6, 2)
-  resultAmount           Decimal?  @map("result_amount") @db.Decimal(14, 2)
-  sourceResultId         String?   @map("source_result_id")
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  employmentId          String   @map("employment_id")
+  calculationType       String   @map("calculation_type") // LEAVE_PAY|SICK_PAY|TERMINATION|BUSINESS_TRIP
+  referencePeriodStart  DateTime @map("reference_period_start") @db.Date
+  referencePeriodEnd    DateTime @map("reference_period_end") @db.Date
+  includedEarnings      Json?    @map("included_earnings")
+  excludedEarnings      Json?    @map("excluded_earnings")
+  substitutionPeriods   Json?    @map("substitution_periods")
+  adjustmentCoefficient Decimal? @map("adjustment_coefficient") @db.Decimal(7, 3)
+  averageMonthly        Decimal? @map("average_monthly") @db.Decimal(14, 2)
+  averageDaily          Decimal? @map("average_daily") @db.Decimal(14, 4)
+  paidDays              Decimal? @map("paid_days") @db.Decimal(6, 2)
+  resultAmount          Decimal? @map("result_amount") @db.Decimal(14, 2)
+  sourceResultId        String?  @map("source_result_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -8820,28 +8903,28 @@ model AverageEarningsCalculation {
 }
 
 model PayrollCalculationRun {
-  id                String    @id @default(uuid())
-  tenantId          String    @map("tenant_id")
-  organizationId    String    @map("organization_id")
-  payrollPeriodId   String    @map("payroll_period_id")
-  runType           String    @default("REGULAR") @map("run_type") // PREVIEW|REGULAR|RECALCULATION|RETROACTIVE|TERMINATION|OFF_CYCLE|FINAL
-  version           Int       @default(1)
-  status            String    @default("RUNNING")
-  startedAt         DateTime  @default(now()) @map("started_at")
-  completedAt       DateTime? @map("completed_at")
-  initiatedBy       String?   @map("initiated_by")
-  employeesProcessed Int      @default(0) @map("employees_processed")
-  employeesFailed   Int       @default(0) @map("employees_failed")
-  totalGross        Decimal   @default(0) @map("total_gross") @db.Decimal(16, 2)
-  totalNet          Decimal   @default(0) @map("total_net") @db.Decimal(16, 2)
-  totalTaxes        Decimal   @default(0) @map("total_taxes") @db.Decimal(16, 2)
-  totalEmployerCost Decimal   @default(0) @map("total_employer_cost") @db.Decimal(16, 2)
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  organizationId     String    @map("organization_id")
+  payrollPeriodId    String    @map("payroll_period_id")
+  runType            String    @default("REGULAR") @map("run_type") // PREVIEW|REGULAR|RECALCULATION|RETROACTIVE|TERMINATION|OFF_CYCLE|FINAL
+  version            Int       @default(1)
+  status             String    @default("RUNNING")
+  startedAt          DateTime  @default(now()) @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  initiatedBy        String?   @map("initiated_by")
+  employeesProcessed Int       @default(0) @map("employees_processed")
+  employeesFailed    Int       @default(0) @map("employees_failed")
+  totalGross         Decimal   @default(0) @map("total_gross") @db.Decimal(16, 2)
+  totalNet           Decimal   @default(0) @map("total_net") @db.Decimal(16, 2)
+  totalTaxes         Decimal   @default(0) @map("total_taxes") @db.Decimal(16, 2)
+  totalEmployerCost  Decimal   @default(0) @map("total_employer_cost") @db.Decimal(16, 2)
 
-  tenant       Tenant                     @relation(fields: [tenantId], references: [id])
-  organization Organization               @relation(fields: [organizationId], references: [id])
-  payrollPeriod PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
-  results      PayrollCalculationResult[]
-  errors       PayrollError[]
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id])
+  organization  Organization               @relation(fields: [organizationId], references: [id])
+  payrollPeriod PayrollPeriod              @relation(fields: [payrollPeriodId], references: [id])
+  results       PayrollCalculationResult[]
+  errors        PayrollError[]
 
   @@index([payrollPeriodId, status])
   @@map("payroll_calculation_runs")
@@ -8851,30 +8934,30 @@ model PayrollCalculationRun {
 /// sections 76, 91): a retro correction creates a new version and points
 /// the old one's `supersededById` forward; it is never overwritten.
 model PayrollCalculationResult {
-  id                    String   @id @default(uuid())
-  tenantId              String   @map("tenant_id")
-  employmentId          String   @map("employment_id")
-  payrollPeriodId       String   @map("payroll_period_id")
-  calculationRunId      String   @map("calculation_run_id")
-  version               Int      @default(1)
-  gross                 Decimal  @default(0) @db.Decimal(14, 2)
-  taxableIncome         Decimal  @default(0) @map("taxable_income") @db.Decimal(14, 2)
-  employeeDeductions    Decimal  @default(0) @map("employee_deductions") @db.Decimal(14, 2)
-  net                   Decimal  @default(0) @db.Decimal(14, 2)
-  employerContributions Decimal  @default(0) @map("employer_contributions") @db.Decimal(14, 2)
-  employerTotalCost     Decimal  @default(0) @map("employer_total_cost") @db.Decimal(14, 2)
-  status                String   @default("CALCULATED") // CALCULATED|SUPERSEDED|ERROR
-  supersededById        String?  @unique @map("superseded_by_id")
+  id                    String  @id @default(uuid())
+  tenantId              String  @map("tenant_id")
+  employmentId          String  @map("employment_id")
+  payrollPeriodId       String  @map("payroll_period_id")
+  calculationRunId      String  @map("calculation_run_id")
+  version               Int     @default(1)
+  gross                 Decimal @default(0) @db.Decimal(14, 2)
+  taxableIncome         Decimal @default(0) @map("taxable_income") @db.Decimal(14, 2)
+  employeeDeductions    Decimal @default(0) @map("employee_deductions") @db.Decimal(14, 2)
+  net                   Decimal @default(0) @db.Decimal(14, 2)
+  employerContributions Decimal @default(0) @map("employer_contributions") @db.Decimal(14, 2)
+  employerTotalCost     Decimal @default(0) @map("employer_total_cost") @db.Decimal(14, 2)
+  status                String  @default("CALCULATED") // CALCULATED|SUPERSEDED|ERROR
+  supersededById        String? @unique @map("superseded_by_id")
   snapshot              Json?
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
-  payrollPeriod    PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
-  calculationRun   PayrollCalculationRun     @relation(fields: [calculationRunId], references: [id])
-  supersededBy     PayrollCalculationResult? @relation("PayrollResultRetro", fields: [supersededById], references: [id])
-  supersedes       PayrollCalculationResult? @relation("PayrollResultRetro")
-  lines            PayrollResultLine[]
+  tenant         Tenant                    @relation(fields: [tenantId], references: [id])
+  payrollPeriod  PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
+  calculationRun PayrollCalculationRun     @relation(fields: [calculationRunId], references: [id])
+  supersededBy   PayrollCalculationResult? @relation("PayrollResultRetro", fields: [supersededById], references: [id])
+  supersedes     PayrollCalculationResult? @relation("PayrollResultRetro")
+  lines          PayrollResultLine[]
 
   @@unique([employmentId, payrollPeriodId, version])
   @@index([payrollPeriodId, status])
@@ -8893,7 +8976,7 @@ model PayrollResultLine {
   quantity            Decimal? @db.Decimal(10, 2)
   rate                Decimal? @db.Decimal(10, 4)
   baseAmount          Decimal? @map("base_amount") @db.Decimal(14, 2)
-  multiplier           Decimal? @db.Decimal(6, 3)
+  multiplier          Decimal? @db.Decimal(6, 3)
   amount              Decimal  @db.Decimal(14, 2)
   taxableFlags        Json?    @map("taxable_flags")
   sourceInput         String?  @map("source_input")
@@ -8910,16 +8993,16 @@ model PayrollResultLine {
 /// PayrollRecalculationRequest — the queue behind spec section 89's
 /// PayrollRecalculationRequired: never a silent history rewrite.
 model PayrollRecalculationRequest {
-  id                     String    @id @default(uuid())
-  tenantId               String    @map("tenant_id")
-  employmentId           String    @map("employment_id")
-  earliestAffectedPeriodId String  @map("earliest_affected_period_id")
-  reason                 String
-  sourceDocumentType     String?   @map("source_document_type")
-  sourceDocumentId       String?   @map("source_document_id")
-  status                 String    @default("PENDING")
-  createdAt              DateTime  @default(now()) @map("created_at")
-  resolvedAt             DateTime? @map("resolved_at")
+  id                       String    @id @default(uuid())
+  tenantId                 String    @map("tenant_id")
+  employmentId             String    @map("employment_id")
+  earliestAffectedPeriodId String    @map("earliest_affected_period_id")
+  reason                   String
+  sourceDocumentType       String?   @map("source_document_type")
+  sourceDocumentId         String?   @map("source_document_id")
+  status                   String    @default("PENDING")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  resolvedAt               DateTime? @map("resolved_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -8928,22 +9011,22 @@ model PayrollRecalculationRequest {
 }
 
 model PayrollError {
-  id               String   @id @default(uuid())
-  tenantId         String   @map("tenant_id")
-  calculationRunId String   @map("calculation_run_id")
-  employmentId     String?  @map("employment_id")
-  calculationCode  String?  @map("calculation_code")
-  errorCode        String   @map("error_code")
+  id               String  @id @default(uuid())
+  tenantId         String  @map("tenant_id")
+  calculationRunId String  @map("calculation_run_id")
+  employmentId     String? @map("employment_id")
+  calculationCode  String? @map("calculation_code")
+  errorCode        String  @map("error_code")
   message          String
-  severity         String   @default("ERROR")
-  blocking         Boolean  @default(true)
+  severity         String  @default("ERROR")
+  blocking         Boolean @default(true)
   source           String?
-  resolved         Boolean  @default(false)
+  resolved         Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  tenant         Tenant                 @relation(fields: [tenantId], references: [id])
-  calculationRun PayrollCalculationRun  @relation(fields: [calculationRunId], references: [id])
+  tenant         Tenant                @relation(fields: [tenantId], references: [id])
+  calculationRun PayrollCalculationRun @relation(fields: [calculationRunId], references: [id])
 
   @@index([calculationRunId, resolved])
   @@map("payroll_errors")
@@ -8953,23 +9036,23 @@ model PayrollError {
 /// Phase 14 (bank)/Phase 15 (cash) consume (spec sections 104-111): Phase
 /// 19 determines who is owed what; it never executes the actual payment.
 model PayrollPaymentBatch {
-  id              String    @id @default(uuid())
-  tenantId        String    @map("tenant_id")
-  organizationId  String    @map("organization_id")
-  payrollPeriodId String    @map("payroll_period_id")
-  paymentMethod   String    @map("payment_method") // BANK|CASH
-  bankAccountId   String?   @map("bank_account_id")
-  cashDeskId      String?   @map("cash_desk_id")
-  paymentDate     DateTime  @map("payment_date") @db.Date
-  totalAmount     Decimal   @default(0) @map("total_amount") @db.Decimal(16, 2)
-  status          String    @default("DRAFT")
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  organizationId  String   @map("organization_id")
+  payrollPeriodId String   @map("payroll_period_id")
+  paymentMethod   String   @map("payment_method") // BANK|CASH
+  bankAccountId   String?  @map("bank_account_id")
+  cashDeskId      String?  @map("cash_desk_id")
+  paymentDate     DateTime @map("payment_date") @db.Date
+  totalAmount     Decimal  @default(0) @map("total_amount") @db.Decimal(16, 2)
+  status          String   @default("DRAFT")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
 
-  tenant        Tenant                    @relation(fields: [tenantId], references: [id])
-  organization  Organization              @relation(fields: [organizationId], references: [id])
-  payrollPeriod PayrollPeriod             @relation(fields: [payrollPeriodId], references: [id])
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id])
+  organization  Organization               @relation(fields: [organizationId], references: [id])
+  payrollPeriod PayrollPeriod              @relation(fields: [payrollPeriodId], references: [id])
   allocations   PayrollPaymentAllocation[]
 
   @@index([organizationId, status])
@@ -8977,21 +9060,21 @@ model PayrollPaymentBatch {
 }
 
 model PayrollPaymentAllocation {
-  id                 String   @id @default(uuid())
-  tenantId           String   @map("tenant_id")
-  paymentBatchId     String?  @map("payment_batch_id")
-  paymentDocumentType String? @map("payment_document_type")
-  paymentDocumentId  String?  @map("payment_document_id")
-  employmentId       String   @map("employment_id")
-  payrollPeriodId    String   @map("payroll_period_id")
-  amount             Decimal  @db.Decimal(14, 2)
-  allocationDate     DateTime @map("allocation_date") @db.Date
-  status             String   @default("ALLOCATED")
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  paymentBatchId      String?  @map("payment_batch_id")
+  paymentDocumentType String?  @map("payment_document_type")
+  paymentDocumentId   String?  @map("payment_document_id")
+  employmentId        String   @map("employment_id")
+  payrollPeriodId     String   @map("payroll_period_id")
+  amount              Decimal  @db.Decimal(14, 2)
+  allocationDate      DateTime @map("allocation_date") @db.Date
+  status              String   @default("ALLOCATED")
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  tenant       Tenant                @relation(fields: [tenantId], references: [id])
-  paymentBatch PayrollPaymentBatch?  @relation(fields: [paymentBatchId], references: [id])
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  paymentBatch PayrollPaymentBatch? @relation(fields: [paymentBatchId], references: [id])
 
   @@index([employmentId, payrollPeriodId])
   @@map("payroll_payment_allocations")
@@ -9033,8 +9116,8 @@ model PayrollPosting {
   cancelledBy String?   @map("cancelled_by")
   version     Int       @default(1)
 
-  tenant        Tenant       @relation(fields: [tenantId], references: [id])
-  organization  Organization @relation(fields: [organizationId], references: [id])
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  organization  Organization  @relation(fields: [organizationId], references: [id])
   payrollPeriod PayrollPeriod @relation(fields: [payrollPeriodId], references: [id])
 
   @@index([organizationId, postingStatus])
@@ -9109,26 +9192,26 @@ model ExpenseCategory {
 /// by (category, organization, and optional finer dimensions) at claim
 /// time; never a hardcoded per-category limit in the validation engine.
 model ExpensePolicy {
-  id                       String    @id @default(uuid())
-  tenantId                 String    @map("tenant_id")
-  organizationId           String?   @map("organization_id")
-  expenseCategoryId        String?   @map("expense_category_id")
-  employeeGrade            String?   @map("employee_grade")
-  positionId               String?   @map("position_id")
-  departmentId             String?   @map("department_id")
-  travelType               String?   @map("travel_type")
-  country                  String?
-  city                     String?
-  paymentMethod            String?   @map("payment_method")
-  currencyId               String?   @map("currency_id")
-  maxAmount                Decimal?  @map("max_amount") @db.Decimal(14, 2)
-  maxAmountPeriod          String?   @map("max_amount_period") // PER_DAY|PER_NIGHT|PER_TRIP|PER_CLAIM
-  receiptRequiredOverride  String?   @map("receipt_required_override")
-  businessPurposeRequired  Boolean?  @map("business_purpose_required")
-  priority                 Int       @default(100)
-  effectiveFrom            DateTime  @map("effective_from") @db.Date
-  effectiveTo              DateTime? @map("effective_to") @db.Date
-  active                   Boolean   @default(true)
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  organizationId          String?   @map("organization_id")
+  expenseCategoryId       String?   @map("expense_category_id")
+  employeeGrade           String?   @map("employee_grade")
+  positionId              String?   @map("position_id")
+  departmentId            String?   @map("department_id")
+  travelType              String?   @map("travel_type")
+  country                 String?
+  city                    String?
+  paymentMethod           String?   @map("payment_method")
+  currencyId              String?   @map("currency_id")
+  maxAmount               Decimal?  @map("max_amount") @db.Decimal(14, 2)
+  maxAmountPeriod         String?   @map("max_amount_period") // PER_DAY|PER_NIGHT|PER_TRIP|PER_CLAIM
+  receiptRequiredOverride String?   @map("receipt_required_override")
+  businessPurposeRequired Boolean?  @map("business_purpose_required")
+  priority                Int       @default(100)
+  effectiveFrom           DateTime  @map("effective_from") @db.Date
+  effectiveTo             DateTime? @map("effective_to") @db.Date
+  active                  Boolean   @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9145,12 +9228,12 @@ model ExpensePolicy {
 /// (DRAFT..SETTLED/CANCELLED/REVERSED) the generic DocumentStatus enum
 /// doesn't model.
 model ExpenseClaim {
-  id                 String    @id @default(uuid())
-  tenantId           String    @map("tenant_id")
-  organizationId     String    @map("organization_id")
-  documentType       String    @default("EXPENSE_CLAIM") @map("document_type")
-  number             String?
-  employmentId       String    @map("employment_id")
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  organizationId       String    @map("organization_id")
+  documentType         String    @default("EXPENSE_CLAIM") @map("document_type")
+  number               String?
+  employmentId         String    @map("employment_id")
   // Phase 15's AccountablePersonMovement.personId has a real foreign key
   // to ResponsiblePerson (Phase 0's own, User-linked identity) — NOT the
   // same master as Phase 17's Employment. This is the bridge: the
@@ -9159,19 +9242,19 @@ model ExpenseClaim {
   // advance already knows this id). Null means "no advance to settle
   // against" — the full employee-funded amount becomes a reimbursement
   // due instead (see EmployeeExpenseSettlementService).
-  responsiblePersonId String?  @map("responsible_person_id")
-  claimDate          DateTime  @map("claim_date") @db.Date
-  expensePeriodStart DateTime? @map("expense_period_start") @db.Date
-  expensePeriodEnd   DateTime? @map("expense_period_end") @db.Date
-  currencyId         String?   @map("currency_id")
-  totalClaimedAmount    Decimal @default(0) @map("total_claimed_amount") @db.Decimal(14, 2)
-  totalApprovedAmount  Decimal @default(0) @map("total_approved_amount") @db.Decimal(14, 2)
-  advanceAppliedAmount Decimal @default(0) @map("advance_applied_amount") @db.Decimal(14, 2)
-  reimbursementDue    Decimal @default(0) @map("reimbursement_due") @db.Decimal(14, 2)
-  employeeDebtDue     Decimal @default(0) @map("employee_debt_due") @db.Decimal(14, 2)
-  claimStatus        String    @default("DRAFT") @map("claim_status") // DRAFT|SUBMITTED|PENDING_APPROVAL|PARTIALLY_APPROVED|APPROVED|REJECTED|POSTED|PARTIALLY_SETTLED|SETTLED|CANCELLED|REVERSED
-  responsibleManagerId String? @map("responsible_manager_id")
-  comment            String?
+  responsiblePersonId  String?   @map("responsible_person_id")
+  claimDate            DateTime  @map("claim_date") @db.Date
+  expensePeriodStart   DateTime? @map("expense_period_start") @db.Date
+  expensePeriodEnd     DateTime? @map("expense_period_end") @db.Date
+  currencyId           String?   @map("currency_id")
+  totalClaimedAmount   Decimal   @default(0) @map("total_claimed_amount") @db.Decimal(14, 2)
+  totalApprovedAmount  Decimal   @default(0) @map("total_approved_amount") @db.Decimal(14, 2)
+  advanceAppliedAmount Decimal   @default(0) @map("advance_applied_amount") @db.Decimal(14, 2)
+  reimbursementDue     Decimal   @default(0) @map("reimbursement_due") @db.Decimal(14, 2)
+  employeeDebtDue      Decimal   @default(0) @map("employee_debt_due") @db.Decimal(14, 2)
+  claimStatus          String    @default("DRAFT") @map("claim_status") // DRAFT|SUBMITTED|PENDING_APPROVAL|PARTIALLY_APPROVED|APPROVED|REJECTED|POSTED|PARTIALLY_SETTLED|SETTLED|CANCELLED|REVERSED
+  responsibleManagerId String?   @map("responsible_manager_id")
+  comment              String?
 
   documentDate  DateTime  @map("document_date") @db.Date
   postingDate   DateTime? @map("posting_date") @db.Date
@@ -9279,19 +9362,19 @@ model ExpenseReceipt {
 /// mutated fields on the line so a later TAX_CORRECTION adjustment has
 /// something concrete to point back to.
 model ExpenseTaxAssessment {
-  id                 String   @id @default(uuid())
-  tenantId           String   @map("tenant_id")
-  claimLineId        String   @unique @map("claim_line_id")
-  taxable            Boolean  @default(true)
-  vatPresent         Boolean  @default(false) @map("vat_present")
-  recoverable        Boolean  @default(false)
-  nonrecoverable     Boolean  @default(false)
-  exempt             Boolean  @default(false)
-  recoverableAmount  Decimal  @default(0) @map("recoverable_amount") @db.Decimal(14, 2)
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  claimLineId          String  @unique @map("claim_line_id")
+  taxable              Boolean @default(true)
+  vatPresent           Boolean @default(false) @map("vat_present")
+  recoverable          Boolean @default(false)
+  nonrecoverable       Boolean @default(false)
+  exempt               Boolean @default(false)
+  recoverableAmount    Decimal @default(0) @map("recoverable_amount") @db.Decimal(14, 2)
   nonrecoverableAmount Decimal @default(0) @map("nonrecoverable_amount") @db.Decimal(14, 2)
-  taxDocumentStatus  String   @default("NOT_APPLICABLE") @map("tax_document_status")
-  deductibleForTax   Boolean  @default(true) @map("deductible_for_tax")
-  sourceRule         String?  @map("source_rule")
+  taxDocumentStatus    String  @default("NOT_APPLICABLE") @map("tax_document_status")
+  deductibleForTax     Boolean @default(true) @map("deductible_for_tax")
+  sourceRule           String? @map("source_rule")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9305,20 +9388,20 @@ model ExpenseTaxAssessment {
 /// target cost object) split; `Σ allocatedAmount` per source line must
 /// equal the eligible expense amount exactly (rounding residual aside).
 model ExpenseAllocation {
-  id                 String   @id @default(uuid())
-  tenantId           String   @map("tenant_id")
-  sourceClaimLineId  String?  @map("source_claim_line_id")
-  sourceCostAllocationLineId String? @map("source_cost_allocation_line_id")
-  targetType         String   @map("target_type") // COST_CENTER|PROJECT|DEPARTMENT|BRANCH|PRODUCT|CUSTOMER|CAMPAIGN|FIXED_ASSET|PRODUCTION_ORDER|CONTRACT|OTHER
-  targetId           String   @map("target_id")
-  allocationMethod   String   @map("allocation_method") // MANUAL_PERCENTAGE|DRIVER_BASED|FIXED_WEIGHT
-  allocationPercentage Decimal? @map("allocation_percentage") @db.Decimal(7, 4)
-  allocationQuantity Decimal? @map("allocation_quantity") @db.Decimal(14, 4)
-  allocatedAmount    Decimal  @map("allocated_amount") @db.Decimal(14, 2)
-  effectivePeriodYear  Int?   @map("effective_period_year")
-  effectivePeriodMonth Int?   @map("effective_period_month")
-  sourceDriverId     String?  @map("source_driver_id")
-  status             String   @default("ACTIVE")
+  id                         String   @id @default(uuid())
+  tenantId                   String   @map("tenant_id")
+  sourceClaimLineId          String?  @map("source_claim_line_id")
+  sourceCostAllocationLineId String?  @map("source_cost_allocation_line_id")
+  targetType                 String   @map("target_type") // COST_CENTER|PROJECT|DEPARTMENT|BRANCH|PRODUCT|CUSTOMER|CAMPAIGN|FIXED_ASSET|PRODUCTION_ORDER|CONTRACT|OTHER
+  targetId                   String   @map("target_id")
+  allocationMethod           String   @map("allocation_method") // MANUAL_PERCENTAGE|DRIVER_BASED|FIXED_WEIGHT
+  allocationPercentage       Decimal? @map("allocation_percentage") @db.Decimal(7, 4)
+  allocationQuantity         Decimal? @map("allocation_quantity") @db.Decimal(14, 4)
+  allocatedAmount            Decimal  @map("allocated_amount") @db.Decimal(14, 2)
+  effectivePeriodYear        Int?     @map("effective_period_year")
+  effectivePeriodMonth       Int?     @map("effective_period_month")
+  sourceDriverId             String?  @map("source_driver_id")
+  status                     String   @default("ACTIVE")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9336,22 +9419,22 @@ model ExpenseAllocation {
 /// `remainingAmount` here are a cached mirror of that schedule, never the
 /// sole source of truth.
 model PrepaidExpense {
-  id                   String    @id @default(uuid())
-  tenantId             String    @map("tenant_id")
-  organizationId       String    @map("organization_id")
-  sourceClaimLineId    String?   @map("source_claim_line_id")
-  expenseCategoryId    String    @map("expense_category_id")
-  originalAmount       Decimal   @map("original_amount") @db.Decimal(14, 2)
-  currencyId           String?   @map("currency_id")
-  baseAmount           Decimal   @map("base_amount") @db.Decimal(14, 2)
-  recognitionStartDate DateTime  @map("recognition_start_date") @db.Date
-  recognitionEndDate   DateTime  @map("recognition_end_date") @db.Date
-  allocationMethod     String    @default("STRAIGHT_LINE_BY_MONTH") @map("allocation_method") // STRAIGHT_LINE_BY_MONTH|STRAIGHT_LINE_BY_DAY|FIXED_SCHEDULE|MANUAL|USAGE_BASED
-  costCenterId         String?   @map("cost_center_id")
-  projectId            String?   @map("project_id")
-  recognizedAmount     Decimal   @default(0) @map("recognized_amount") @db.Decimal(14, 2)
-  remainingAmount      Decimal   @map("remaining_amount") @db.Decimal(14, 2)
-  status               String    @default("DRAFT") // DRAFT|ACTIVE|FULLY_RECOGNIZED|CANCELLED|ADJUSTED
+  id                   String   @id @default(uuid())
+  tenantId             String   @map("tenant_id")
+  organizationId       String   @map("organization_id")
+  sourceClaimLineId    String?  @map("source_claim_line_id")
+  expenseCategoryId    String   @map("expense_category_id")
+  originalAmount       Decimal  @map("original_amount") @db.Decimal(14, 2)
+  currencyId           String?  @map("currency_id")
+  baseAmount           Decimal  @map("base_amount") @db.Decimal(14, 2)
+  recognitionStartDate DateTime @map("recognition_start_date") @db.Date
+  recognitionEndDate   DateTime @map("recognition_end_date") @db.Date
+  allocationMethod     String   @default("STRAIGHT_LINE_BY_MONTH") @map("allocation_method") // STRAIGHT_LINE_BY_MONTH|STRAIGHT_LINE_BY_DAY|FIXED_SCHEDULE|MANUAL|USAGE_BASED
+  costCenterId         String?  @map("cost_center_id")
+  projectId            String?  @map("project_id")
+  recognizedAmount     Decimal  @default(0) @map("recognized_amount") @db.Decimal(14, 2)
+  remainingAmount      Decimal  @map("remaining_amount") @db.Decimal(14, 2)
+  status               String   @default("DRAFT") // DRAFT|ACTIVE|FULLY_RECOGNIZED|CANCELLED|ADJUSTED
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")
@@ -9368,15 +9451,15 @@ model PrepaidExpense {
 /// period; the actual source of truth `PrepaidExpense.recognizedAmount`
 /// mirrors.
 model PrepaidExpenseSchedule {
-  id                        String   @id @default(uuid())
-  tenantId                  String   @map("tenant_id")
-  prepaidExpenseId          String   @map("prepaid_expense_id")
-  periodYear                Int      @map("period_year")
-  periodMonth               Int      @map("period_month")
-  plannedRecognitionAmount  Decimal  @map("planned_recognition_amount") @db.Decimal(14, 2)
-  recognizedAmount          Decimal  @default(0) @map("recognized_amount") @db.Decimal(14, 2)
-  status                    String   @default("PLANNED") // PLANNED|RECOGNIZED|ADJUSTED|CANCELLED
-  postingReference          String?  @map("posting_reference")
+  id                       String  @id @default(uuid())
+  tenantId                 String  @map("tenant_id")
+  prepaidExpenseId         String  @map("prepaid_expense_id")
+  periodYear               Int     @map("period_year")
+  periodMonth              Int     @map("period_month")
+  plannedRecognitionAmount Decimal @map("planned_recognition_amount") @db.Decimal(14, 2)
+  recognizedAmount         Decimal @default(0) @map("recognized_amount") @db.Decimal(14, 2)
+  status                   String  @default("PLANNED") // PLANNED|RECOGNIZED|ADJUSTED|CANCELLED
+  postingReference         String? @map("posting_reference")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9390,14 +9473,14 @@ model PrepaidExpenseSchedule {
 /// PrepaidRecognitionRun (spec section 41) — idempotent per-period batch;
 /// Phase 22 Month Close is expected to call this.
 model PrepaidRecognitionRun {
-  id             String    @id @default(uuid())
-  tenantId       String    @map("tenant_id")
-  organizationId String    @map("organization_id")
-  periodYear     Int       @map("period_year")
-  periodMonth    Int       @map("period_month")
-  status         String    @default("RUNNING")
-  itemsProcessed Int       @default(0) @map("items_processed")
-  totalAmount    Decimal   @default(0) @map("total_amount") @db.Decimal(16, 2)
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  organizationId String  @map("organization_id")
+  periodYear     Int     @map("period_year")
+  periodMonth    Int     @map("period_month")
+  status         String  @default("RUNNING")
+  itemsProcessed Int     @default(0) @map("items_processed")
+  totalAmount    Decimal @default(0) @map("total_amount") @db.Decimal(16, 2)
   errors         Json?
 
   startedAt   DateTime  @default(now()) @map("started_at")
@@ -9413,11 +9496,11 @@ model PrepaidRecognitionRun {
 /// AllocationDriver (spec sections 57-58) — a tenant-configurable catalog
 /// (same convention as PayrollEarningDefinition), not a hardcoded enum.
 model AllocationDriver {
-  id     String  @id @default(uuid())
-  tenantId String @map("tenant_id")
-  code   String
-  name   String
-  active Boolean @default(true)
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  code     String
+  name     String
+  active   Boolean @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9432,16 +9515,16 @@ model AllocationDriver {
 /// cost object; `source` records where the value came from (manual entry
 /// vs Phase 17 headcount/FTE vs Phase 18 worked hours) for traceability.
 model AllocationDriverValue {
-  id                 String   @id @default(uuid())
-  tenantId           String   @map("tenant_id")
-  allocationDriverId String   @map("allocation_driver_id")
-  periodYear         Int      @map("period_year")
-  periodMonth        Int      @map("period_month")
-  targetType         String   @map("target_type")
-  targetId           String   @map("target_id")
-  value              Decimal  @db.Decimal(18, 4)
-  source             String   @default("MANUAL") // MANUAL|PHASE17_HEADCOUNT|PHASE17_FTE|PHASE18_WORKED_HOURS|PHASE7_REVENUE
-  status             String   @default("ACTIVE")
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  allocationDriverId String  @map("allocation_driver_id")
+  periodYear         Int     @map("period_year")
+  periodMonth        Int     @map("period_month")
+  targetType         String  @map("target_type")
+  targetId           String  @map("target_id")
+  value              Decimal @db.Decimal(18, 4)
+  source             String  @default("MANUAL") // MANUAL|PHASE17_HEADCOUNT|PHASE17_FTE|PHASE18_WORKED_HOURS|PHASE7_REVENUE
+  status             String  @default("ACTIVE")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9457,21 +9540,21 @@ model AllocationDriverValue {
 /// deliberately inline rather than a separate table since it is always
 /// read as a whole with its parent rule.
 model AllocationRule {
-  id                     String    @id @default(uuid())
-  tenantId               String    @map("tenant_id")
-  organizationId         String    @map("organization_id")
-  code                   String
-  name                   String
-  sourceCostCenterId     String    @map("source_cost_center_id")
-  expenseCategoryFilter  Json?     @map("expense_category_filter")
-  allocationType         String    @map("allocation_type") // DIRECT|DRIVER_BASED|MANUAL
-  allocationDriverId     String?   @map("allocation_driver_id")
-  targets                Json      // [{targetType, targetId, fixedWeight?}]
-  allocationFrequency    String    @default("MONTHLY") @map("allocation_frequency")
-  roundingRule           String    @default("LARGEST_REMAINDER") @map("rounding_rule")
-  effectiveFrom          DateTime  @map("effective_from") @db.Date
-  effectiveTo            DateTime? @map("effective_to") @db.Date
-  status                 String    @default("ACTIVE")
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  organizationId        String    @map("organization_id")
+  code                  String
+  name                  String
+  sourceCostCenterId    String    @map("source_cost_center_id")
+  expenseCategoryFilter Json?     @map("expense_category_filter")
+  allocationType        String    @map("allocation_type") // DIRECT|DRIVER_BASED|MANUAL
+  allocationDriverId    String?   @map("allocation_driver_id")
+  targets               Json // [{targetType, targetId, fixedWeight?}]
+  allocationFrequency   String    @default("MONTHLY") @map("allocation_frequency")
+  roundingRule          String    @default("LARGEST_REMAINDER") @map("rounding_rule")
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+  status                String    @default("ACTIVE")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9487,24 +9570,24 @@ model AllocationRule {
 /// AllocationRule for an organization/period; PREVIEW never writes a GL
 /// movement (spec section 70).
 model CostAllocationRun {
-  id              String    @id @default(uuid())
-  tenantId        String    @map("tenant_id")
-  organizationId  String    @map("organization_id")
-  periodYear      Int       @map("period_year")
-  periodMonth     Int       @map("period_month")
-  status          String    @default("PREVIEW") // PREVIEW|CALCULATING|CALCULATED|APPROVED|POSTED|REVERSED|ERROR
-  sourceAmount    Decimal   @default(0) @map("source_amount") @db.Decimal(16, 2)
-  allocatedAmount Decimal   @default(0) @map("allocated_amount") @db.Decimal(16, 2)
-  residual        Decimal   @default(0) @db.Decimal(16, 4)
-  calculationVersion Int    @default(1) @map("calculation_version")
-  postingBatch    String?   @map("posting_batch")
-  errors          Json?
+  id                 String  @id @default(uuid())
+  tenantId           String  @map("tenant_id")
+  organizationId     String  @map("organization_id")
+  periodYear         Int     @map("period_year")
+  periodMonth        Int     @map("period_month")
+  status             String  @default("PREVIEW") // PREVIEW|CALCULATING|CALCULATED|APPROVED|POSTED|REVERSED|ERROR
+  sourceAmount       Decimal @default(0) @map("source_amount") @db.Decimal(16, 2)
+  allocatedAmount    Decimal @default(0) @map("allocated_amount") @db.Decimal(16, 2)
+  residual           Decimal @default(0) @db.Decimal(16, 4)
+  calculationVersion Int     @default(1) @map("calculation_version")
+  postingBatch       String? @map("posting_batch")
+  errors             Json?
 
   startedAt   DateTime  @default(now()) @map("started_at")
   completedAt DateTime? @map("completed_at")
 
-  tenant       Tenant                @relation(fields: [tenantId], references: [id])
-  organization Organization          @relation(fields: [organizationId], references: [id])
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
   lines        CostAllocationLine[]
 
   @@index([organizationId, periodYear, periodMonth])
@@ -9515,16 +9598,16 @@ model CostAllocationRun {
 /// posting a run turns each of these into an ExpenseAllocation +
 /// EXPENSE_MOVEMENT_REGISTER pair.
 model CostAllocationLine {
-  id               String   @id @default(uuid())
-  tenantId         String   @map("tenant_id")
-  runId            String   @map("run_id")
-  allocationRuleId String   @map("allocation_rule_id")
-  sourceCostCenterId String @map("source_cost_center_id")
-  targetType       String   @map("target_type")
-  targetId         String   @map("target_id")
-  driverValue      Decimal? @map("driver_value") @db.Decimal(18, 4)
-  percentage       Decimal? @db.Decimal(7, 4)
-  allocatedAmount  Decimal  @map("allocated_amount") @db.Decimal(14, 2)
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  runId              String   @map("run_id")
+  allocationRuleId   String   @map("allocation_rule_id")
+  sourceCostCenterId String   @map("source_cost_center_id")
+  targetType         String   @map("target_type")
+  targetId           String   @map("target_id")
+  driverValue        Decimal? @map("driver_value") @db.Decimal(18, 4)
+  percentage         Decimal? @db.Decimal(7, 4)
+  allocatedAmount    Decimal  @map("allocated_amount") @db.Decimal(14, 2)
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -9540,18 +9623,18 @@ model CostAllocationLine {
 /// reclassification nets to zero on the total (spec section 107: A -1,000
 /// / B +1,000).
 model ExpenseAdjustment {
-  id                  String    @id @default(uuid())
-  tenantId            String    @map("tenant_id")
-  organizationId      String    @map("organization_id")
-  adjustmentType      String    @map("adjustment_type") // RECLASSIFY_COST_CENTER|RECLASSIFY_PROJECT|TAX_CORRECTION|PREPAID_CORRECTION|EMPLOYEE_SETTLEMENT_CORRECTION|ACCOUNTING_CORRECTION|OTHER
-  sourceClaimLineId   String?   @map("source_claim_line_id")
-  sourcePrepaidExpenseId String? @map("source_prepaid_expense_id")
-  fromValue           Json?     @map("from_value")
-  toValue              Json?    @map("to_value")
-  amount              Decimal?  @db.Decimal(14, 2)
-  reason              String
-  status              String    @default("DRAFT") // DRAFT|POSTED
-  postedAt            DateTime? @map("posted_at")
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  organizationId         String    @map("organization_id")
+  adjustmentType         String    @map("adjustment_type") // RECLASSIFY_COST_CENTER|RECLASSIFY_PROJECT|TAX_CORRECTION|PREPAID_CORRECTION|EMPLOYEE_SETTLEMENT_CORRECTION|ACCOUNTING_CORRECTION|OTHER
+  sourceClaimLineId      String?   @map("source_claim_line_id")
+  sourcePrepaidExpenseId String?   @map("source_prepaid_expense_id")
+  fromValue              Json?     @map("from_value")
+  toValue                Json?     @map("to_value")
+  amount                 Decimal?  @db.Decimal(14, 2)
+  reason                 String
+  status                 String    @default("DRAFT") // DRAFT|POSTED
+  postedAt               DateTime? @map("posted_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String?  @map("created_by")

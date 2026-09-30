@@ -864,4 +864,155 @@ describe('HR Core (e2e)', () => {
       expect(termPosted.body.status).toBe('POSTED');
     });
   });
+
+  // ---------------------------------------------------------------------
+  // Leave accrual/entitlement engine (Phase 17 continuation)
+  //
+  // This is the LAST describe block in this file — once a LeavePolicy is
+  // configured for org1Id here, every ANNUAL leave request against it is
+  // balance-checked, which would break earlier tests' own unconfigured-
+  // policy ("unlimited ANNUAL leave") assumption if this ran first.
+  // ---------------------------------------------------------------------
+
+  describe('Leave accrual/entitlement engine', () => {
+    let accrualEmploymentId: string;
+
+    beforeAll(async () => {
+      const hireDraft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/hire-documents`),
+      )
+        .send({
+          newPerson: { firstName: 'Farid', lastName: 'Bagirov', personalId: `PID-${run}-ACCRUAL` },
+          employmentType: 'SECONDARY',
+          hireDate: '2026-01-10',
+          departmentId,
+          positionId,
+        })
+        .expect(201);
+      const hirePosted = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${hireDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: hireDraft.body.version })
+        .expect(201);
+      accrualEmploymentId = hirePosted.body.employmentId;
+    });
+
+    it('has no leave policy yet — ANNUAL leave is unlimited, exactly as before this engine existed', async () => {
+      const balance = await auth1(
+        request(app.getHttpServer()).get(
+          `/organizations/${org1Id}/hr/employments/${accrualEmploymentId}/leave-balance`,
+        ),
+      ).expect(200);
+      expect(balance.body.balanceDays).toBe('0.00');
+
+      const unlimited = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-records`),
+      )
+        .send({
+          employmentId: accrualEmploymentId,
+          leaveType: 'ANNUAL',
+          startDate: '2026-01-15',
+          endDate: '2026-01-20',
+        })
+        .expect(201);
+      expect(unlimited.body.status).toBe('REQUESTED');
+    });
+
+    it('configures a policy, runs monthly accrual idempotently, and gates ANNUAL leave on the running balance', async () => {
+      const policy = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-policies`),
+      )
+        .send({ annualEntitlementDays: 24, effectiveFrom: '2026-01-01' })
+        .expect(201);
+      expect(policy.body.annualEntitlementDays).toBe('24');
+
+      // org1Id already has many other employments from earlier tests in
+      // this file (some ACTIVE, hired before 2026-01-31 too) — this run
+      // accrues ALL of them, not just this test's own employment, so only
+      // that this ONE employment's own running balance is asserted below,
+      // never the run's org-wide totals.
+      const jan = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-accrual-runs`),
+      )
+        .send({ periodYear: 2026, periodMonth: 1 })
+        .expect(201);
+      expect(jan.body.employmentsAccrued).toBeGreaterThan(0);
+
+      // Re-running the same period is rejected outright, never a silent
+      // no-op or a double-credit.
+      await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-accrual-runs`),
+      )
+        .send({ periodYear: 2026, periodMonth: 1 })
+        .expect(400);
+
+      await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-accrual-runs`),
+      )
+        .send({ periodYear: 2026, periodMonth: 2 })
+        .expect(201);
+
+      const balanceAfterTwoMonths = await auth1(
+        request(app.getHttpServer()).get(
+          `/organizations/${org1Id}/hr/employments/${accrualEmploymentId}/leave-balance?asOfDate=2026-03-05`,
+        ),
+      ).expect(200);
+      expect(balanceAfterTwoMonths.body.balanceDays).toBe('4.00');
+
+      // Within balance — allowed.
+      const withinBalance = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-records`),
+      )
+        .send({
+          employmentId: accrualEmploymentId,
+          leaveType: 'ANNUAL',
+          startDate: '2026-03-05',
+          endDate: '2026-03-07',
+        })
+        .expect(201);
+      expect(withinBalance.body.status).toBe('REQUESTED');
+
+      // Exceeds the TRUE current balance (4 days) — blocked. A still-
+      // pending request never locks days out of what a later request can
+      // see (disclosed simplification: only an APPROVED consumption
+      // actually reduces what the next create-time check sees).
+      await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/leave-records`),
+      )
+        .send({
+          employmentId: accrualEmploymentId,
+          leaveType: 'ANNUAL',
+          startDate: '2026-04-01',
+          endDate: '2026-04-10',
+        })
+        .expect(400);
+
+      const approved = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/leave-records/${withinBalance.body.id}/approve`,
+        ),
+      )
+        .send({ expectedVersion: withinBalance.body.version })
+        .expect(201);
+      expect(approved.body.status).toBe('APPROVED');
+
+      const balanceAfterConsumption = await auth1(
+        request(app.getHttpServer()).get(
+          `/organizations/${org1Id}/hr/employments/${accrualEmploymentId}/leave-balance?asOfDate=2026-03-05`,
+        ),
+      ).expect(200);
+      expect(balanceAfterConsumption.body.balanceDays).toBe('1.00');
+
+      const movements = await auth1(
+        request(app.getHttpServer()).get(
+          `/organizations/${org1Id}/hr/employments/${accrualEmploymentId}/leave-balance-movements`,
+        ),
+      ).expect(200);
+      const types = movements.body.map((m: any) => m.movementType);
+      expect(types.filter((t: string) => t === 'ACCRUAL')).toHaveLength(2);
+      expect(types.filter((t: string) => t === 'CONSUMPTION')).toHaveLength(1);
+    });
+  });
 });

@@ -380,6 +380,10 @@ export const PermissionCodes = {
   HR_STAFFING_EDIT: 'hr.staffing.edit',
   HR_LEAVE_VIEW: 'hr.leave.view',
   HR_LEAVE_CREATE: 'hr.leave.create',
+  HR_LEAVE_POLICY_VIEW: 'hr.leave_policy.view',
+  HR_LEAVE_POLICY_EDIT: 'hr.leave_policy.edit',
+  HR_LEAVE_BALANCE_VIEW: 'hr.leave_balance.view',
+  HR_LEAVE_ACCRUAL_RUN: 'hr.leave_accrual.run',
   HR_ABSENCE_VIEW: 'hr.absence.view',
   HR_ABSENCE_CREATE: 'hr.absence.create',
   HR_VIEW_PERSONAL_DATA: 'hr.view_personal_data',
@@ -2134,6 +2138,26 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.HR_LEAVE_CREATE,
     module: 'hr',
     description: 'Create leave records',
+  },
+  {
+    code: PermissionCodes.HR_LEAVE_POLICY_VIEW,
+    module: 'hr',
+    description: 'View leave entitlement policies',
+  },
+  {
+    code: PermissionCodes.HR_LEAVE_POLICY_EDIT,
+    module: 'hr',
+    description: 'Configure leave entitlement policies',
+  },
+  {
+    code: PermissionCodes.HR_LEAVE_BALANCE_VIEW,
+    module: 'hr',
+    description: 'View employee leave balances',
+  },
+  {
+    code: PermissionCodes.HR_LEAVE_ACCRUAL_RUN,
+    module: 'hr',
+    description: 'Run the monthly leave accrual',
   },
   {
     code: PermissionCodes.HR_ABSENCE_VIEW,

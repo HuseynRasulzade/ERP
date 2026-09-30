@@ -2,11 +2,16 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { WorkScheduleAssignmentService } from './work-schedule-assignment.service';
 import { LeaveRecordService } from './leave-record.service';
 import { AbsenceRecordService } from './absence-record.service';
+import { LeavePolicyService } from './leave-policy.service';
+import { LeaveBalanceService } from './leave-balance.service';
+import { LeaveAccrualRunService } from './leave-accrual-run.service';
 import {
   ApproveLeaveRecordDto,
   AssignWorkScheduleDto,
   CreateAbsenceRecordDto,
   CreateLeaveRecordDto,
+  RunLeaveAccrualDto,
+  UpsertLeavePolicyDto,
 } from './dto/hr-core.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
@@ -20,6 +25,9 @@ export class HrTimeOffController {
     private readonly workSchedules: WorkScheduleAssignmentService,
     private readonly leaves: LeaveRecordService,
     private readonly absences: AbsenceRecordService,
+    private readonly leavePolicies: LeavePolicyService,
+    private readonly leaveBalances: LeaveBalanceService,
+    private readonly leaveAccrualRuns: LeaveAccrualRunService,
   ) {}
 
   @RequirePermissions(PermissionCodes.HR_EMPLOYEE_VIEW)
@@ -141,6 +149,97 @@ export class HrTimeOffController {
       organizationId,
       user.userId,
       dto,
+    );
+  }
+
+  @RequirePermissions(PermissionCodes.HR_LEAVE_POLICY_VIEW)
+  @Get('leave-policies')
+  listLeavePolicies(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+  ) {
+    return this.leavePolicies.list(tenantId, membershipId, organizationId);
+  }
+
+  @RequirePermissions(PermissionCodes.HR_LEAVE_POLICY_EDIT)
+  @Post('leave-policies')
+  upsertLeavePolicy(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: UpsertLeavePolicyDto,
+  ) {
+    return this.leavePolicies.upsert(
+      tenantId,
+      membershipId,
+      organizationId,
+      user.userId,
+      dto,
+    );
+  }
+
+  @RequirePermissions(PermissionCodes.HR_LEAVE_BALANCE_VIEW)
+  @Get('employments/:employmentId/leave-balance-movements')
+  listLeaveBalanceMovements(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('employmentId') employmentId: string,
+  ) {
+    return this.leaveBalances.listMovements(
+      tenantId,
+      membershipId,
+      organizationId,
+      employmentId,
+    );
+  }
+
+  @RequirePermissions(PermissionCodes.HR_LEAVE_BALANCE_VIEW)
+  @Get('employments/:employmentId/leave-balance')
+  getLeaveBalance(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('employmentId') employmentId: string,
+    @Query('asOfDate') asOfDate?: string,
+  ) {
+    return this.leaveBalances.getCurrentBalance(
+      tenantId,
+      membershipId,
+      organizationId,
+      employmentId,
+      asOfDate,
+    );
+  }
+
+  @RequirePermissions(PermissionCodes.HR_LEAVE_ACCRUAL_RUN)
+  @Get('leave-accrual-runs')
+  listLeaveAccrualRuns(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+  ) {
+    return this.leaveAccrualRuns.list(tenantId, membershipId, organizationId);
+  }
+
+  @RequirePermissions(PermissionCodes.HR_LEAVE_ACCRUAL_RUN)
+  @Post('leave-accrual-runs')
+  runLeaveAccrual(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: RunLeaveAccrualDto,
+  ) {
+    return this.leaveAccrualRuns.run(
+      tenantId,
+      membershipId,
+      organizationId,
+      user.userId,
+      dto.periodYear,
+      dto.periodMonth,
     );
   }
 }

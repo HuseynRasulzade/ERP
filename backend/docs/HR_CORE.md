@@ -163,6 +163,42 @@ sees `approvalStatus: 'NOT_REQUIRED'` on every hire/transfer/termination, exactl
 before this workflow existed; approval only engages once a head is actually
 appointed for the relevant department.
 
+## Leave accrual/entitlement engine
+
+Closes the "no accrual engine" gap disclosed on `LeaveRecordService`. `LeavePolicy`
+is an effective-dated ANNUAL leave entitlement rate per organization (one rate for
+every employment in the org — disclosed simplification, no per-employment-type
+differentiation), resolved the same `resolve(orgId, date)` / rate-change-is-a-new-row
+pattern as `CostingPolicyService`. `LeaveAccrualRunService.run(periodYear,
+periodMonth)` is an idempotent monthly job (`LeaveAccrualRun`'s `@@unique` on
+`organizationId+periodYear+periodMonth` is the guard — re-running an already-run
+period is rejected outright) that credits every `Employment.status === 'ACTIVE'`
+employment (current-state projection, same convention `HrReportingService`'s own
+reports already use) with `annualEntitlementDays / 12` for that month, as an
+`ACCRUAL` row on the append-only `LeaveBalanceMovement` ledger — same Truth-Engine
+convention as `InventoryCostMovement`/`RegisterMovement` elsewhere in this codebase:
+`Employment` never carries a mutable balance field, the balance as of any date is
+always `LeaveBalanceService.getBalance()`'s running sum of movements up to and
+including that date.
+
+`LeaveRecordService` validates a new ANNUAL request against the running balance at
+CREATE time (calendar days inclusive of both endpoints — disclosed simplification,
+no working-day/schedule-aware calculation) and consumes it (a `CONSUMPTION` row,
+re-checked inside the SAME transaction as the write) at APPROVE time, never at
+create — a still-pending request never locks days out of the balance a rejection
+would simply return, so two pending requests for the same employment can both pass
+the create-time check; only the first one actually APPROVED spends it. SICK/UNPAID/
+MATERNITY/PATERNITY/STUDY/OTHER never consume balance — disclosed simplification,
+same posture as `LeaveBalanceMovement`'s own schema comment.
+
+**The balance check only engages once an organization actually configures a
+`LeavePolicy`** — without one, ANNUAL leave behaves exactly as it did before this
+engine existed (unlimited, no balance consequence). This is deliberate, not an
+oversight: it is what keeps the many Phase 18/19/20 test fixtures that request
+annual leave purely as setup, in organizations that never configure a policy,
+completely unaffected — same "usually not enforced until an org opts in" posture as
+the approval workflow's own conditional `DEPARTMENT_HEAD` step above.
+
 ## Disclosed simplifications (full list)
 
 - **No GL posting** — HR Core is entirely outside the document-framework/accounting
@@ -170,9 +206,13 @@ appointed for the relevant department.
 - **No scheduled job** for future-dated hire/transfer projection refresh (see above) —
   `getState()`/`getHistory()` are always correct; the live projection field lags until
   `syncStatus()` is called or the next write action touches that employment.
-- **LeaveRecord/AbsenceRecord are foundation only** — request/approve lifecycle and
-  simple record-keeping, no entitlement/accrual engine, no worked-hours impact. Phase
-  18 (Work Time) is expected to build on these tables.
+- **LeaveRecord/AbsenceRecord** — request/approve lifecycle and simple record-keeping,
+  worked-hours impact is Phase 18's job. LeaveRecord now HAS an entitlement/accrual
+  engine (see "Leave accrual/entitlement engine" above) — AbsenceRecord still has
+  none (no entitlement concept applies to it). No pro-ration for a hire/termination
+  mid-accrual-period — a January hire/termination gets the SAME full month's credit
+  for January as anyone hired years earlier. Phase 18 (Work Time) is expected to
+  build on these tables.
 - **WorkScheduleAssignment is a free-text code**, not a foreign key to a schedule
   template entity — that entity doesn't exist until Phase 18.
 - **Staffing capacity checked against today's active table only** (see above), not the
@@ -189,14 +229,17 @@ appointed for the relevant department.
 
 ## Test coverage
 
-`test/hr-core.e2e-spec.ts` (15 tests, all passing against real PostgreSQL) covers:
+`test/hr-core.e2e-spec.ts` (17 tests, all passing against real PostgreSQL) covers:
 physical-person duplicate detection, hire lifecycle (new-person path, post),
 as-of-date employment state resolution, contract create/amend with version history,
 transfer + manager-hierarchy cycle rejection, assignment-history splitting at a
 transfer's effective date, staffing-capacity enforcement + override, termination with
 correct employee-status rollup, rehire (reusing the same Employee), multiple
 concurrent employments (secondary termination leaving primary/employee active), the
-org-chart/headcount/staffing-capacity/health reports, and the approval workflow
+org-chart/headcount/staffing-capacity/health reports, the approval workflow
 (hire PENDING/blocks-post/approve/post, hire reject permanently blocks posting,
 transfer and termination each requiring approval before posting when their
-department has an appointed head).
+department has an appointed head), and the leave accrual engine (unlimited ANNUAL
+leave with no policy configured, policy upsert + idempotent monthly accrual +
+re-run rejection, balance-gated create, a still-pending request not blocking a
+later check, approve-time consumption, and the movement ledger).

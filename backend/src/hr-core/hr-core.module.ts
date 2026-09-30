@@ -32,6 +32,9 @@ import { EmployeeTransferController } from './employee-transfer.controller';
 import { WorkScheduleAssignmentService } from './work-schedule-assignment.service';
 import { LeaveRecordService } from './leave-record.service';
 import { AbsenceRecordService } from './absence-record.service';
+import { LeavePolicyService } from './leave-policy.service';
+import { LeaveBalanceService } from './leave-balance.service';
+import { LeaveAccrualRunService } from './leave-accrual-run.service';
 import { HrTimeOffController } from './hr-time-off.controller';
 
 import { TerminationDocumentService } from './termination-document.service';
@@ -79,6 +82,9 @@ import { TerminationDocumentApprovalPlanProvider } from './termination-document-
     WorkScheduleAssignmentService,
     LeaveRecordService,
     AbsenceRecordService,
+    LeavePolicyService,
+    LeaveBalanceService,
+    LeaveAccrualRunService,
     TerminationDocumentService,
     HrReportingService,
     HrHealthService,
