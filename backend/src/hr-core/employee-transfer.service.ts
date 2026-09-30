@@ -14,12 +14,13 @@ import {
   ValidationAppError,
 } from '../common/errors/app-error';
 import { StaffingTableService } from './staffing-table.service';
+import { ApprovalService } from '../approvals/approval.service';
 import {
   CreateEmployeeTransferDto,
   PostEmployeeTransferDto,
 } from './dto/hr-core.dto';
 
-const TRANSFER_TYPE = 'HR_EMPLOYEE_TRANSFER';
+export const TRANSFER_TYPE = 'HR_EMPLOYEE_TRANSFER';
 const MAX_HIERARCHY_DEPTH = 50;
 
 /**
@@ -40,6 +41,7 @@ export class EmployeeTransferService {
     private readonly access: OrganizationAccessService,
     private readonly requestContext: RequestContextService,
     private readonly staffingTables: StaffingTableService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(
@@ -154,34 +156,42 @@ export class EmployeeTransferService {
     }
 
     const effectiveDate = this.parseDate(dto.effectiveDate);
-    const transfer = await this.prisma.employeeTransfer.create({
-      data: {
-        tenantId,
-        organizationId,
-        employmentId: dto.employmentId,
-        transferType: dto.transferType,
-        effectiveDate,
-        newDepartmentId: dto.newDepartmentId,
-        newPositionId: dto.newPositionId,
-        newStaffingPositionId: dto.newStaffingPositionId,
-        newBranchId: dto.newBranchId,
-        newManagerEmploymentId: dto.newManagerEmploymentId,
-        newLocationWarehouseId: dto.newLocationWarehouseId,
-        newFte: dto.newFte !== undefined ? new Decimal(dto.newFte) : undefined,
-        reason: dto.reason,
-        createdBy: userId,
-      },
-    });
+    return this.prisma.runInTransaction(async (tx) => {
+      const transfer = await tx.employeeTransfer.create({
+        data: {
+          tenantId,
+          organizationId,
+          employmentId: dto.employmentId,
+          transferType: dto.transferType,
+          effectiveDate,
+          newDepartmentId: dto.newDepartmentId,
+          newPositionId: dto.newPositionId,
+          newStaffingPositionId: dto.newStaffingPositionId,
+          newBranchId: dto.newBranchId,
+          newManagerEmploymentId: dto.newManagerEmploymentId,
+          newLocationWarehouseId: dto.newLocationWarehouseId,
+          newFte: dto.newFte !== undefined ? new Decimal(dto.newFte) : undefined,
+          reason: dto.reason,
+          createdBy: userId,
+        },
+      });
 
-    await this.audit.record({
-      tenantId,
-      eventType: 'HR_TRANSFER_CREATED',
-      entityType: TRANSFER_TYPE,
-      entityId: transfer.id,
-      action: 'CREATE',
-      userId,
+      await this.audit.record(
+        {
+          tenantId,
+          eventType: 'HR_TRANSFER_CREATED',
+          entityType: TRANSFER_TYPE,
+          entityId: transfer.id,
+          action: 'CREATE',
+          userId,
+        },
+        tx,
+      );
+
+      await this.approvals.createStepsForDocument(tenantId, organizationId, TRANSFER_TYPE, transfer.id, tx);
+
+      return tx.employeeTransfer.findFirst({ where: { id: transfer.id } });
     });
-    return transfer;
   }
 
   async post(
@@ -197,6 +207,13 @@ export class EmployeeTransferService {
     if (transfer.status !== 'DRAFT')
       throw new ValidationAppError(
         `Cannot post a transfer in status ${transfer.status}`,
+      );
+    if (
+      transfer.approvalStatus !== 'APPROVED' &&
+      transfer.approvalStatus !== 'NOT_REQUIRED'
+    )
+      throw new ValidationAppError(
+        `Cannot post a transfer with approval status ${transfer.approvalStatus}`,
       );
     if (transfer.version !== dto.expectedVersion)
       throw new ConcurrencyConflictError();
@@ -306,6 +323,36 @@ export class EmployeeTransferService {
       );
       return tx.employeeTransfer.findFirst({ where: { id } });
     });
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    comment?: string,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, TRANSFER_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    comment?: string,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, TRANSFER_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   private async assertNoCycle(

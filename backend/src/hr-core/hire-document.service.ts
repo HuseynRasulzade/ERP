@@ -16,9 +16,10 @@ import {
 import { PhysicalPersonService } from './physical-person.service';
 import { EmployeeService } from './employee.service';
 import { StaffingTableService } from './staffing-table.service';
+import { ApprovalService } from '../approvals/approval.service';
 import { CreateHireDocumentDto, PostHireDocumentDto } from './dto/hr-core.dto';
 
-const HIRE_DOCUMENT_TYPE = 'HR_HIRE_DOCUMENT';
+export const HIRE_DOCUMENT_TYPE = 'HR_HIRE_DOCUMENT';
 
 /**
  * HireDocumentService (docx spec Phase 17 sections 19-21, 48) — the single
@@ -41,6 +42,7 @@ export class HireDocumentService {
     private readonly persons: PhysicalPersonService,
     private readonly employees: EmployeeService,
     private readonly staffingTables: StaffingTableService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(
@@ -200,7 +202,10 @@ export class HireDocumentService {
         },
         tx,
       );
-      return hireDocument;
+
+      await this.approvals.createStepsForDocument(tenantId, organizationId, HIRE_DOCUMENT_TYPE, hireDocument.id, tx);
+
+      return tx.hireDocument.findFirst({ where: { id: hireDocument.id } });
     });
   }
 
@@ -222,6 +227,13 @@ export class HireDocumentService {
     if (hireDocument.status !== 'DRAFT')
       throw new ValidationAppError(
         `Cannot post a hire document in status ${hireDocument.status}`,
+      );
+    if (
+      hireDocument.approvalStatus !== 'APPROVED' &&
+      hireDocument.approvalStatus !== 'NOT_REQUIRED'
+    )
+      throw new ValidationAppError(
+        `Cannot post a hire document with approval status ${hireDocument.approvalStatus}`,
       );
     if (hireDocument.version !== dto.expectedVersion)
       throw new ConcurrencyConflictError();
@@ -333,6 +345,36 @@ export class HireDocumentService {
 
       return tx.hireDocument.findFirst({ where: { id } });
     });
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    comment?: string,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, HIRE_DOCUMENT_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    comment?: string,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, HIRE_DOCUMENT_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   private async resolveEmployeeId(

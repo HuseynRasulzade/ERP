@@ -1,7 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { NumberingModule } from '../numbering/numbering.module';
 import { AuditModule } from '../audit/audit.module';
 import { OrgStructureModule } from '../org-structure/org-structure.module';
+import { ApprovalsModule } from '../approvals/approvals.module';
+import { ApprovalPlanRegistryService } from '../approvals/approval-plan-registry.service';
 
 import { PositionService } from './position.service';
 import { PositionController } from './position.controller';
@@ -39,6 +41,10 @@ import { HrReportingService } from './hr-reporting.service';
 import { HrHealthService } from './hr-health.service';
 import { HrReportingController } from './hr-reporting.controller';
 
+import { HireDocumentApprovalPlanProvider } from './hire-document-approval-plan.provider';
+import { EmployeeTransferApprovalPlanProvider } from './employee-transfer-approval-plan.provider';
+import { TerminationDocumentApprovalPlanProvider } from './termination-document-approval-plan.provider';
+
 /**
  * HR Core / Employment Lifecycle Engine (docx spec Phase 17) — Physical
  * Person -> Employee -> Hire Document -> Employment (+ effective-dated
@@ -47,7 +53,7 @@ import { HrReportingController } from './hr-reporting.controller';
  * No GL posting: HR Core is not a document-framework participant.
  */
 @Module({
-  imports: [NumberingModule, AuditModule, OrgStructureModule],
+  imports: [NumberingModule, AuditModule, OrgStructureModule, ApprovalsModule],
   controllers: [
     PositionController,
     PhysicalPersonController,
@@ -76,7 +82,23 @@ import { HrReportingController } from './hr-reporting.controller';
     TerminationDocumentService,
     HrReportingService,
     HrHealthService,
+    HireDocumentApprovalPlanProvider,
+    EmployeeTransferApprovalPlanProvider,
+    TerminationDocumentApprovalPlanProvider,
   ],
   exports: [EmploymentService, EmployeeService, PhysicalPersonService],
 })
-export class HrCoreModule {}
+export class HrCoreModule implements OnModuleInit {
+  constructor(
+    private readonly approvalPlanRegistry: ApprovalPlanRegistryService,
+    private readonly hireApprovalPlan: HireDocumentApprovalPlanProvider,
+    private readonly transferApprovalPlan: EmployeeTransferApprovalPlanProvider,
+    private readonly terminationApprovalPlan: TerminationDocumentApprovalPlanProvider,
+  ) {}
+
+  onModuleInit() {
+    this.approvalPlanRegistry.register(this.hireApprovalPlan);
+    this.approvalPlanRegistry.register(this.transferApprovalPlan);
+    this.approvalPlanRegistry.register(this.terminationApprovalPlan);
+  }
+}

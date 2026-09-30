@@ -127,6 +127,42 @@ the closed assignment/status rows, and flips `Employment`/`Employee` back to `AC
 It refuses to reverse if the employment's live status has since changed for any other
 reason (defensive check against reversing a stale or already-modified state).
 
+## Approval workflow for Hire/Transfer/Termination
+
+`HireDocument`/`EmployeeTransfer`/`TerminationDocument` each plug into the shared
+Approval Framework (`src/approvals/`, docs/APPROVALS.md) via their own
+`ApprovalPlanProvider` — `HireDocumentApprovalPlanProvider`,
+`EmployeeTransferApprovalPlanProvider`, `TerminationDocumentApprovalPlanProvider` — the
+same lightweight MVP mechanism 7+ other document types (PurchaseOrder, GoodsReceipt,
+PurchaseInvoice, ...) already use. Each plans a single `DEPARTMENT_HEAD` step,
+resolved the same way `PurchaseOrderApprovalPlanProvider` resolves it:
+`Department.managerPersonId` -> `ResponsiblePerson.userId` if set, else any active
+membership holding the `DEPARTMENT_HEAD` role scoped to that department via
+`OrganizationAccess`.
+
+`approvalStatus` (`NOT_REQUIRED|PENDING|APPROVED|REJECTED`) lives on each document
+alongside its own `status` (`DRAFT|POSTED|...`) — the same three-axis principle as
+every other approval-gated document: approving never posts, and `post()` on all
+three services is gated on `approvalStatus` being `APPROVED` or `NOT_REQUIRED`.
+`EmployeeTransfer`/`TerminationDocument` resolve the department to check against the
+employment's CURRENT department (the one releasing the employee), not
+`EmployeeTransfer.newDepartmentId` (optional, only set for a
+DEPARTMENT_TRANSFER/COMBINED_TRANSFER) — a PROMOTION or FTE_CHANGE still needs
+sign-off from the employee's existing department head. `TerminationDocument` has no
+`organizationId` column of its own, so its provider's `loadDocument` flattens it from
+the `employment` relation to satisfy the `ApprovalPlanProvider` contract.
+
+**Deliberately conditional, not unconditional** (unlike PurchaseOrder's always-
+required chain): the step is only planned when a department head is actually
+resolvable for the document's department — `HireDocument.departmentId` is a required
+field, always present, so an unconditional step would block every hire in every
+organization that hasn't yet appointed a head for that department, including the
+many Phase 18/19/20 test fixtures that hire an employee purely as setup and
+immediately post the document. An organization with no appointed department heads
+sees `approvalStatus: 'NOT_REQUIRED'` on every hire/transfer/termination, exactly as
+before this workflow existed; approval only engages once a head is actually
+appointed for the relevant department.
+
 ## Disclosed simplifications (full list)
 
 - **No GL posting** — HR Core is entirely outside the document-framework/accounting
@@ -141,10 +177,11 @@ reason (defensive check against reversing a stale or already-modified state).
   template entity — that entity doesn't exist until Phase 18.
 - **Staffing capacity checked against today's active table only** (see above), not the
   hire/transfer's own effective date.
-- **No approval sub-workflow** on `HireDocument`/`EmployeeTransfer`/`TerminationDocument`
-  — the spec's own `PENDING_APPROVAL`/`APPROVED` states are folded into a simple
-  `DRAFT` -> `POSTED` lifecycle, consistent with every other document-framework-
-  adjacent module in this codebase pending a later, dedicated approval-workflow phase.
+- **Approval workflow is the MVP shared framework, not Phase 26's full engine** — a
+  single `DEPARTMENT_HEAD` step per document (see "Approval workflow" above), not
+  the spec's own multi-step `PENDING_APPROVAL` sub-workflow with configurable
+  routing. `status` (`DRAFT`->`POSTED`) and `approvalStatus` remain two independent
+  axes, same three-axis principle as every other approval-gated document.
 - **`EmploymentContract` is 1:1 with `Employment`** (a `@unique` constraint) — the
   spec's broader model of multiple historical contracts per employment is
   approximated via `EmploymentContractVersion`'s own amendment history on the single
@@ -152,11 +189,14 @@ reason (defensive check against reversing a stale or already-modified state).
 
 ## Test coverage
 
-`test/hr-core.e2e-spec.ts` (11 tests, all passing against real PostgreSQL) covers:
+`test/hr-core.e2e-spec.ts` (15 tests, all passing against real PostgreSQL) covers:
 physical-person duplicate detection, hire lifecycle (new-person path, post),
 as-of-date employment state resolution, contract create/amend with version history,
 transfer + manager-hierarchy cycle rejection, assignment-history splitting at a
 transfer's effective date, staffing-capacity enforcement + override, termination with
 correct employee-status rollup, rehire (reusing the same Employee), multiple
-concurrent employments (secondary termination leaving primary/employee active), and
-the org-chart/headcount/staffing-capacity/health reports.
+concurrent employments (secondary termination leaving primary/employee active), the
+org-chart/headcount/staffing-capacity/health reports, and the approval workflow
+(hire PENDING/blocks-post/approve/post, hire reject permanently blocks posting,
+transfer and termination each requiring approval before posting when their
+department has an appointed head).

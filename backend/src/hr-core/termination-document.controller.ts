@@ -5,6 +5,7 @@ import {
   PostTerminationDocumentDto,
   ReverseTerminationDocumentDto,
 } from './dto/hr-core.dto';
+import { ApprovalDecisionDto } from '../approvals/dto/approval-decision.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
@@ -98,5 +99,31 @@ export class TerminationDocumentController {
       id,
       dto,
     );
+  }
+
+  @RequirePermissions(PermissionCodes.HR_TERMINATE_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.terminations.approve(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
+  }
+
+  @RequirePermissions(PermissionCodes.HR_TERMINATE_REJECT)
+  @Post(':id/reject')
+  reject(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.terminations.reject(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
   }
 }

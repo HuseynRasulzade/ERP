@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { HireDocumentService } from './hire-document.service';
 import { CreateHireDocumentDto, PostHireDocumentDto } from './dto/hr-core.dto';
+import { ApprovalDecisionDto } from '../approvals/dto/approval-decision.dto';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentTenantId } from '../common/decorators/current-tenant.decorator';
 import { CurrentMembershipId } from '../common/decorators/current-membership.decorator';
@@ -69,5 +70,31 @@ export class HireDocumentController {
       id,
       dto,
     );
+  }
+
+  @RequirePermissions(PermissionCodes.HR_HIRE_APPROVE)
+  @Post(':id/approve')
+  approve(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.hires.approve(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
+  }
+
+  @RequirePermissions(PermissionCodes.HR_HIRE_REJECT)
+  @Post(':id/reject')
+  reject(
+    @CurrentTenantId() tenantId: string,
+    @CurrentMembershipId() membershipId: string,
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: ApprovalDecisionDto,
+  ) {
+    return this.hires.reject(tenantId, membershipId, organizationId, id, user.userId, dto.comment);
   }
 }

@@ -8,11 +8,13 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { AppModule } from '../src/app.module';
 import * as request from 'supertest';
 
 describe('HR Core (e2e)', () => {
   let app: INestApplication;
+  let prisma: PrismaService;
 
   const run = Date.now();
   let token1: string;
@@ -35,6 +37,7 @@ describe('HR Core (e2e)', () => {
       }),
     );
     await app.init();
+    prisma = app.get(PrismaService);
 
     const s1 = await setupTenant(`hr1-${run}@e2e.test`, `hr-t1-${run}`, 'HR1');
     token1 = s1.token;
@@ -583,5 +586,282 @@ describe('HR Core (e2e)', () => {
       request(app.getHttpServer()).get(`/organizations/${org1Id}/hr/reports/health`),
     ).expect(200);
     expect(Array.isArray(health.body)).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------
+  // Approval workflow for Hire/Transfer/Termination (Phase 17 continuation)
+  //
+  // The DEPARTMENT_HEAD step is only planned when a head is actually
+  // resolvable for the document's department (see the three
+  // *ApprovalPlanProvider header comments) — so this uses its OWN,
+  // dedicated department with an appointed head, never `departmentId`/
+  // `department2Id` above, which every earlier test in this file relies on
+  // being able to hire/transfer/terminate into WITHOUT approval.
+  // ---------------------------------------------------------------------
+
+  describe('Approval workflow for Hire/Transfer/Termination', () => {
+    let approverDeptId: string;
+    let approverToken: string;
+
+    beforeAll(async () => {
+      const dept = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/departments`),
+      )
+        .send({ code: `DEPT-APPR-${run}`, name: 'Approved Department' })
+        .expect(201);
+      approverDeptId = dept.body.id;
+      approverToken = await setupDepartmentHeadApprover(approverDeptId);
+    });
+
+    /** Registers a second tenant1 user holding the DEPARTMENT_HEAD role,
+     * scoped to `departmentId` via OrganizationAccess — distinct from
+     * token1 (the creator of every fixture document below), since
+     * approval requires an approver who isn't the document's own creator.
+     * Same no-invite-API-yet, straight-through-Prisma pattern as
+     * procurement.e2e-spec.ts's own `setupApprover`. */
+    async function setupDepartmentHeadApprover(departmentId: string): Promise<string> {
+      const email = `hr-approver-${run}@e2e.test`;
+      const reg = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password: 'Test1234!', displayName: 'HR Approver' })
+        .expect(201);
+      const membership = await prisma.tenantMembership.create({
+        data: { tenantId: tenant1Id, userId: reg.body.userId, status: 'ACTIVE' },
+      });
+      await prisma.organizationAccess.create({
+        data: { tenantMembershipId: membership.id, organizationId: org1Id, accessLevel: 'FULL', departmentId },
+      });
+      const permissions = await prisma.permission.findMany({
+        where: {
+          code: {
+            in: [
+              'hr.employee.view',
+              'hr.hire.approve',
+              'hr.hire.reject',
+              'hr.transfer.approve',
+              'hr.transfer.reject',
+              'hr.terminate.approve',
+              'hr.terminate.reject',
+            ],
+          },
+        },
+      });
+      const role = await prisma.role.create({
+        data: { tenantId: tenant1Id, code: 'DEPARTMENT_HEAD', name: 'DEPARTMENT_HEAD' },
+      });
+      await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+      await prisma.rolePermission.createMany({
+        data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id })),
+      });
+      return reg.body.accessToken;
+    }
+
+    function approverAuth(req: request.Test) {
+      return req.set('Authorization', `Bearer ${approverToken}`).set('X-Tenant-Id', tenant1Id);
+    }
+
+    it('a hire into a department with an appointed head starts PENDING, blocks posting, and posts once approved', async () => {
+      const draft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/hire-documents`),
+      )
+        .send({
+          newPerson: { firstName: 'Rashad', lastName: 'Nabiyev', personalId: `PID-${run}-APR1` },
+          employmentType: 'SECONDARY',
+          hireDate: '2026-06-01',
+          departmentId: approverDeptId,
+          positionId,
+        })
+        .expect(201);
+      expect(draft.body.approvalStatus).toBe('PENDING');
+
+      await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${draft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: draft.body.version })
+        .expect(400);
+
+      const approved = await approverAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${draft.body.id}/approve`,
+        ),
+      )
+        .send({})
+        .expect(201);
+      expect(approved.body.approvalStatus).toBe('APPROVED');
+
+      const posted = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${draft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: draft.body.version })
+        .expect(201);
+      expect(posted.body.status).toBe('POSTED');
+    });
+
+    it('rejects a hire document, permanently blocking it from posting', async () => {
+      const draft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/hire-documents`),
+      )
+        .send({
+          newPerson: { firstName: 'Sabina', lastName: 'Karimova', personalId: `PID-${run}-APR2` },
+          employmentType: 'SECONDARY',
+          hireDate: '2026-06-01',
+          departmentId: approverDeptId,
+          positionId,
+        })
+        .expect(201);
+
+      const rejected = await approverAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${draft.body.id}/reject`,
+        ),
+      )
+        .send({ comment: 'Headcount frozen' })
+        .expect(201);
+      expect(rejected.body.approvalStatus).toBe('REJECTED');
+
+      await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${draft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: rejected.body.version })
+        .expect(400);
+    });
+
+    it('an employee transfer out of an approver-headed department requires approval before posting', async () => {
+      const hireDraft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/hire-documents`),
+      )
+        .send({
+          newPerson: { firstName: 'Tural', lastName: 'Sultanov', personalId: `PID-${run}-APR3` },
+          employmentType: 'SECONDARY',
+          hireDate: '2026-06-01',
+          departmentId: approverDeptId,
+          positionId,
+        })
+        .expect(201);
+      await approverAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${hireDraft.body.id}/approve`,
+        ),
+      )
+        .send({})
+        .expect(201);
+      const hirePosted = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${hireDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: hireDraft.body.version })
+        .expect(201);
+      const transferEmploymentId = hirePosted.body.employmentId;
+
+      const transferDraft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/transfers`),
+      )
+        .send({
+          employmentId: transferEmploymentId,
+          transferType: 'DEPARTMENT_TRANSFER',
+          effectiveDate: '2026-07-01',
+          newDepartmentId: department2Id,
+        })
+        .expect(201);
+      expect(transferDraft.body.approvalStatus).toBe('PENDING');
+
+      await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/transfers/${transferDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: transferDraft.body.version })
+        .expect(400);
+
+      await approverAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/transfers/${transferDraft.body.id}/approve`,
+        ),
+      )
+        .send({})
+        .expect(201);
+
+      const transferPosted = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/transfers/${transferDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: transferDraft.body.version })
+        .expect(201);
+      expect(transferPosted.body.status).toBe('POSTED');
+    });
+
+    it('a termination out of an approver-headed department requires approval before posting', async () => {
+      const hireDraft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/hire-documents`),
+      )
+        .send({
+          newPerson: { firstName: 'Aygun', lastName: 'Mansurova', personalId: `PID-${run}-APR4` },
+          employmentType: 'SECONDARY',
+          hireDate: '2026-06-01',
+          departmentId: approverDeptId,
+          positionId,
+        })
+        .expect(201);
+      await approverAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${hireDraft.body.id}/approve`,
+        ),
+      )
+        .send({})
+        .expect(201);
+      const hirePosted = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/hire-documents/${hireDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: hireDraft.body.version })
+        .expect(201);
+      const terminationEmploymentId = hirePosted.body.employmentId;
+
+      const termDraft = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/hr/terminations`),
+      )
+        .send({
+          employmentId: terminationEmploymentId,
+          terminationDate: '2026-08-01',
+          lastWorkingDate: '2026-08-01',
+          terminationReason: 'Resignation',
+        })
+        .expect(201);
+      expect(termDraft.body.approvalStatus).toBe('PENDING');
+
+      await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/terminations/${termDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: termDraft.body.version })
+        .expect(400);
+
+      await approverAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/terminations/${termDraft.body.id}/approve`,
+        ),
+      )
+        .send({})
+        .expect(201);
+
+      const termPosted = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/hr/terminations/${termDraft.body.id}/post`,
+        ),
+      )
+        .send({ expectedVersion: termDraft.body.version })
+        .expect(201);
+      expect(termPosted.body.status).toBe('POSTED');
+    });
   });
 });

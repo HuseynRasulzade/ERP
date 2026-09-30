@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
+import { ApprovalService } from '../approvals/approval.service';
 import {
   ConcurrencyConflictError,
   NotFoundAppError,
@@ -13,7 +14,7 @@ import {
   ReverseTerminationDocumentDto,
 } from './dto/hr-core.dto';
 
-const TERMINATION_TYPE = 'HR_TERMINATION_DOCUMENT';
+export const TERMINATION_TYPE = 'HR_TERMINATION_DOCUMENT';
 const OPEN_STATUSES = ['PLANNED', 'ACTIVE', 'SUSPENDED', 'ON_LEAVE'];
 
 /**
@@ -30,6 +31,7 @@ export class TerminationDocumentService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: OrganizationAccessService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   list(
@@ -103,29 +105,37 @@ export class TerminationDocumentService {
         'This employment already has an open termination document',
       );
 
-    const doc = await this.prisma.terminationDocument.create({
-      data: {
-        tenantId,
-        employmentId: dto.employmentId,
-        terminationDate,
-        lastWorkingDate,
-        terminationReason: dto.terminationReason,
-        legalBasis: dto.legalBasis,
-        noticeDate: dto.noticeDate ? this.parseDate(dto.noticeDate) : undefined,
-        responsibleHrUserId: dto.responsibleHrUserId,
-        comment: dto.comment,
-        createdBy: userId,
-      },
+    return this.prisma.runInTransaction(async (tx) => {
+      const doc = await tx.terminationDocument.create({
+        data: {
+          tenantId,
+          employmentId: dto.employmentId,
+          terminationDate,
+          lastWorkingDate,
+          terminationReason: dto.terminationReason,
+          legalBasis: dto.legalBasis,
+          noticeDate: dto.noticeDate ? this.parseDate(dto.noticeDate) : undefined,
+          responsibleHrUserId: dto.responsibleHrUserId,
+          comment: dto.comment,
+          createdBy: userId,
+        },
+      });
+      await this.audit.record(
+        {
+          tenantId,
+          eventType: 'HR_TERMINATION_CREATED',
+          entityType: TERMINATION_TYPE,
+          entityId: doc.id,
+          action: 'CREATE',
+          userId,
+        },
+        tx,
+      );
+
+      await this.approvals.createStepsForDocument(tenantId, organizationId, TERMINATION_TYPE, doc.id, tx);
+
+      return tx.terminationDocument.findFirst({ where: { id: doc.id } });
     });
-    await this.audit.record({
-      tenantId,
-      eventType: 'HR_TERMINATION_CREATED',
-      entityType: TERMINATION_TYPE,
-      entityId: doc.id,
-      action: 'CREATE',
-      userId,
-    });
-    return doc;
   }
 
   async post(
@@ -141,6 +151,13 @@ export class TerminationDocumentService {
     if (doc.status !== 'DRAFT')
       throw new ValidationAppError(
         `Cannot post a termination document in status ${doc.status}`,
+      );
+    if (
+      doc.approvalStatus !== 'APPROVED' &&
+      doc.approvalStatus !== 'NOT_REQUIRED'
+    )
+      throw new ValidationAppError(
+        `Cannot post a termination document with approval status ${doc.approvalStatus}`,
       );
     if (doc.version !== dto.expectedVersion)
       throw new ConcurrencyConflictError();
@@ -215,6 +232,36 @@ export class TerminationDocumentService {
       );
       return tx.terminationDocument.findFirst({ where: { id } });
     });
+  }
+
+  // -- Approval -----------------------------------------------------------------
+
+  async approve(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    comment?: string,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.approve(tenantId, organizationId, TERMINATION_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
+  }
+
+  async reject(
+    tenantId: string,
+    membershipId: string,
+    organizationId: string,
+    id: string,
+    userId: string,
+    comment?: string,
+  ) {
+    await this.access.assertAccess(tenantId, membershipId, organizationId);
+    await this.get(tenantId, membershipId, organizationId, id);
+    await this.approvals.reject(tenantId, organizationId, TERMINATION_TYPE, id, userId, comment);
+    return this.get(tenantId, membershipId, organizationId, id);
   }
 
   async reverse(

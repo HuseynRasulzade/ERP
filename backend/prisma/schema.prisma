@@ -7837,9 +7837,13 @@ model HireDocument {
   responsibleHrUserId String?   @map("responsible_hr_user_id")
   rehireOfEmployeeId  String?   @map("rehire_of_employee_id")
   employmentId        String?   @unique @map("employment_id")
-  // DRAFT|POSTED|CANCELLED (spec's own PENDING_APPROVAL/APPROVED sub-
-  // workflow is Phase 26's full approval engine — disclosed simplification)
+  // DRAFT|POSTED|CANCELLED — own lifecycle, separate from approvalStatus
   status              String    @default("DRAFT")
+  // NOT_REQUIRED|PENDING|APPROVED|REJECTED — set by the generic Approval
+  // Framework (src/approvals) via HireDocumentApprovalPlanProvider; posting
+  // is gated on this being APPROVED or NOT_REQUIRED (see hire-document.
+  // service.ts). Independent of `status` (three-axis approval principle).
+  approvalStatus      String    @default("NOT_REQUIRED") @map("approval_status")
   postedAt            DateTime? @map("posted_at")
   postedBy            String?   @map("posted_by")
 
@@ -7913,6 +7917,9 @@ model EmployeeTransfer {
   newFte                 Decimal?  @map("new_fte") @db.Decimal(4, 2)
   reason                 String?
   status                 String    @default("DRAFT")
+  // NOT_REQUIRED|PENDING|APPROVED|REJECTED — see HireDocument.approvalStatus
+  // for the pattern; here via EmployeeTransferApprovalPlanProvider.
+  approvalStatus         String    @default("NOT_REQUIRED") @map("approval_status")
   postedAt               DateTime? @map("posted_at")
   postedBy               String?   @map("posted_by")
 
@@ -8038,6 +8045,9 @@ model TerminationDocument {
   responsibleHrUserId String?   @map("responsible_hr_user_id")
   comment             String?
   status              String    @default("DRAFT")
+  // NOT_REQUIRED|PENDING|APPROVED|REJECTED — see HireDocument.approvalStatus
+  // for the pattern; here via TerminationDocumentApprovalPlanProvider.
+  approvalStatus      String    @default("NOT_REQUIRED") @map("approval_status")
   postedAt            DateTime? @map("posted_at")
   postedBy            String?   @map("posted_by")
   reversedAt          DateTime? @map("reversed_at")

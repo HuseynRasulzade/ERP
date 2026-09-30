@@ -364,10 +364,16 @@ export const PermissionCodes = {
   HR_EMPLOYMENT_CREATE: 'hr.employment.create',
   HR_HIRE_CREATE: 'hr.hire.create',
   HR_HIRE_POST: 'hr.hire.post',
+  HR_HIRE_APPROVE: 'hr.hire.approve',
+  HR_HIRE_REJECT: 'hr.hire.reject',
   HR_TRANSFER_CREATE: 'hr.transfer.create',
   HR_TRANSFER_POST: 'hr.transfer.post',
+  HR_TRANSFER_APPROVE: 'hr.transfer.approve',
+  HR_TRANSFER_REJECT: 'hr.transfer.reject',
   HR_TERMINATE_CREATE: 'hr.terminate.create',
   HR_TERMINATE_POST: 'hr.terminate.post',
+  HR_TERMINATE_APPROVE: 'hr.terminate.approve',
+  HR_TERMINATE_REJECT: 'hr.terminate.reject',
   HR_CONTRACT_VIEW: 'hr.contract.view',
   HR_CONTRACT_EDIT: 'hr.contract.edit',
   HR_STAFFING_VIEW: 'hr.staffing.view',
@@ -2050,6 +2056,16 @@ export const ALL_PERMISSION_CODES: {
     description: 'Post a hire document, activating the employment',
   },
   {
+    code: PermissionCodes.HR_HIRE_APPROVE,
+    module: 'hr',
+    description: 'Approve a pending hire document',
+  },
+  {
+    code: PermissionCodes.HR_HIRE_REJECT,
+    module: 'hr',
+    description: 'Reject a pending hire document',
+  },
+  {
     code: PermissionCodes.HR_TRANSFER_CREATE,
     module: 'hr',
     description: 'Create employee transfer documents',
@@ -2060,6 +2076,16 @@ export const ALL_PERMISSION_CODES: {
     description: 'Post an employee transfer document',
   },
   {
+    code: PermissionCodes.HR_TRANSFER_APPROVE,
+    module: 'hr',
+    description: 'Approve a pending employee transfer document',
+  },
+  {
+    code: PermissionCodes.HR_TRANSFER_REJECT,
+    module: 'hr',
+    description: 'Reject a pending employee transfer document',
+  },
+  {
     code: PermissionCodes.HR_TERMINATE_CREATE,
     module: 'hr',
     description: 'Create termination documents',
@@ -2068,6 +2094,16 @@ export const ALL_PERMISSION_CODES: {
     code: PermissionCodes.HR_TERMINATE_POST,
     module: 'hr',
     description: 'Post a termination document, closing the employment',
+  },
+  {
+    code: PermissionCodes.HR_TERMINATE_APPROVE,
+    module: 'hr',
+    description: 'Approve a pending termination document',
+  },
+  {
+    code: PermissionCodes.HR_TERMINATE_REJECT,
+    module: 'hr',
+    description: 'Reject a pending termination document',
   },
   {
     code: PermissionCodes.HR_CONTRACT_VIEW,
