@@ -23,8 +23,12 @@ const TOLERANCE = new Decimal('0.01');
  * 94) — computed live, never a stored issues table, same principle as
  * TreasuryHealthService/SettlementHealthService. Covers: book-vs-GL
  * agreement per cash desk (the one check no other Phase 15 service
- * already surfaces), stale unresolved physical-count differences, daily
- * closes left open too long, and cash-desk transfers stuck in transit.
+ * already surfaces), `Cashbox.maxCashLimit` exceeded (a WARNING, not a
+ * posting block — there is no RECEIPT-time enforcement, only visibility;
+ * the till holding too much is a till-safety concern a supervisor acts
+ * on, not something that should ever make a real customer receipt fail
+ * to post), stale unresolved physical-count differences, daily closes
+ * left open too long, and cash-desk transfers stuck in transit.
  */
 @Injectable()
 export class CashHealthService {
@@ -80,6 +84,17 @@ export class CashHealthService {
           documentType: null,
           documentId: null,
           message: `Cash desk ${cashbox.code} has a negative book balance (${bookBalance.toFixed(2)}) despite its NEVER negative-balance policy`,
+        });
+      }
+
+      if (cashbox.maxCashLimit && bookBalance.gt(cashbox.maxCashLimit.toString())) {
+        issues.push({
+          severity: 'WARNING',
+          code: 'MAX_CASH_LIMIT_EXCEEDED',
+          cashboxId: cashbox.id,
+          documentType: null,
+          documentId: null,
+          message: `Cash desk ${cashbox.code} holds ${bookBalance.toFixed(2)}, above its configured maximum cash limit of ${cashbox.maxCashLimit.toString()}`,
         });
       }
 

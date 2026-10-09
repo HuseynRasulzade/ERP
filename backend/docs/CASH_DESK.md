@@ -57,6 +57,17 @@ defeating it) and applied proactively here from the start.
 `ALLOWED`-policy cashboxes are permitted to go negative — the check is
 skipped entirely for them.
 
+**Override (spec sections 17-18):** a `NEVER`-policy block can still be
+bypassed, but only with BOTH factors present — `CashTransaction.
+overrideNegativeBalance` set explicitly on the document itself, AND the
+poster holding `CASH_OVERRIDE_NEGATIVE` — same two-factor pattern as
+HireDocument's `overrideStaffingLimit` elsewhere in this codebase.
+Neither factor alone bypasses it: the flag without the permission is
+exactly the same block as before this existed, and the permission
+without the document having asked for an override changes nothing either
+(a routine expense never silently gets a free pass just because its
+poster happens to hold the permission).
+
 ## D. Cashier assignment (spec sections 6-7)
 
 `CashierAssignment` records who may operate a cash desk within a date
@@ -213,15 +224,24 @@ somewhere, not just this one.
   see section H.
 - **`BLIND` count method does not withhold `bookBalance` from the API** —
   see section G.
-- **`CASH_OVERRIDE_NEGATIVE`/`CASH_PERIOD_OVERRIDE` permission codes are
-  declared but not yet wired to any bypass** — the negative-balance block
-  and the generic period-open check (`PeriodService`, unchanged from
-  every other document type) are unconditional in this build; a
-  permission-gated override is a natural follow-up, not built here to
-  avoid adding an untested bypass path.
-- **Maximum cash limit (`Cashbox.maxCashLimit`)** — stored but not yet
-  enforced anywhere; a warning-level health check or a hard block on
-  RECEIPT posting is a natural follow-up.
+- **`CASH_OVERRIDE_NEGATIVE` is now wired** — `CashTransaction.
+  overrideNegativeBalance` (an explicit flag the document itself must
+  set) AND the poster holding `CASH_OVERRIDE_NEGATIVE` are BOTH required
+  to bypass the negative-balance block in `CashTransactionPostingHandler.
+  validateForPosting` — neither alone does (same two-factor pattern as
+  HireDocument's `overrideStaffingLimit`). **`CASH_PERIOD_OVERRIDE`
+  remains deliberately unwired** — this system's period control
+  (`PeriodService.assertDateIsOpen`) is reopen-only by design, everywhere,
+  not just here: no document type anywhere in this codebase has a
+  per-document bypass of a closed period, only an explicit, audited
+  `reopen()`. Wiring a bypass here would be a new architectural
+  exception, not a gap fix, so this permission code stays declared but
+  unused.
+- **Maximum cash limit (`Cashbox.maxCashLimit`) is now a `CashHealthService`
+  WARNING** (`MAX_CASH_LIMIT_EXCEEDED`) — visibility only, never a posting
+  block: a till holding too much cash is a till-safety concern a
+  supervisor acts on, not something that should ever make a real customer
+  receipt fail to post.
 - **Multi-currency denomination counting** — `CurrencyDenomination` is
   scoped per currency and a count's lines can mix denominations of the
   same currency the cashbox holds; no cross-currency till (e.g. a desk
@@ -248,9 +268,11 @@ POST       /documents/CASH_TRANSACTION|CASH_DESK_TRANSFER|CASH_COUNT_ADJUSTMENT/
 
 ## M. Tests
 
-`test/cash-desk.e2e-spec.ts` (new, 15 tests): basic receipt/expense +
+`test/cash-desk.e2e-spec.ts` (18 tests): basic receipt/expense +
 negative-balance block + its concurrency safety + an `ALLOWED`-policy
-cashbox going negative, cashier-assignment enforcement, employee advance
+cashbox going negative, the `CASH_OVERRIDE_NEGATIVE` two-factor override
+(the flag alone without the permission still blocked; both together
+allowed), cashier-assignment enforcement, employee advance
 + return (and its own validation), cash-to-cash transfer INSTANT and
 TWO_STEP (two partial receives, unpost blocked once received, over-receive
 rejected, same-desk rejection), the full physical-count → adjustment
@@ -258,7 +280,7 @@ chain (shortage resolved, `CASHIER_RECEIVABLE` charged to a person,
 difference report clears), daily close (gated on an unresolved count,
 closed once resolved, reopened), cashier handover (blocked then
 completed), and cash health (no false-positive book-vs-GL mismatch on a
-healthy desk).
+healthy desk, a `maxCashLimit`-exceeding desk flagged as a WARNING).
 
 `test/treasury-bank-operations.e2e-spec.ts` and `test/settlement.e2e-spec.ts`
 (pre-existing) were re-run to confirm no regression; one pre-existing

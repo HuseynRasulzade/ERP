@@ -28,6 +28,7 @@ describe('Cash Desk Engine (e2e)', () => {
   let cashboxAId: string;
   let cashboxBId: string;
   let personId: string;
+  let limitedToken: string; // CASH_TRANSACTION_CREATE + DOCUMENTS_POST, but NOT CASH_OVERRIDE_NEGATIVE
 
   const DOC_DATE = '2026-06-01';
 
@@ -86,6 +87,8 @@ describe('Cash Desk Engine (e2e)', () => {
       .send({ displayName: 'Cashier One' })
       .expect(201);
     personId = person.body.id;
+
+    limitedToken = await setupLimitedUser();
   });
 
   afterAll(async () => {
@@ -124,6 +127,31 @@ describe('Cash Desk Engine (e2e)', () => {
   function auth1(req: request.Test) {
     return req
       .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-Id', tenant1Id);
+  }
+
+  /** Registers a second tenant1 user who can create/post a cash
+   * transaction (treasury.cash_transaction.create + documents.post) but
+   * deliberately NOT cash_desk.override_negative_balance — to prove the
+   * override flag alone, without the permission, still doesn't bypass the
+   * negative-balance block. No invite API exists yet, so membership/role
+   * assignment goes straight through Prisma, same as other e2e specs'
+   * own limited-permission fixtures. */
+  async function setupLimitedUser(): Promise<string> {
+    const email = `cdesk-limited-${run}@e2e.test`;
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'Limited User' }).expect(201);
+    const membership = await prisma.tenantMembership.create({ data: { tenantId: tenant1Id, userId: reg.body.userId, status: 'ACTIVE' } });
+    await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId: org1Id, accessLevel: 'FULL' } });
+    const permissions = await prisma.permission.findMany({ where: { code: { in: ['treasury.cash_transaction.view', 'treasury.cash_transaction.create', 'documents.view', 'documents.post'] } } });
+    const role = await prisma.role.create({ data: { tenantId: tenant1Id, code: 'CD_LIMITED', name: 'CD_LIMITED' } });
+    await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+    await prisma.rolePermission.createMany({ data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+    return reg.body.accessToken;
+  }
+
+  function limitedAuth(req: request.Test) {
+    return req
+      .set('Authorization', `Bearer ${limitedToken}`)
       .set('X-Tenant-Id', tenant1Id);
   }
 
@@ -295,6 +323,55 @@ describe('Cash Desk Engine (e2e)', () => {
         expense.body.version,
       ).expect(201);
       expect(await balanceOf(box.body.id)).toBe('-50.00');
+    });
+
+    it('blocks the override flag alone, without CASH_OVERRIDE_NEGATIVE, from bypassing the negative-balance block', async () => {
+      const expense = await limitedAuth(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/cash-transactions`,
+        ),
+      )
+        .send({
+          documentDate: DOC_DATE,
+          cashboxId: cashboxAId,
+          direction: 'PAYMENT',
+          category: 'OTHER_EXPENSE',
+          amount: 999999,
+          overrideNegativeBalance: true,
+        })
+        .expect(201);
+      const res = await limitedAuth(
+        request(app.getHttpServer()).post(
+          `/documents/${CASH_TRANSACTION_TYPE}/${expense.body.id}/post`,
+        ),
+      ).send({ expectedVersion: expense.body.version });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
+
+    it('allows a PAYMENT to drive the cashbox negative when the document sets overrideNegativeBalance AND the poster holds CASH_OVERRIDE_NEGATIVE', async () => {
+      const expense = await auth1(
+        request(app.getHttpServer()).post(
+          `/organizations/${org1Id}/cash-transactions`,
+        ),
+      )
+        .send({
+          documentDate: DOC_DATE,
+          cashboxId: cashboxAId,
+          direction: 'PAYMENT',
+          category: 'OTHER_EXPENSE',
+          amount: 999999,
+          overrideNegativeBalance: true,
+        })
+        .expect(201);
+      const posted = await post(
+        CASH_TRANSACTION_TYPE,
+        expense.body.id,
+        expense.body.version,
+      ).expect(201);
+
+      // Clean up: unpost so the next test's balance expectations aren't
+      // thrown off by this cashbox now sitting deep in the negative.
+      await unpost(CASH_TRANSACTION_TYPE, expense.body.id, posted.body.version).expect(201);
     });
   });
 
@@ -897,6 +974,31 @@ describe('Cash Desk Engine (e2e)', () => {
           i.code === 'CASH_BOOK_GL_MISMATCH' && i.cashboxId === box.body.id,
       );
       expect(mismatch).toBeUndefined();
+    });
+
+    it('flags a cashbox whose book balance exceeds its configured maxCashLimit', async () => {
+      const box = await auth1(
+        request(app.getHttpServer()).post(`/organizations/${org1Id}/cashboxes`),
+      )
+        .send({ code: `CDJ-${run}`, name: 'Limited desk', currencyId: aznId })
+        .expect(201);
+      await prisma.cashbox.update({
+        where: { id: box.body.id },
+        data: { maxCashLimit: 50 },
+      });
+      await receipt(box.body.id, 100);
+
+      const health = await auth1(
+        request(app.getHttpServer()).get(
+          `/organizations/${org1Id}/cash-desk-health`,
+        ),
+      ).expect(200);
+      const overLimit = health.body.find(
+        (i: any) =>
+          i.code === 'MAX_CASH_LIMIT_EXCEEDED' && i.cashboxId === box.body.id,
+      );
+      expect(overLimit).toBeDefined();
+      expect(overLimit.severity).toBe('WARNING');
     });
   });
 });

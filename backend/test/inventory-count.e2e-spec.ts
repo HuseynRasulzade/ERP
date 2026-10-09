@@ -36,6 +36,8 @@ describe('Inventory Count (e2e)', () => {
   let tenant2Id: string;
   let org2Id: string;
 
+  let approverToken: string; // holds INVENTORY_COUNT_APPROVE, distinct from token1 (which records every count entry below) — segregation of duties (spec section 74)
+
   const DOC_DATE = '2026-09-01';
   let productSeq = 0;
 
@@ -50,6 +52,7 @@ describe('Inventory Count (e2e)', () => {
     token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
     const s2 = await setupTenant(`ic2-${run}@e2e.test`, `ic-t2-${run}`, 'IC2');
     token2 = s2.token; tenant2Id = s2.tenantId; org2Id = s2.orgId;
+    approverToken = await setupApprover(tenant1Id, org1Id);
 
     const u = await auth1(request(app.getHttpServer()).post('/units-of-measure'))
       .send({ code: `PCS-IC-${run}`, name: 'Piece', symbol: 'pcs', unitType: 'QUANTITY' })
@@ -94,6 +97,29 @@ describe('Inventory Count (e2e)', () => {
   }
   function auth2(req: request.Test) {
     return req.set('Authorization', `Bearer ${token2}`).set('X-Tenant-Id', tenant2Id);
+  }
+
+  /** Registers a second tenant1 user holding INVENTORY_COUNT_APPROVE,
+   * distinct from token1 (the creator of every fixture document and the
+   * one who records every count entry below) — approving a variance
+   * requires an approver who didn't count it themselves (segregation of
+   * duties, spec section 74). No invite API exists yet, so membership/
+   * role assignment goes straight through Prisma, same as other e2e
+   * specs' own "outsider"/"approver" fixtures. */
+  async function setupApprover(tenantId: string, organizationId: string): Promise<string> {
+    const email = `ic-approver-${run}@e2e.test`;
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({ email, password: 'Test1234!', displayName: 'IC Approver' }).expect(201);
+    const membership = await prisma.tenantMembership.create({ data: { tenantId, userId: reg.body.userId, status: 'ACTIVE' } });
+    await prisma.organizationAccess.create({ data: { tenantMembershipId: membership.id, organizationId, accessLevel: 'FULL' } });
+    const permissions = await prisma.permission.findMany({ where: { code: { in: ['inventory_count.approve', 'inventory_count.view'] } } });
+    const role = await prisma.role.create({ data: { tenantId, code: 'IC_APPROVER', name: 'IC_APPROVER' } });
+    await prisma.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+    await prisma.rolePermission.createMany({ data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+    return reg.body.accessToken;
+  }
+
+  function approverAuth(req: request.Test) {
+    return req.set('Authorization', `Bearer ${approverToken}`).set('X-Tenant-Id', tenant1Id);
   }
 
   async function createProduct(opts: { batchTrackingMode?: string; serialTrackingMode?: string } = {}) {
@@ -263,7 +289,7 @@ describe('Inventory Count (e2e)', () => {
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/decide`))
         .send({ resolutionType: 'ADJUST_STOCK', reasonCode: 'counting_error' })
         .expect(201);
-      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
 
       const before = await availableStock(productId);
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/create-adjustments`)).send({}).expect(201);
@@ -280,6 +306,34 @@ describe('Inventory Count (e2e)', () => {
       expect(Number(reconciliation.body.shortageQuantity)).toBe(5);
 
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/close`)).expect(201);
+    });
+  });
+
+  describe('Segregation of duties (spec section 74)', () => {
+    it('rejects approving a variance when the approver is the same person who counted it', async () => {
+      const productId = await createProduct();
+      await seedStock(productId, 100);
+      const { sessionId, sheets } = await setupSession({ productId });
+
+      // token1 both submits the count entry and (in this test) attempts to
+      // approve the resulting variance decision.
+      await submitEntry(sessionId, sheets[0].id, { productId, countedQuantity: 95 });
+      await completeAllSheets(sessionId, sheets);
+      await completeSession(sessionId);
+      await calculateVariances(sessionId);
+
+      const variance = (await listVariances(sessionId)).find((v) => v.productId === productId && v.varianceType === 'SHORTAGE')!;
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/decide`))
+        .send({ resolutionType: 'ADJUST_STOCK', reasonCode: 'counting_error' })
+        .expect(201);
+
+      // Blocked: auth1 both counted this item (via submitEntry above) and
+      // decided its resolution — approving it too would mean one person
+      // controlling the whole count->decide->approve chain.
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(400);
+
+      // A genuinely different approver succeeds.
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
     });
   });
 
@@ -300,7 +354,7 @@ describe('Inventory Count (e2e)', () => {
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/decide`))
         .send({ resolutionType: 'ADJUST_STOCK', reasonCode: 'unrecorded_receipt' })
         .expect(201);
-      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
 
       const before = await availableStock(productId);
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/create-adjustments`)).send({}).expect(201);
@@ -516,7 +570,7 @@ describe('Inventory Count (e2e)', () => {
 
       const variance = (await listVariances(sessionId)).find((v) => v.productId === productId)!;
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/decide`)).send({ resolutionType: 'ADJUST_STOCK' }).expect(201);
-      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
+      await approverAuth(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/variances/${variance.id}/approve`)).expect(201);
       await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/inventory-count/sessions/${sessionId}/create-adjustments`)).send({}).expect(201);
 
       // An unrelated receipt lands in scope after approval but before posting

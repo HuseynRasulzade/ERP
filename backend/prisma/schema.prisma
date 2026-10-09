@@ -4595,12 +4595,17 @@ model CashTransaction {
   sourcePurchaseInvoiceId String? @map("source_purchase_invoice_id")
 
   // Cash Desk build (docx spec Phase 15) — the cashier this document is
-  // recorded against (validated against CashierAssignment at posting,
-  // unless the poster holds CASH_OVERRIDE_NEGATIVE-style override) and,
+  // recorded against (validated against CashierAssignment at posting) and,
   // for EMPLOYEE_ADVANCE/EMPLOYEE_ADVANCE_RETURN, the accountable
   // ResponsiblePerson the money is issued to/returned by.
   cashierId  String? @map("cashier_id")
   employeeId String? @map("employee_id")
+
+  // Explicit intent to bypass the negative-balance block (sections 17-18)
+  // — still requires the poster to also hold CASH_OVERRIDE_NEGATIVE; see
+  // CashTransactionPostingHandler.validateForPosting. Never bypasses the
+  // CashierAssignment check above, which has no override of its own.
+  overrideNegativeBalance Boolean @default(false) @map("override_negative_balance")
 
   createdAt   DateTime  @default(now()) @map("created_at")
   createdBy   String?   @map("created_by")

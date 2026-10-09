@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
@@ -199,6 +200,16 @@ export class CreateCashTransactionDto {
   @IsOptional()
   @IsString()
   sourcePurchaseInvoiceId?: string;
+
+  /** Explicit intent to post a PAYMENT that would drive the cashbox
+   * negative — still blocked unless the poster also holds
+   * CASH_OVERRIDE_NEGATIVE (docx spec sections 17-18). Omitting this never
+   * bypasses the block on its own; both the flag AND the permission are
+   * required, same two-factor pattern as HireDocument's
+   * overrideStaffingLimit. */
+  @IsOptional()
+  @IsBoolean()
+  overrideNegativeBalance?: boolean;
 }
 
 export class UpdateCashTransactionDto {
@@ -233,6 +244,10 @@ export class UpdateCashTransactionDto {
   @IsOptional()
   @IsString()
   employeeId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  overrideNegativeBalance?: boolean;
 }
 
 export class SetPaymentAllocationLineDto {

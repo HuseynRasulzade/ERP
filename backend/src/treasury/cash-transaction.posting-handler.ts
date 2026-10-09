@@ -25,6 +25,8 @@ import {
 } from '../cash-desk/cash-balance.service';
 import { CashierAssignmentService } from '../cash-desk/cashier-assignment.service';
 import { AccountablePersonService } from '../cash-desk/accountable-person.service';
+import { RequestContextService } from '../common/context/request-context.service';
+import { PermissionCodes } from '../rbac/permission-codes';
 
 const EMPLOYEE_ADVANCE_CATEGORIES = [
   'EMPLOYEE_ADVANCE',
@@ -46,11 +48,14 @@ const EMPLOYEE_ADVANCE_CATEGORIES = [
  * blocked when it would drive the cashbox's own book balance (computed
  * live from CASH_MOVEMENT_REGISTER, never a mutable field — spec section
  * 15) negative under the NEVER policy (sections 17-18), concurrency-safe
- * via an advisory lock acquired before the balance is read (test 135);
- * and — only when `cashierId` is set on the document — the cashier must
- * hold an active CashierAssignment for this cashbox as of the business
- * date (section 7; omitting cashierId entirely skips the check, keeping
- * every pre-Phase-15 CashTransaction flow working unchanged).
+ * via an advisory lock acquired before the balance is read (test 135) —
+ * unless the document itself set `overrideNegativeBalance` AND the
+ * poster holds CASH_OVERRIDE_NEGATIVE (a two-factor override, neither
+ * alone bypasses it); and — only when `cashierId` is set on the document
+ * — the cashier must hold an active CashierAssignment for this cashbox as
+ * of the business date (section 7; omitting cashierId entirely skips the
+ * check, keeping every pre-Phase-15 CashTransaction flow working
+ * unchanged).
  *
  * When `sourceSalesInvoiceId`/`sourcePurchaseInvoiceId` names a specific
  * invoice, posting also increments that invoice's SettlementObligation/
@@ -72,6 +77,7 @@ export class CashTransactionPostingHandler implements DocumentPostingHandler {
     private readonly cashBalance: CashBalanceService,
     private readonly cashierAssignments: CashierAssignmentService,
     private readonly accountablePersons: AccountablePersonService,
+    private readonly requestContext: RequestContextService,
   ) {}
 
   async validateForPosting(
@@ -143,9 +149,18 @@ export class CashTransactionPostingHandler implements DocumentPostingHandler {
       );
       const amount = new Decimal(txn.amount.toString());
       if (current.minus(amount).lt(0)) {
-        throw new ValidationAppError(
-          `Cash desk ${cashbox.code} has only ${current.toFixed(2)} available; expense of ${amount.toFixed(2)} cannot be posted`,
-        );
+        // Explicit two-factor override (docx spec sections 17-18): the
+        // document itself must have requested the override AND the poster
+        // must hold CASH_OVERRIDE_NEGATIVE — neither alone bypasses the
+        // block, same pattern as HireDocument's overrideStaffingLimit.
+        const canOverride =
+          txn.overrideNegativeBalance &&
+          this.requestContext.hasPermission(PermissionCodes.CASH_OVERRIDE_NEGATIVE);
+        if (!canOverride) {
+          throw new ValidationAppError(
+            `Cash desk ${cashbox.code} has only ${current.toFixed(2)} available; expense of ${amount.toFixed(2)} cannot be posted`,
+          );
+        }
       }
     }
   }

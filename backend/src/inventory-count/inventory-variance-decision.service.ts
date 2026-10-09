@@ -76,6 +76,28 @@ export class InventoryVarianceResolutionService {
       if (variance.decision.status === 'APPROVED') return variance.decision;
       if (variance.decision.status === 'POSTED') throw new ValidationAppError('This variance decision has already been posted');
 
+      // Segregation of duties (spec section 74): the approver must not be
+      // one of the people who physically counted this exact dimension
+      // tuple — same tuple key InventoryVarianceService itself aggregates
+      // entries by (warehouse/location/product/batch/ownership/quality).
+      const counters = await tx.inventoryCountEntry.findMany({
+        where: {
+          tenantId,
+          sessionId,
+          voided: false,
+          warehouseId: variance.warehouseId,
+          locationId: variance.locationId,
+          productId: variance.productId,
+          batchId: variance.batchId,
+          ownershipType: variance.ownershipType,
+          qualityStatus: variance.qualityStatus,
+        },
+        select: { countedBy: true },
+      });
+      if (counters.some((e) => e.countedBy === userId)) {
+        throw new ValidationAppError('The person who counted this item cannot also approve its variance decision (segregation of duties)');
+      }
+
       const approved = await tx.inventoryVarianceDecision.update({ where: { varianceId }, data: { status: 'APPROVED', approver: userId, approvedAt: new Date() } });
       await tx.inventoryVariance.update({ where: { id: varianceId }, data: { resolutionStatus: 'APPROVED' } });
       await this.audit.record({ tenantId, eventType: 'INVENTORY_VARIANCE_APPROVED', entityType: 'INVENTORY_VARIANCE', entityId: varianceId, action: 'UPDATE', userId }, tx);

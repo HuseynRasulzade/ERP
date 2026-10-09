@@ -112,10 +112,15 @@ before the variance stops demanding another one regardless of policy.
 `InventoryVarianceDecision` records **how** a variance will be resolved
 before any posting exists — `resolutionType` picks the shape of the fix
 (spec section 49), `reasonCode` the catalog reason (spec section 45).
-Approval is a separate, explicit step (`INVENTORY_COUNT_APPROVE`) —
-segregation-of-duties enforcement beyond "a decision exists" (spec
-section 74: counter ≠ approver, warehouse keeper cannot approve their own
-count) is not built; the permission gate is the only control here.
+Approval is a separate, explicit step (`INVENTORY_COUNT_APPROVE`) — and now
+also segregation-of-duties enforced (spec section 74: counter ≠ approver):
+`approve()` looks up every non-voided `InventoryCountEntry` matching the
+variance's own dimension tuple (warehouse/location/product/batch/
+ownership/quality — the same tuple key `InventoryVarianceService` itself
+aggregates entries by) and rejects outright if the approving user's id is
+among their `countedBy` values. The decider and the approver may still be
+the same person (the spec only names counter ≠ approver) — only the
+physical counter is checked, not whoever recorded the decision.
 
 ## E. Turning a decision into a real posting (`inventory-count-adjustment.service.ts`)
 
@@ -178,8 +183,6 @@ the organization.
 
 ## H. Disclosed simplifications
 
-- **Segregation of duties** (spec section 74) is not enforced beyond the
-  permission gate — no "approver ≠ counter" check.
 - **Recount** always selects the latest attempt; supervisor-confirmed and
   median/consensus selection (spec section 41) are not built.
 - **`BATCH_CORRECTION`/`SERIAL_CORRECTION`** post as ordinary
@@ -228,4 +231,7 @@ reconciliation), blind count, post-snapshot movement reconciliation under
 mismatch, recount (original preserved, final approved count wins), hard
 freeze (blocks an unrelated posting into the locked warehouse), uncounted
 vs. explicit zero, idempotent adjustment posting, a stale-reconciliation
-block under a concurrent post-approval movement, and tenant isolation.
+block under a concurrent post-approval movement, segregation of duties
+(the person who counted an item cannot approve its own variance
+decision), and tenant isolation. 14 tests, all passing against real
+PostgreSQL.
