@@ -6,6 +6,9 @@ import { useToast } from '../context/ToastContext';
 import { useLocale } from '../i18n/LocaleContext';
 import { LanguageSwitch } from '../components/LanguageSwitch';
 
+const DEMO_EMAIL = 'demo@ccs-erp.az';
+const DEMO_PASSWORD = 'Demo1234!';
+
 export function LoginPage() {
   const { login } = useAuth();
   const { showError } = useToast();
@@ -15,17 +18,28 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const signIn = async (loginEmail: string, loginPassword: string) => {
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(loginEmail, loginPassword);
       navigate('/sales-orders');
     } catch (err) {
       showError(err);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void signIn(email, password);
+  };
+
+  // Seeded by backend/prisma/seed-demo-account.ts (npm run demo:seed).
+  const onDemo = () => {
+    setEmail(DEMO_EMAIL);
+    setPassword(DEMO_PASSWORD);
+    void signIn(DEMO_EMAIL, DEMO_PASSWORD);
   };
 
   return (
@@ -50,6 +64,10 @@ export function LoginPage() {
         <button type="submit" className="primary" disabled={submitting}>
           {submitting ? t.auth.signingIn : t.auth.signIn}
         </button>
+        <button type="button" className="ghost" disabled={submitting} onClick={onDemo}>
+          {t.auth.tryDemo}
+        </button>
+        <p className="auth-switch">{t.auth.demoHint}</p>
         <p className="auth-switch">
           {t.auth.noAccount} <Link to="/register">{t.auth.register}</Link>
         </p>

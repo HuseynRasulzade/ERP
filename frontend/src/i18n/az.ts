@@ -191,6 +191,8 @@ const az: Translations = {
     email: 'E-poçt',
     password: 'Şifrə',
     displayName: 'Ad',
+    tryDemo: 'Demo hesabı ilə daxil ol',
+    demoHint: 'Demo: demo@ccs-erp.az / Demo1234!',
     noAccount: 'Hesabınız yoxdur?',
     register: 'Qeydiyyatdan keç',
     haveAccount: 'Artıq hesabınız var?',

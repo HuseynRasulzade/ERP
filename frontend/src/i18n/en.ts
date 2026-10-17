@@ -189,6 +189,8 @@ const en = {
     email: 'Email',
     password: 'Password',
     displayName: 'Display name',
+    tryDemo: 'Sign in with the demo account',
+    demoHint: 'Demo: demo@ccs-erp.az / Demo1234!',
     noAccount: 'No account?',
     register: 'Register',
     haveAccount: 'Already have an account?',

@@ -58,6 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session.tenantId && list.some((t) => t.tenantId === session.tenantId)) {
         setCurrentTenantId(session.tenantId);
         await loadPermissions();
+      } else if (list.length === 1) {
+        // Only one tenant (e.g. the demo account) — no choice to make.
+        session.setTenantId(list[0].tenantId);
+        setCurrentTenantId(list[0].tenantId);
+        await loadPermissions();
       } else {
         session.setTenantId(null);
         setCurrentTenantId(null);

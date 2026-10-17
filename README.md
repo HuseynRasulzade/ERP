@@ -47,6 +47,12 @@ consequence (a Sales Invoice, a Manual Operation), adopt the chart and
 seed VAT localization once per tenant:
 `POST /accounting/chart/adopt` then `POST /tax/localization/seed`.
 
+**Demo account:** `npm run demo:seed -- <api-url>` (in `backend/`) creates
+`demo@ccs-erp.az` / `Demo1234!` with a populated demo tenant through the
+public API; the login page has a one-click demo sign-in. Data contents and
+the manual QA test cases are in
+[backend/docs/DEMO_TEST_CASES.md](backend/docs/DEMO_TEST_CASES.md).
+
 Tests: `cd backend && npm test && npm run test:e2e` — 180 tests, all
 passing (3 unit + 177 e2e against a real Postgres instance).
 
