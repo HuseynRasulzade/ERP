@@ -82,7 +82,15 @@ export class AccountingPostingEngine {
     tenantId: string,
     organizationId: string,
     userId: string,
-    input: { businessDate: Date; description?: string; lines: AccountingPostingLineInput[] },
+    input: {
+      businessDate: Date;
+      description?: string;
+      lines: AccountingPostingLineInput[];
+      operationType?: string;
+      generatedBy?: string;
+      isManual?: boolean;
+      isOpeningBalance?: boolean;
+    },
   ) {
     this.assertShapeValid(input.lines);
     await this.ensureSequence(tenantId);
@@ -97,11 +105,12 @@ export class AccountingPostingEngine {
           journalNumber: allocated.formatted,
           businessDate: input.businessDate,
           postingDate: input.businessDate,
-          operationType: 'MANUAL',
-          generatedBy: 'MANUAL_OPERATION',
+          operationType: input.operationType ?? 'MANUAL',
+          generatedBy: input.generatedBy ?? 'MANUAL_OPERATION',
           description: input.description,
           status: 'DRAFT',
-          isManual: true,
+          isManual: input.isManual ?? true,
+          isOpeningBalance: input.isOpeningBalance ?? false,
           createdBy: userId,
         },
       });

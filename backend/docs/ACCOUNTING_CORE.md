@@ -134,11 +134,19 @@ Technical Debt.
 
 ## I. Opening balances
 
-Schema/engine support exists (`JournalEntry.isOpeningBalance`,
-`operationType = OPENING_BALANCE`, `AccountingPostingBatch.isOpeningBalance`
-flag on `postBatch`), but there is **no dedicated Opening Balance
-endpoint/UI** yet — a caller would construct a `postBatch` call with
-`isOpeningBalance: true` today. Deferred; see Technical Debt.
+A dedicated `OpeningBalanceService`/`OpeningBalanceController` exists at
+`organizations/:organizationId/opening-balances` (create/get/list/post/
+unpost/reverse — same draft-first lifecycle as Manual Operation), gated
+behind `accounting.opening_balance.{view,manage}`. It is a thin wrapper
+over `AccountingPostingEngine.createDraft` exactly like
+`ManualOperationService` (still no second ledger engine — spec section
+51), with two differences: every line's account must be a balance-sheet
+class (`ASSET`/`CONTRA_ASSET`/`LIABILITY`/`CONTRA_LIABILITY`/`EQUITY`/
+`CONTRA_EQUITY` — a `REVENUE`/`EXPENSE`/`PROFIT_LOSS` line is rejected
+outright), and the resulting `JournalEntry` is tagged
+`operationType = 'OPENING_BALANCE'`, `isOpeningBalance = true`,
+`isManual = false` — so it is listed separately from Manual Operations,
+not mixed into that list.
 
 ## J. Reversal / unposting / reposting
 
@@ -213,8 +221,6 @@ period-guard logic needed.
 
 - **Reposting** as a first-class generation-tracked operation (unpost+
   post covers the practical case for manual operations today).
-- **Opening Balance** dedicated endpoint/UI (the engine supports the flag;
-  nothing calls it yet).
 - **Currency/quantity requiredness** is not enforced — an account with
   `currencyTracking=true` doesn't yet *require* `transactionCurrencyId` on
   its lines, and `quantityTracking=false` doesn't yet *reject* an

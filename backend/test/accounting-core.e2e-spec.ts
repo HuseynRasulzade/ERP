@@ -311,6 +311,87 @@ describe('Accounting Core (e2e)', () => {
     });
   });
 
+  describe('Opening Balance — balance-sheet only, separate from Manual Operation', () => {
+    let equityAccountId: string; // 301
+    let otherAssetAccountId: string; // 245 — distinct from bankAccountId so this block never
+    // contributes extra movements to the Trial Balance/GL/Account Card assertions below,
+    // which are scoped exactly to bankAccountId's existing Manual Operation fixture data.
+
+    beforeAll(async () => {
+      equityAccountId = (await accountByCode('301')).id;
+      otherAssetAccountId = (await accountByCode('245')).id;
+    });
+
+    it('rejects a line against a P&L account (not balance-sheet)', async () => {
+      const res = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/opening-balances`))
+        .send({
+          businessDate: DOC_DATE,
+          description: 'Opening balance attempt',
+          lines: [
+            { accountId: otherAssetAccountId, side: 'DEBIT', amountBase: '1000' },
+            { accountId: revenueAccountId, side: 'CREDIT', amountBase: '1000', dimensions: [{ dimensionCode: 'PRODUCT', referenceId: 'p1' }] },
+          ],
+        })
+        .expect(400);
+      expect(res.body.message).toContain('balance-sheet');
+    });
+
+    let entryId: string;
+    let entryVersion: number;
+
+    it('creates and posts a balanced opening balance against balance-sheet accounts only', async () => {
+      const draft = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/opening-balances`))
+        .send({
+          businessDate: DOC_DATE,
+          description: 'Opening balance',
+          lines: [
+            { accountId: otherAssetAccountId, side: 'DEBIT', amountBase: '1000' },
+            { accountId: equityAccountId, side: 'CREDIT', amountBase: '1000' },
+          ],
+        })
+        .expect(201);
+      expect(draft.body.status).toBe('DRAFT');
+
+      const posted = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/opening-balances/${draft.body.id}/post`))
+        .send({ expectedVersion: draft.body.version })
+        .expect(201);
+      expect(posted.body.status).toBe('POSTED');
+      entryId = posted.body.id;
+      entryVersion = posted.body.version;
+
+      const stored = await prisma.journalEntry.findUnique({ where: { id: entryId } });
+      expect(stored?.isOpeningBalance).toBe(true);
+      expect(stored?.operationType).toBe('OPENING_BALANCE');
+      expect(stored?.isManual).toBe(false);
+    });
+
+    it('is listed under /opening-balances but not under /manual-operations, and vice versa', async () => {
+      const openingList = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/opening-balances`)).expect(200);
+      expect(openingList.body.some((e: any) => e.id === entryId)).toBe(true);
+
+      const manualList = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/manual-operations`)).expect(200);
+      expect(manualList.body.some((e: any) => e.id === entryId)).toBe(false);
+    });
+
+    it('unposts and reverses an opening balance the same way a manual operation does', async () => {
+      const unposted = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/opening-balances/${entryId}/unpost`))
+        .send({ expectedVersion: entryVersion })
+        .expect(201);
+      expect(unposted.body.status).toBe('DRAFT');
+      entryVersion = unposted.body.version;
+
+      const reposted = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/opening-balances/${entryId}/post`))
+        .send({ expectedVersion: entryVersion })
+        .expect(201);
+      entryVersion = reposted.body.version;
+
+      const reversal = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/opening-balances/${entryId}/reverse`))
+        .send({ expectedVersion: entryVersion })
+        .expect(201);
+      expect(reversal.body.isReversal).toBe(true);
+    });
+  });
+
   describe('Period guard', () => {
     it('blocks posting into a closed period (spec sections 62-63)', async () => {
       const draft = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/manual-operations`))

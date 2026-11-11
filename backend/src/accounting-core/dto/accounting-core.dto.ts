@@ -74,6 +74,16 @@ export class CreateManualOperationDto {
   lines!: ManualOperationLineDto[];
 }
 
+export class CreateOpeningBalanceDto {
+  @IsDateString() businessDate!: string;
+  @IsOptional() @IsString() description?: string;
+  @IsArray()
+  @ArrayMinSize(2)
+  @ValidateNested({ each: true })
+  @Type(() => ManualOperationLineDto)
+  lines!: ManualOperationLineDto[];
+}
+
 export class PostJournalEntryDto {
   @IsInt() @Min(1) expectedVersion!: number;
 }
