@@ -16,6 +16,7 @@ import { BankReconciliationService } from './bank-reconciliation.service';
 import {
   ClassifyAsBankFeeDto,
   CreateBankStatementLineDto,
+  ImportBankStatementDto,
   MatchBankStatementLineDto,
   UpdateBankStatementLineDto,
 } from './dto/bank-reconciliation.dto';
@@ -85,8 +86,10 @@ export class BankReconciliationController {
     );
   }
 
-  /** CSV bank statement import — must be declared before ':id' routes so
-   * Nest doesn't swallow this literal path as an :id match. */
+  /** Bank statement file import (CSV / MT940 / CAMT.053) — must be
+   * declared before ':id' routes so Nest doesn't swallow this literal
+   * path as an :id match. The caller states `format` explicitly; this
+   * never tries to sniff it from the file's own content. */
   @RequirePermissions(PermissionCodes.TREASURY_RECONCILIATION_MANAGE)
   @Post('import')
   @UseInterceptors(
@@ -95,20 +98,21 @@ export class BankReconciliationController {
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
   )
-  importCsv(
+  importStatement(
     @CurrentTenantId() tenantId: string,
     @CurrentMembershipId() membershipId: string,
     @Param('organizationId') organizationId: string,
     @CurrentUser() user: { userId: string },
-    @Query('bankAccountId') bankAccountId: string,
+    @Query() dto: ImportBankStatementDto,
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
-    return this.service.importCsv(
+    return this.service.importStatement(
       tenantId,
       membershipId,
       organizationId,
-      bankAccountId,
+      dto.bankAccountId,
+      dto.format,
       user.userId,
       file.buffer.toString('utf-8'),
     );

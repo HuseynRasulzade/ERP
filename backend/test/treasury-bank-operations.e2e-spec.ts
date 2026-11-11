@@ -320,6 +320,169 @@ describe('Treasury Bank Operations (e2e)', () => {
     });
   });
 
+  describe('Bank statement file import (MT940 / CAMT.053)', () => {
+    async function createImportBankAccount(suffix: string) {
+      const res = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/bank-accounts`))
+        .send({ bankName: 'Bank A', accountName: `Import ${suffix}`, iban: makeIban(suffix), currencyId: aznId })
+        .expect(201);
+      return res.body.id as string;
+    }
+
+    function importFile(bankAccountId: string, format: string, body: string, filename: string) {
+      return auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/bank-statement-lines/import`))
+        .query({ bankAccountId, format })
+        .attach('file', Buffer.from(body, 'utf-8'), filename);
+    }
+
+    it('imports MT940 statement lines with the correct direction, amount, date and narrative', async () => {
+      const bankAccountId = await createImportBankAccount('M1');
+      const mt940 = [
+        ':20:STMT-MT940',
+        ':25:' + makeIban('M1'),
+        ':28C:1/1',
+        ':60F:C260531AZN0,00',
+        ':61:260601D1500,00NTRFREFD1//BANKREF1',
+        ':86:Payment to supplier ABC',
+        ':61:260602C3000,00NTRFREFC1//BANKREF2',
+        ':86:Incoming payment from customer XYZ',
+        ':61:260603D250,50NCHGREFD2//BANKREF3',
+        ':86:Monthly bank commission',
+        ':62F:C260603AZN1249,50',
+        '',
+      ].join('\n');
+
+      const result = await importFile(bankAccountId, 'MT940', mt940, 'statement.mt940').expect(201);
+      expect(result.body.imported).toBe(3);
+      expect(result.body.errors).toHaveLength(0);
+
+      const lines = result.body.lines;
+      expect(lines).toHaveLength(3);
+
+      const outflow = lines.find((l: any) => l.reference === 'REFD1');
+      expect(Number(outflow.amount)).toBe(-1500);
+      expect(String(outflow.statementDate).slice(0, 10)).toBe('2026-06-01');
+      expect(outflow.description).toBe('Payment to supplier ABC');
+
+      const inflow = lines.find((l: any) => l.reference === 'REFC1');
+      expect(Number(inflow.amount)).toBe(3000);
+      expect(String(inflow.statementDate).slice(0, 10)).toBe('2026-06-02');
+      expect(inflow.description).toBe('Incoming payment from customer XYZ');
+
+      const fee = lines.find((l: any) => l.reference === 'REFD2');
+      expect(Number(fee.amount)).toBe(-250.5);
+      expect(String(fee.statementDate).slice(0, 10)).toBe('2026-06-03');
+      expect(fee.description).toBe('Monthly bank commission');
+
+      // Re-importing the exact same file is a no-op — every line already exists.
+      const reimport = await importFile(bankAccountId, 'MT940', mt940, 'statement.mt940').expect(201);
+      expect(reimport.body.imported).toBe(0);
+      expect(reimport.body.skipped).toBe(3);
+    });
+
+    it('rejects a malformed MT940 file with a validation error, not a 500', async () => {
+      const bankAccountId = await createImportBankAccount('M2');
+      const res = await importFile(bankAccountId, 'MT940', 'this is not an MT940 file at all, just plain text', 'bad.mt940');
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/MT940/i);
+    });
+
+    it('reports a per-line error for a structurally broken :61: field rather than failing the whole import', async () => {
+      const bankAccountId = await createImportBankAccount('M3');
+      const mt940 = [
+        ':20:STMT-MT940-PARTIAL',
+        ':61:260601D1500,00NTRFOKREF//BANKREF1',
+        ':86:Good line',
+        ':61:NOT-A-VALID-FIELD-61',
+        ':86:Bad line',
+        '',
+      ].join('\n');
+
+      const result = await importFile(bankAccountId, 'MT940', mt940, 'partial.mt940').expect(201);
+      expect(result.body.imported).toBe(1);
+      expect(result.body.errors).toHaveLength(1);
+      expect(result.body.errors[0].message).toMatch(/date/i);
+    });
+
+    it('imports CAMT.053 statement entries with the correct direction, amount, date and narrative', async () => {
+      const bankAccountId = await createImportBankAccount('C1');
+      const camt053 = `<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <Stmt>
+      <Id>STMT-CAMT</Id>
+      <Ntry>
+        <Amt Ccy="AZN">1500.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-06-01</Dt></BookgDt>
+        <ValDt><Dt>2026-06-01</Dt></ValDt>
+        <AcctSvcrRef>REFD1</AcctSvcrRef>
+        <AddtlNtryInf>Payment to supplier ABC</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="AZN">3000.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2026-06-02</Dt></BookgDt>
+        <ValDt><Dt>2026-06-02</Dt></ValDt>
+        <AcctSvcrRef>REFC1</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <RmtInf><Ustrd>Incoming payment from customer XYZ</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="AZN">250.50</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-06-03</Dt></BookgDt>
+        <ValDt><Dt>2026-06-03</Dt></ValDt>
+        <AcctSvcrRef>REFD2</AcctSvcrRef>
+        <AddtlNtryInf>Monthly bank commission</AddtlNtryInf>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>`;
+
+      const result = await importFile(bankAccountId, 'CAMT053', camt053, 'statement.xml').expect(201);
+      expect(result.body.imported).toBe(3);
+      expect(result.body.errors).toHaveLength(0);
+
+      const lines = result.body.lines;
+      const outflow = lines.find((l: any) => l.reference === 'REFD1');
+      expect(Number(outflow.amount)).toBe(-1500);
+      expect(String(outflow.statementDate).slice(0, 10)).toBe('2026-06-01');
+      expect(outflow.description).toBe('Payment to supplier ABC');
+
+      const inflow = lines.find((l: any) => l.reference === 'REFC1');
+      expect(Number(inflow.amount)).toBe(3000);
+      expect(String(inflow.statementDate).slice(0, 10)).toBe('2026-06-02');
+      expect(inflow.description).toBe('Incoming payment from customer XYZ');
+
+      const fee = lines.find((l: any) => l.reference === 'REFD2');
+      expect(Number(fee.amount)).toBe(-250.5);
+      expect(String(fee.statementDate).slice(0, 10)).toBe('2026-06-03');
+      expect(fee.description).toBe('Monthly bank commission');
+    });
+
+    it('rejects malformed CAMT.053 XML with a validation error, not a 500', async () => {
+      const bankAccountId = await createImportBankAccount('C2');
+      const res = await importFile(bankAccountId, 'CAMT053', '<Document><BkToCstmrStmt><Stmt>', 'bad.xml');
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/XML|camt/i);
+    });
+
+    it('rejects well-formed but structurally unrelated XML (no <Ntry> entries)', async () => {
+      const bankAccountId = await createImportBankAccount('C3');
+      const res = await importFile(bankAccountId, 'CAMT053', '<Document><SomethingElse/></Document>', 'unrelated.xml');
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an unknown format value', async () => {
+      const bankAccountId = await createImportBankAccount('F1');
+      const res = await importFile(bankAccountId, 'QIF', 'whatever', 'file.qif');
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('Bank Reconciliation period close', () => {
     it('closes once every line is matched and the difference is within tolerance, blocks otherwise', async () => {
       const bankAccountId = aznBankAccount2Id;

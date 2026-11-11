@@ -9,9 +9,9 @@ A prior build already shipped the core payment chain — `PaymentRequest`
 (plain CRUD), `PaymentOrder` (full document-framework participant, FINANCE
 approval, posting IS the "Bank Ödənişi" event, a lightweight `reconcile()`
 action), `CashTransaction` (cashbox receipt/payment), `Bank`/`BankAccount`
-master data, and `BankStatementLine` (manual entry + CSV import +
-PaymentOrder-only matching) — see each file's own doc comments for that
-half. This build adds everything the spec's three-layer architecture
+master data, and `BankStatementLine` (manual entry + file import —
+CSV, MT940, CAMT.053 — + PaymentOrder-only matching) — see each file's
+own doc comments for that half. This build adds everything the spec's three-layer architecture
 (section 1) still needed: PaymentRequest's own amount-tier approval +
 amount control + partial execution, the bank-side documents that didn't
 exist yet (money coming IN via bank, internal transfers, bank fees, FX
@@ -199,10 +199,29 @@ mandatory-reason/audit trail on reopen.
   amount instead of full Tax Engine resolution**, and **no
   "executor ≠ reconciliation closer" segregation-of-duties check** — see
   sections C/E above.
-- **MT940/CAMT.053/bank-specific statement formats** — only the
-  pre-existing generic CSV importer exists; no bank-native parser was
-  added (spec section 36 lists CSV as one acceptable format among
-  several).
+- **MT940/CAMT.053 bank statement formats** — now supported alongside
+  the pre-existing generic CSV importer (spec section 36 lists CSV,
+  MT940 and CAMT.053 as acceptable formats). `POST
+  .../bank-statement-lines/import?bankAccountId=&format=` takes an
+  explicit `format` of `CSV`/`MT940`/`CAMT053` — never auto-sniffed.
+  MT940 is parsed as the fixed-format SWIFT field-tag text it is
+  (`:20:`, `:25:`, `:28C:`, `:60F:`/`:60M:`, repeated `:61:`/`:86:`
+  pairs, `:62F:`/`:62M:`), not approximated as delimited text. CAMT.053
+  is parsed as ISO 20022 XML (`fast-xml-parser`, already vetted for this
+  codebase's own needs — no hand-rolled XML parsing) walking each
+  `<Ntry>`'s `<Amt>`/`<CdtDbtInd>`/`<BookgDt>`/`<AcctSvcrRef>`/
+  `<RmtInf>`/`<AddtlNtryInf>`. Both map into the exact same
+  `BankStatementLine` shape and run through the one existing
+  dedupe/create pipeline the CSV path already used — only the parsing
+  step is format-specific. A structurally malformed file (missing
+  `:20:`/no `:61:` fields, or XML that doesn't parse or carries no
+  `<Ntry>`) is rejected with a `ValidationAppError`, not a 500; a single
+  malformed `:61:` line inside an otherwise-good MT940 file is reported
+  as a per-row import error instead of failing the whole file, the same
+  way one bad CSV row already was. **Still not built**: opening/closing
+  balance (`:60F:`/`:62F:` etc., CAMT `<Bal>`) is read far enough to be
+  skippable but is not cross-checked against the sum of parsed lines —
+  only the per-line data feeds `BankStatementLine`.
 - **One-to-many/many-to-one composite statement matching** (spec sections
   45-46) — only 1:1 matching is supported, per document leg.
 - **Forecast versioning** (v1/v2/actual comparison, spec section 83) — not
