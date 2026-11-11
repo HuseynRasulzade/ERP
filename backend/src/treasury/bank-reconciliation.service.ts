@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrganizationAccessService } from '../org-structure/organization-access.service';
@@ -15,6 +16,29 @@ import {
   UpdateBankStatementLineDto,
 } from './dto/bank-reconciliation.dto';
 import { BankFeeService } from './bank-fee.service';
+
+type BankStatementFormat = 'CSV' | 'MT940' | 'CAMT053';
+
+/** The common shape every format-specific parser below maps its own raw
+ * fields into — the ONE internal line shape the rest of this import
+ * pipeline (dedupe, create, audit) already operates on, regardless of
+ * which file format produced it (spec section 36: CSV/MT940/CAMT.053 are
+ * all acceptable input formats for the same statement line concept).
+ * `date`/`amount` are left as unvalidated raw strings on purpose — the
+ * existing per-row loop below is what parses and validates them (the
+ * same two calls it already made for CSV), so a structurally-broken
+ * entry in ANY format surfaces as the exact same kind of per-row
+ * validation error instead of a second, format-specific error path.
+ * `rowLabel` is only for that error message: CSV uses the file's own
+ * line number (matching its pre-existing behaviour), MT940/CAMT.053 use
+ * the 1-based position of the statement line/entry within the file. */
+interface ParsedStatementRow {
+  date: string;
+  description?: string;
+  reference?: string;
+  amount: string;
+  rowLabel: number;
+}
 
 const BANK_STATEMENT_LINE_TYPE = 'BANK_STATEMENT_LINE';
 
@@ -162,9 +186,10 @@ const FEE_DESCRIPTION_PATTERN =
  * than beside it: matching a line to a PaymentOrder calls that same
  * `reconcile()` method (so PaymentOrder.reconciled/bankStatementAmount
  * never disagrees with this line's own MATCHED status), then records the
- * link on the line's own side. No file-import parser exists in this
- * build — lines are entered the same way every other document here is:
- * one row at a time, honestly labeled as manual entry.
+ * link on the line's own side. File import (CSV, MT940, CAMT.053 — see
+ * importStatement()) is one more way lines land in the same table; a
+ * line entered by hand through create() is otherwise indistinguishable
+ * from one read off a bank file.
  */
 @Injectable()
 export class BankReconciliationService {
@@ -489,22 +514,28 @@ export class BankReconciliationService {
   }
 
   /**
-   * CSV bank statement import (Bank çıxarışı idxalı) — this build has no
-   * bank-specific format parser (MT940 etc.), so it accepts one plain,
-   * bank-agnostic shape: a header row naming `date,description,reference,
-   * amount` in any order/case, one line per statement entry. Rows whose
+   * Bank statement file import (Bank çıxarışı idxalı) — supports three
+   * formats, each parsed into the exact same `ParsedStatementRow` shape
+   * and then run through the ONE dedupe/create pipeline below: a plain,
+   * bank-agnostic CSV (a header row naming `date,description,reference,
+   * amount` in any order/case), MT940 (SWIFT customer statement message,
+   * field-tag based), and CAMT.053 (ISO 20022 XML bank-to-customer
+   * statement, `<Ntry>` entries). The caller states `format` explicitly
+   * (no auto-sniffing — spec section 36 treats these as distinct
+   * acceptable formats, not variants to guess between). Rows whose
    * (date, amount, reference, description) tuple already exists for this
    * bank account are skipped as likely re-imports of the same file,
    * rather than silently duplicated — the summary reports exactly which
    * rows landed where so the user can fix and re-upload just the rest.
    */
-  async importCsv(
+  async importStatement(
     tenantId: string,
     membershipId: string,
     organizationId: string,
     bankAccountId: string,
+    format: BankStatementFormat,
     userId: string,
-    csvText: string,
+    fileText: string,
   ) {
     await this.access.assertAccess(tenantId, membershipId, organizationId);
     const bankAccount = await this.prisma.bankAccount.findFirst({
@@ -515,9 +546,9 @@ export class BankReconciliationService {
         'Bank account does not belong to this organization',
       );
 
-    const rows = this.parseCsv(csvText);
+    const rows = this.parseStatementFile(format, fileText);
     if (rows.length === 0)
-      throw new ValidationAppError('CSV file has no data rows');
+      throw new ValidationAppError(`${format} file has no data rows`);
 
     const existing = await this.prisma.bankStatementLine.findMany({
       where: { bankAccountId },
@@ -542,7 +573,7 @@ export class BankReconciliationService {
     const errors: { row: number; message: string }[] = [];
     let skipped = 0;
 
-    rows.forEach((row, index) => {
+    rows.forEach((row) => {
       try {
         const date = this.parseDate(row.date);
         const amount = new Decimal(row.amount);
@@ -567,9 +598,9 @@ export class BankReconciliationService {
         });
       } catch (err) {
         errors.push({
-          row: index + 2,
+          row: row.rowLabel,
           message: err instanceof Error ? err.message : 'Invalid row',
-        }); // +2: 1-indexed + header row
+        });
       }
     });
 
@@ -600,6 +631,7 @@ export class BankReconciliationService {
             action: 'CREATE',
             userId,
             newValues: {
+              format,
               imported: rows.length,
               skipped,
               errors: errors.length,
@@ -623,17 +655,35 @@ export class BankReconciliationService {
     return `${dateIso}|${amount}|${reference.trim().toLowerCase()}|${description.trim().toLowerCase()}`;
   }
 
+  /** Dispatches to the format-specific parser the caller named. Each one
+   * returns the same `ParsedStatementRow[]` shape — date/amount are left
+   * as raw strings for the shared per-row loop above to validate, so a
+   * structurally-broken entry in any format surfaces as an ordinary
+   * per-row import error instead of a crash. */
+  private parseStatementFile(
+    format: BankStatementFormat,
+    text: string,
+  ): ParsedStatementRow[] {
+    switch (format) {
+      case 'CSV':
+        return this.parseCsv(text);
+      case 'MT940':
+        return this.parseMt940(text);
+      case 'CAMT053':
+        return this.parseCamt053(text);
+      default:
+        throw new ValidationAppError(
+          `Unsupported bank statement format: ${format}`,
+        );
+    }
+  }
+
   /** Minimal CSV parser (no external dependency) — handles double-quoted
    * fields containing commas/quotes (RFC 4180 `""` escaping), which is
    * as much as a bank-agnostic export format needs. Column order is read
    * from the header row so `date,amount,description,reference` and
    * `reference,date,description,amount` both work. */
-  private parseCsv(text: string): {
-    date: string;
-    description?: string;
-    reference?: string;
-    amount: string;
-  }[] {
+  private parseCsv(text: string): ParsedStatementRow[] {
     const splitLine = (line: string): string[] => {
       const fields: string[] = [];
       let current = '';
@@ -675,7 +725,7 @@ export class BankReconciliationService {
       );
     }
 
-    return lines.slice(1).map((line) => {
+    return lines.slice(1).map((line, index) => {
       const fields = splitLine(line);
       return {
         date: fields[dateIdx] ?? '',
@@ -684,8 +734,196 @@ export class BankReconciliationService {
           descriptionIdx >= 0 ? fields[descriptionIdx] || undefined : undefined,
         reference:
           referenceIdx >= 0 ? fields[referenceIdx] || undefined : undefined,
+        rowLabel: index + 2, // +2: 1-indexed + header row, matching this format's pre-existing error numbering
       };
     });
+  }
+
+  /** `:61:` statement-line field pattern (SWIFT MT940, field 61):
+   *   6!n        value date, YYMMDD
+   *   [4!n]      entry date, MMDD (optional, rarely present — unused here)
+   *   2a         debit/credit mark: D, C, RD (reversal debit) or RC
+   *   15d        amount, SWIFT comma-decimal (e.g. "1500,00")
+   *   1!a3!c     transaction type code (e.g. "NTRF") — optional, discarded
+   *   16x[//16x] customer reference, optionally followed by a bank
+   *              reference after "//" — this build assumes a transaction
+   *              type code is present (as the SWIFT examples it was built
+   *              against always carry one) and does not try to
+   *              disambiguate a reference from one that omits it. */
+  private static readonly MT940_LINE_61_PATTERN =
+    /^(\d{6})(?:\d{4})?(R?[CD])(\d+,\d{0,2})(?:[A-Z][A-Z0-9]{3})?(.*)$/;
+
+  /** MT940 (SWIFT customer statement message, spec section 36) — a
+   * fixed-format field-tag text structure, not a delimited table. `:20:`
+   * is the mandatory transaction reference every real MT940 message
+   * carries, so its absence is treated as "not an MT940 file at all"
+   * rather than a per-row error. Each `:61:` (statement line) is paired
+   * with the `:86:` (information to account owner) that immediately
+   * follows it for the line's narrative — multiple `:61:`/`:86:` pairs
+   * per statement are walked in order. A line that spans more than one
+   * physical line (continuation lines not starting with a new `:tag:`)
+   * is joined back together before field-61 parsing, which is how a
+   * multi-line `:86:` narrative is captured whole. */
+  private parseMt940(text: string): ParsedStatementRow[] {
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trimEnd())
+      .filter((l) => l.length > 0 && l !== '-');
+
+    const tagPattern = /^:([0-9]{2}[A-Z]?):(.*)$/;
+    const tags: { tag: string; value: string }[] = [];
+    for (const line of lines) {
+      const match = line.match(tagPattern);
+      if (match) {
+        tags.push({ tag: match[1], value: match[2] });
+      } else if (tags.length > 0) {
+        // Continuation of the previous tag's value (e.g. a second line
+        // of :86: narrative) — joined with a space, not a newline, since
+        // :86: subfields are free text either way.
+        tags[tags.length - 1].value += ` ${line.trim()}`;
+      }
+      // A stray line before any tag (e.g. a SWIFT block-1/block-2
+      // envelope header some exports still include) is not a field this
+      // import cares about — ignored rather than rejected.
+    }
+
+    if (!tags.some((t) => t.tag === '20'))
+      throw new ValidationAppError(
+        'MT940 file is missing the mandatory :20: transaction reference field — not a recognizable MT940 message',
+      );
+
+    const rows: ParsedStatementRow[] = [];
+    let rowLabel = 0;
+    for (let i = 0; i < tags.length; i++) {
+      if (tags[i].tag !== '61') continue;
+      rowLabel += 1;
+      const narrative =
+        tags[i + 1]?.tag === '86' ? tags[i + 1].value.trim() : undefined;
+      rows.push(
+        this.parseMt940StatementLine(tags[i].value, narrative, rowLabel),
+      );
+    }
+
+    if (rows.length === 0)
+      throw new ValidationAppError(
+        'MT940 file has no :61: statement line fields',
+      );
+
+    return rows;
+  }
+
+  private parseMt940StatementLine(
+    raw: string,
+    narrative: string | undefined,
+    rowLabel: number,
+  ): ParsedStatementRow {
+    const match = raw.match(
+      BankReconciliationService.MT940_LINE_61_PATTERN,
+    );
+    if (!match) {
+      // Left deliberately empty rather than thrown here — the shared
+      // per-row loop's own date/amount validation is what turns this
+      // into a reported error, the same path a bad CSV row takes.
+      return { date: '', amount: '', description: narrative, rowLabel };
+    }
+    const [, valueDate, mark, amountText, rest] = match;
+    const date = `20${valueDate.slice(0, 2)}-${valueDate.slice(2, 4)}-${valueDate.slice(4, 6)}`;
+    const isDebit = mark.endsWith('D');
+    const amount = `${isDebit ? '-' : ''}${amountText.replace(',', '.')}`;
+    const [customerRef, bankRef] = rest.split('//');
+    const reference =
+      (customerRef && customerRef.trim()) ||
+      (bankRef && bankRef.trim()) ||
+      undefined;
+    return { date, amount, description: narrative, reference, rowLabel };
+  }
+
+  /** CAMT.053 (ISO 20022 XML bank-to-customer statement, spec section
+   * 36) — one `<Ntry>` per statement entry under
+   * `Document/BkToCstmrStmt/Stmt`. `<Amt>` is always a positive magnitude
+   * in this message; `<CdtDbtInd>` (CRDT/DBIT) is what decides the sign
+   * applied here, matching this import's own positive-inflow/
+   * negative-outflow convention. Narrative is taken from
+   * `<AddtlNtryInf>` plus any `<RmtInf><Ustrd>` text inside the entry's
+   * own `<NtryDtls><TxDtls>` — both are included when both are present,
+   * joined with " / ", since a bank may put different information in
+   * each. */
+  private parseCamt053(xmlText: string): ParsedStatementRow[] {
+    const validation = XMLValidator.validate(xmlText);
+    if (validation !== true)
+      throw new ValidationAppError(
+        `CAMT.053 file is not well-formed XML: ${validation.err.msg}`,
+      );
+
+    const parser = new XMLParser({
+      ignoreAttributes: true,
+      parseTagValue: false,
+      trimValues: true,
+      isArray: (name) => ['Stmt', 'Ntry', 'TxDtls'].includes(name),
+    });
+    const doc = parser.parse(xmlText);
+    const stmts = doc?.Document?.BkToCstmrStmt?.Stmt;
+    if (!Array.isArray(stmts) || stmts.length === 0)
+      throw new ValidationAppError(
+        'CAMT.053 file is missing Document/BkToCstmrStmt/Stmt — not a recognizable camt.053 bank statement message',
+      );
+
+    const entries: unknown[] = stmts.flatMap((s: Record<string, unknown>) =>
+      Array.isArray(s.Ntry) ? s.Ntry : [],
+    );
+    if (entries.length === 0)
+      throw new ValidationAppError(
+        'CAMT.053 file has no <Ntry> (statement entry) elements',
+      );
+
+    return entries.map((entry, index) =>
+      this.parseCamt053Entry(entry as Record<string, unknown>, index + 1),
+    );
+  }
+
+  private parseCamt053Entry(
+    entry: Record<string, unknown>,
+    rowLabel: number,
+  ): ParsedStatementRow {
+    const text = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.length > 0 ? v : undefined;
+
+    const indicator = text(entry.CdtDbtInd)?.toUpperCase();
+    const amountText = text(entry.Amt) ?? '';
+    const amount = indicator === 'DBIT' ? `-${amountText}` : amountText;
+
+    const bookgDt = entry.BookgDt as Record<string, unknown> | undefined;
+    const valDt = entry.ValDt as Record<string, unknown> | undefined;
+    const date =
+      text(bookgDt?.Dt) ??
+      text(bookgDt?.DtTm)?.slice(0, 10) ??
+      text(valDt?.Dt) ??
+      text(valDt?.DtTm)?.slice(0, 10) ??
+      '';
+
+    const reference = text(entry.AcctSvcrRef) ?? text(entry.NtryRef);
+
+    const narrativeParts: string[] = [];
+    const additionalInfo = text(entry.AddtlNtryInf);
+    if (additionalInfo) narrativeParts.push(additionalInfo);
+    const ntryDtls = entry.NtryDtls as Record<string, unknown> | undefined;
+    const txDtlsList = Array.isArray(ntryDtls?.TxDtls)
+      ? (ntryDtls!.TxDtls as Record<string, unknown>[])
+      : [];
+    for (const tx of txDtlsList) {
+      const rmtInf = tx.RmtInf as Record<string, unknown> | undefined;
+      const ustrd = text(rmtInf?.Ustrd);
+      if (ustrd) narrativeParts.push(ustrd);
+    }
+
+    return {
+      date,
+      amount,
+      description:
+        narrativeParts.length > 0 ? narrativeParts.join(' / ') : undefined,
+      reference,
+      rowLabel,
+    };
   }
 
   /** Auto-match suggestions (Bank çıxarışı idxalı) — every POSTED,

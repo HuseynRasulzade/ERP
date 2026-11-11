@@ -75,6 +75,16 @@ export class ClassifyAsBankFeeDto {
   feeType?: string;
 }
 
+/** The caller states which bank statement file format it is uploading —
+ * no format auto-sniffing is attempted. */
+export class ImportBankStatementDto {
+  @IsString()
+  bankAccountId!: string;
+
+  @IsIn(['CSV', 'MT940', 'CAMT053'])
+  format!: 'CSV' | 'MT940' | 'CAMT053';
+}
+
 export class CreateBankReconciliationDto {
   @IsString()
   bankAccountId!: string;
