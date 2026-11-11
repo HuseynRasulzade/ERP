@@ -315,12 +315,14 @@ Disclosed deliberately, matching every prior phase's documentation:
   "Invalid Agreement: rejected" (section 109) has no Agreement to
   validate against in this build — only active-and-eligible-counterparty
   is checked.
-- **No Order-Multiple/MOQ enforcement.** `SupplierProductCode.moq` and
-  `.orderMultiple` are captured and surfaced in the supplier-candidate
-  comparison (spec sections 55-56: "do not silently round up") but
-  nothing currently validates or warns when a `PurchaseOrderLine.quantity`
-  violates them — that policy decision (block vs. warn vs. silent) is
-  left to a future UI/service layer.
+- **Order-Multiple/MOQ enforcement is implemented** (closed since this
+  section was first written). `PurchaseOrderService.resolveLines`
+  rejects a line outright when its quantity is below
+  `SupplierProductCode.moq` or is not an exact multiple of
+  `.orderMultiple`, on both order creation and line edits — spec
+  sections 55-56's "do not silently round up" ruled out auto-correcting
+  the quantity, so the policy chosen is reject, same as every other line
+  validation in that method.
 - **`Department.managerPersonId` reused as-is; `PurchaseRequirement.
   requesterId`/`PurchaseOrder.buyerId`** point at `ResponsiblePerson`
   (spec section 79), not a dedicated Employee model — same simplification

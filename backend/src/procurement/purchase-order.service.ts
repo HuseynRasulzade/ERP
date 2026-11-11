@@ -390,6 +390,20 @@ export class PurchaseOrderService {
       // order time even though the mapping master data may change later.
       const mapping = await this.prisma.supplierProductCode.findFirst({ where: { organizationId, counterpartyId, productId: line.productId, active: true } });
 
+      // MOQ/order-multiple enforcement (spec sections 55-56: "do not
+      // silently round up" rules out auto-correcting the quantity, so a
+      // violation is rejected outright, same as every other line
+      // validation in this method).
+      if (mapping?.moq && quantity.lt(mapping.moq.toString())) {
+        throw new ValidationAppError(`Quantity ${quantity.toString()} is below the supplier's minimum order quantity (${mapping.moq.toString()}) for this product`);
+      }
+      if (mapping?.orderMultiple) {
+        const multiple = new Decimal(mapping.orderMultiple.toString());
+        if (multiple.gt(0) && !quantity.mod(multiple).isZero()) {
+          throw new ValidationAppError(`Quantity ${quantity.toString()} is not a multiple of the supplier's order multiple (${multiple.toString()}) for this product`);
+        }
+      }
+
       const computed = price == null
         ? { quantity, price: null as Decimal | null, taxRate: new Decimal(0), lineTotal: new Decimal(0), taxAmount: new Decimal(0), lineTotalWithTax: new Decimal(0) }
         : computeLineTotals(quantity, price, taxRate, priceIncludesTax);

@@ -297,16 +297,20 @@ Run: `cd backend && npx jest --config test/jest-e2e.json purchase-execution.e2e-
 
 Disclosed deliberately, matching every prior phase's documentation:
 
-- **No batch/serial tracking.** The spec's `batch_id`/serial-tracking
-  fields on `GoodsReceiptLine` are not implemented — no `Batch`/`Serial`
-  master data exists anywhere in this codebase yet (would be Phase 2/10
-  schema work). Every quantity in this phase is a plain aggregate.
-- **No approval workflow.** `DRAFT`/`PENDING_APPROVAL`/`APPROVED`/
-  `REJECTED` (spec section 19) are not implemented — every document uses
-  the existing `DocumentStatus`/`PostingStatus` pair
-  (`DRAFT`/`ACTIVE`/`CANCELLED` × `NOT_POSTED`/`POSTED`), same as every
-  prior phase's documents. `PURCHASE_APPROVE` has no code and no
-  enforcement point.
+- **Batch/serial tracking is implemented** (closed since this section was
+  first written). `Batch`/`SerialNumber` master data exists;
+  `GoodsReceiptLine.batchId` and `BatchSerialService.captureSerials`/
+  `resolveOrCreateBatch` resolve or create the batch/serials at receipt
+  time, and `BatchSerialService.validateCapture` enforces tracking-mode
+  rules per product.
+- **Approval workflow is implemented** (closed since this section was
+  first written), via the generic Approval Framework:
+  `GoodsReceiptApprovalPlanProvider` drives `approvalStatus`
+  (`PENDING`/`APPROVED`/`REJECTED`) on `GoodsReceipt`, and posting is
+  gated on approval completing. This reuses the same
+  `ApprovalPlanProvider`/`ApprovalPlanRegistryService` pattern as every
+  other module's approval steps, not the old `DocumentStatus`/
+  `PostingStatus` pair alone.
 - **Model B (inventory-only receipt) not implemented.** Only Model A
   (GRNI clearing) exists; there is no `AccountingPolicy` toggle to
   switch.

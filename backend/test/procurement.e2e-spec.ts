@@ -16,6 +16,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AppModule } from '../src/app.module';
 import { PURCHASE_ORDER_TYPE } from '../src/procurement/purchase-order.repository';
+import { AzTaxLocalizationService } from '../src/tax-engine/az-tax-localization.service';
 import * as request from 'supertest';
 
 describe('Procurement (e2e)', () => {
@@ -48,6 +49,7 @@ describe('Procurement (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
     prisma = app.get(PrismaService);
+    await app.get(AzTaxLocalizationService).ensureSeeded();
 
     const s1 = await setupTenant(`proc1-${run}@e2e.test`, `proc-t1-${run}`, 'PRO1');
     token1 = s1.token; tenant1Id = s1.tenantId; org1Id = s1.orgId;
@@ -98,7 +100,7 @@ describe('Procurement (e2e)', () => {
       .expect(201);
 
     await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/supplier-product-codes`))
-      .send({ counterpartyId: supplierId, productId, supplierCode: 'ACME-WIDGET-001', moq: 10, orderMultiple: 5, leadTimeDays: 7 })
+      .send({ counterpartyId: supplierId, productId, supplierCode: 'ACME-WIDGET-001', leadTimeDays: 7 })
       .expect(201);
   });
 
@@ -714,6 +716,52 @@ describe('Procurement (e2e)', () => {
       await fullyApprovePurchaseOrder(org1Id, po.body.id);
       const approved = await auth1(request(app.getHttpServer()).get(`/organizations/${org1Id}/purchase-orders/${po.body.id}`)).expect(200);
       expect(approved.body.approvalStatus).toBe('APPROVED');
+    });
+  });
+
+  describe('MOQ / order-multiple enforcement (spec sections 55-56)', () => {
+    let moqProductId: string;
+
+    beforeAll(async () => {
+      const p = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/products`))
+        .send({ code: 'P8-MOQ-001', name: 'MOQ Widget', productType: 'GOODS', baseUnitId: unitId })
+        .expect(201);
+      moqProductId = p.body.id;
+
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/supplier-product-codes`))
+        .send({ counterpartyId: supplierId, productId: moqProductId, supplierCode: 'ACME-MOQ-001', moq: 10, orderMultiple: 5, leadTimeDays: 7 })
+        .expect(201);
+    });
+
+    it('rejects a quantity below the supplier MOQ', async () => {
+      const res = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: moqProductId, unitId, quantity: 5, price: 20 }] })
+        .expect(400);
+      expect(res.body.message).toContain('minimum order quantity');
+    });
+
+    it('rejects a quantity that is not a multiple of the supplier order-multiple', async () => {
+      const res = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: moqProductId, unitId, quantity: 12, price: 20 }] })
+        .expect(400);
+      expect(res.body.message).toContain('order multiple');
+    });
+
+    it('accepts a quantity that satisfies both MOQ and order-multiple', async () => {
+      await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: moqProductId, unitId, quantity: 15, price: 20 }] })
+        .expect(201);
+    });
+
+    it('enforces the same rule when editing lines on an existing order', async () => {
+      const po = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/purchase-orders`))
+        .send({ counterpartyId: supplierId, documentDate: DOC_DATE, warehouseId, lines: [{ productId: moqProductId, unitId, quantity: 20, price: 20 }] })
+        .expect(201);
+
+      const res = await auth1(request(app.getHttpServer()).patch(`/organizations/${org1Id}/purchase-orders/${po.body.id}`))
+        .send({ expectedVersion: po.body.version, lines: [{ productId: moqProductId, unitId, quantity: 7, price: 20 }] })
+        .expect(400);
+      expect(res.body.message).toContain('minimum order quantity');
     });
   });
 
