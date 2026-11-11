@@ -724,9 +724,10 @@ All run against a real PostgreSQL instance — no mocked database.
   documented. Variance never collapses to a per-product net; reuses
   Phase 10's existing `InventoryAdjustment`/`WarehouseTransfer`/
   `InventoryStatusTransfer` documents rather than a fourth posting
-  mechanism; see docs/INVENTORY_COUNT.md for the full list of disclosed
-  simplifications (no counter-vs-approver enforcement beyond the
-  permission gate, latest-recount-wins, no printable sheets/offline sync).
+  mechanism; segregation of duties enforced — the person who counted an
+  item cannot approve its own variance decision. See
+  docs/INVENTORY_COUNT.md for the remaining disclosed simplifications
+  (latest-recount-wins, no printable sheets/offline sync).
 - **Counterparty Settlement Engine** — ✅ done, tested, documented. A real
   append-only `SettlementMovement` ledger + rebuildable `SettlementOpenItem`
   projection, built additively alongside the legacy
@@ -753,13 +754,16 @@ All run against a real PostgreSQL instance — no mocked database.
 - **Cash Desk Engine** — ✅ done, tested, documented. Extends Phase 14's
   `Cashbox`/`CashTransaction` rather than new document types; negative-
   balance control is concurrency-safe (advisory lock before the balance
-  read); `CashDeskTransfer` mirrors WarehouseTransfer's INSTANT/TWO_STEP
+  read), bypassable only with a two-factor override (an explicit document
+  flag AND the `CASH_OVERRIDE_NEGATIVE` permission — neither alone does
+  anything); `CashDeskTransfer` mirrors WarehouseTransfer's INSTANT/TWO_STEP
   shape; physical-count differences resolve only through
-  `CashCountAdjustment`. No payroll-deduction/expense-report workflow, no
+  `CashCountAdjustment`; `maxCashLimit` now surfaces as a health-check
+  WARNING when exceeded. No payroll-deduction/expense-report workflow, no
   automatic `CashierAssignment` handoff on handover completion, `BLIND`
   count method doesn't withhold the book balance from the API,
-  `maxCashLimit`/override permission codes are declared but not yet
-  enforced — see docs/CASH_DESK.md.
+  `CASH_PERIOD_OVERRIDE` stays deliberately unwired (this system's period
+  control is reopen-only by design, everywhere) — see docs/CASH_DESK.md.
 - **Fixed Asset Subledger** — ✅ done, tested, documented. Acquisition
   Candidate → CIP → Fixed Asset Card → Acceptance/Commissioning →
   Depreciation → Transfer/Modernization/Impairment → Disposal, with
@@ -775,11 +779,16 @@ All run against a real PostgreSQL instance — no mocked database.
   authoritative "what was true as of date X" source; rehire reuses the
   same Employee row; multiple concurrent employments per employee;
   manager-hierarchy cycle detection on transfer; staffing-position
-  headcount/FTE capacity enforcement with a permissioned override. No GL
-  posting (not a document-framework participant); no scheduled job for
-  future-dated hire/transfer projection refresh (call `syncStatus()`);
-  LeaveRecord/AbsenceRecord are foundation-only, no entitlement/accrual
-  engine; no approval sub-workflow — see docs/HR_CORE.md.
+  headcount/FTE capacity enforcement with a permissioned override;
+  Hire/Transfer/Termination each plug into the shared Approval Framework
+  (a conditional DEPARTMENT_HEAD step, only required once an org appoints
+  one); a monthly leave-accrual engine (`LeavePolicy`/`LeaveAccrualRunService`)
+  credits an append-only `LeaveBalanceMovement` ledger once an org
+  configures a policy, gating ANNUAL leave against the running balance.
+  No GL posting (not a document-framework participant); no scheduled job
+  for future-dated hire/transfer projection refresh (call `syncStatus()`);
+  AbsenceRecord remains foundation-only (no entitlement concept applies
+  to it) — see docs/HR_CORE.md.
 - **Work Time / Timesheet Engine** — ✅ done, tested, documented. Three
   strictly separate layers (planned/actual/payroll-input); Daily Work Plan
   derived fresh from Production Calendar + Schedule Pattern + Phase 17
