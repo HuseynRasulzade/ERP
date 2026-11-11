@@ -702,6 +702,73 @@ describe('Expenses / Cost Centers / Employee Expenses (e2e)', () => {
       .expect(400);
   });
 
+  it('detects a longer N-node allocation cycle (X -> Y -> Z -> X) across the full rule graph, not just a direct pair', async () => {
+    // Fresh cost centers, isolated from CYCLE-FWD/SHARED-RULE's graph
+    // above, so this exercises exactly the 3-node cycle under test.
+    const ccX = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-centers`))
+      .send({ code: `CC-X-${run}`, name: 'Cost Center X', departmentId: deptId })
+      .expect(201);
+    const ccY = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-centers`))
+      .send({ code: `CC-Y-${run}`, name: 'Cost Center Y', departmentId: deptId })
+      .expect(201);
+    const ccZ = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-centers`))
+      .send({ code: `CC-Z-${run}`, name: 'Cost Center Z', departmentId: deptId })
+      .expect(201);
+
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-allocations/rules`))
+      .send({
+        code: `CYCLE-XY-${run}`,
+        name: 'X to Y',
+        sourceCostCenterId: ccX.body.id,
+        allocationType: 'DIRECT',
+        targets: [{ targetType: 'COST_CENTER', targetId: ccY.body.id }],
+        effectiveFrom: '2027-01-01',
+      })
+      .expect(201);
+
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-allocations/rules`))
+      .send({
+        code: `CYCLE-YZ-${run}`,
+        name: 'Y to Z',
+        sourceCostCenterId: ccY.body.id,
+        allocationType: 'DIRECT',
+        targets: [{ targetType: 'COST_CENTER', targetId: ccZ.body.id }],
+        effectiveFrom: '2027-01-01',
+      })
+      .expect(201);
+
+    // Neither X->Y nor Y->Z is itself a pairwise reciprocal of Z->X, so
+    // only a full graph walk (not a direct-pair check) catches this.
+    await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-allocations/rules`))
+      .send({
+        code: `CYCLE-ZX-${run}`,
+        name: 'Z back to X',
+        sourceCostCenterId: ccZ.body.id,
+        allocationType: 'DIRECT',
+        targets: [{ targetType: 'COST_CENTER', targetId: ccX.body.id }],
+        effectiveFrom: '2027-01-01',
+      })
+      .expect(400);
+
+    // A non-cyclic extension of that same chain (Z -> W, no edge back to
+    // X) must still be accepted — the detector rejects actual cycles
+    // only, not every rule touching an already-connected cost center.
+    const ccW = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-centers`))
+      .send({ code: `CC-W-${run}`, name: 'Cost Center W', departmentId: deptId })
+      .expect(201);
+    const extension = await auth1(request(app.getHttpServer()).post(`/organizations/${org1Id}/cost-allocations/rules`))
+      .send({
+        code: `CYCLE-ZW-${run}`,
+        name: 'Z to W',
+        sourceCostCenterId: ccZ.body.id,
+        allocationType: 'DIRECT',
+        targets: [{ targetType: 'COST_CENTER', targetId: ccW.body.id }],
+        effectiveFrom: '2027-01-01',
+      })
+      .expect(201);
+    expect(extension.body.code).toBe(`CYCLE-ZW-${run}`);
+  });
+
   // ---------------------------------------------------------------------
   // Budget vs Actual — spec sections 76-82, 144
   // ---------------------------------------------------------------------

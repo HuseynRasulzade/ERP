@@ -33,7 +33,8 @@ ExpenseClaimPostingHandler (document-framework participant: balanced GL
       |     (straight-line schedule, idempotent monthly recognition)
       |
       +--> AllocationDriverService / AllocationRuleService /
-      |     CostAllocationRunService (DIRECT / DRIVER_BASED, cycle detection)
+      |     CostAllocationRunService (DIRECT / DRIVER_BASED, full-graph
+      |     N-node cycle detection)
       |
       +--> ExpenseAdjustmentService (cost-center reclassification —
       |     the only sanctioned way to change a posted line's cost center)
@@ -138,12 +139,14 @@ guard needed).
   `WorkTimeRegister` — never a separately-maintained shadow figure.
   `MANUAL_PERCENTAGE` remains a hand-entered driver for cases with no
   natural underlying metric.
-- **Rules** (`AllocationRuleService.create()`) detect a self-loop
-  (`sourceCostCenterId` targeting itself) and a direct two-rule reciprocal
-  cycle (A→B and B→A both ACTIVE) at creation time and reject them
-  outright. This is a disclosed, PARTIAL cycle guard — full N-node
-  topological cycle detection across an arbitrary rule graph is out of
-  scope for this build.
+- **Rules** (`AllocationRuleService.create()`) build the directed graph of
+  every ACTIVE rule's `sourceCostCenterId` -> COST_CENTER target(s) for the
+  organization, add the edge(s) the candidate rule would introduce, and
+  run a DFS (visited set + recursion stack) over the whole graph at
+  creation time. A self-loop, a direct two-rule reciprocal (A→B and B→A
+  both ACTIVE), and an arbitrarily long N-node cycle (A→B→C→A) are all
+  just cycles in this same graph, so one general check rejects all of
+  them outright — there is no separate pairwise-only code path.
 - **Runs** (`CostAllocationRunService`): `preview()` is a pure read that
   writes nothing, not even a run row (spec section 70). `calculate()`
   persists a `CostAllocationRun` + lines at `CALCULATED` status;
@@ -210,9 +213,6 @@ cross-module orchestration.
 
 ## Disclosed simplifications
 
-- **Cost allocation cycle detection is partial**: self-loop + direct
-  two-rule reciprocal only, not full topological cycle detection across an
-  arbitrary rule graph.
 - **The cost-allocation reclassification GL entry assumes a single
   account** (`ADMIN_EXPENSE`) for the whole allocated pool — a cost pool
   spanning multiple GL accounts is not split per-account; scope
@@ -236,7 +236,7 @@ cross-module orchestration.
 
 ## Test coverage
 
-`test/expenses.e2e-spec.ts` (16 tests, all passing against real
+`test/expenses.e2e-spec.ts` (17 tests, all passing against real
 PostgreSQL) covers: claim create/submit with a mandatory-receipt block and
 duplicate-receipt rejection, business-purpose-required rejection, employee
 advance settlement (fully settled, overspend producing a reimbursement
@@ -248,7 +248,9 @@ GL and the register, a 12-month straight-line prepaid schedule with
 idempotent recognition and a same-period retry recognizing nothing
 further, a headcount-driver cost allocation reconciling to the exact total
 with zero residual and a balanced GL entry, reciprocal/self-loop cycle
-detection blocking rule creation, budget-vs-actual computed from the
+detection blocking rule creation, a longer 3-node cycle (X→Y→Z→X) rejected
+by the same full-graph DFS while a non-cyclic extension of that same chain
+(Z→W) is still accepted, budget-vs-actual computed from the
 posted register (never claim totals), a cost-center reclassification
 adjustment producing a balanced GL entry and appearing correctly in the
 cost-center P&L, expense-period close gated on an unresolved claim then an

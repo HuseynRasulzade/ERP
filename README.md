@@ -575,7 +575,7 @@ when approved expenses exceed any advance, an
 straight-line on an idempotent monthly run (retrying a period recognizes
 nothing further); Cost Allocation (drivers backed by real Phase 17
 headcount/FTE and Phase 18 worked-hours data, DIRECT or DRIVER_BASED rules
-with self-loop + direct-reciprocal cycle detection) reclassifies shared
+with full-graph N-node cycle detection) reclassifies shared
 cost between cost centers with the last target absorbing any rounding
 residual so the total always reconciles exactly, and never changes total
 company expense — the same invariant an `ExpenseAdjustment`
@@ -586,9 +586,7 @@ reads `actual` from the posted register, never from claim totals.
 un-recognized prepaid schedule row, and — only when the period actually
 has unallocated cost-allocation source amount, never a blanket "any active
 rule exists anywhere" check — a posted `CostAllocationRun`. Disclosed
-simplifications: cost-allocation cycle detection is self-loop + direct
-two-rule reciprocal only, not full topological cycle detection; the
-reclassification GL entry assumes a single account for the whole allocated
+simplifications: the reclassification GL entry assumes a single account for the whole allocated
 pool; budget commitment is a manually-entered field, not a live
 commitment engine; INVENTORY_COST/FIXED_ASSET classifications are flagged
 but not auto-wired into a Phase 9/11 receipt or a Phase 16 acquisition
@@ -634,7 +632,7 @@ Policy, Tax Profile, Access).
 | `backend/test/hr-core.e2e-spec.ts` | 17 | Physical-person duplicate-personalId detection (blocked, then confirmed), hire lifecycle via the new-person path (draft ⇒ post), as-of-date employment state resolution before and after the hire date, employment contract create + amend with versioned history, manager hierarchy transfer + circular-hierarchy rejection, EmployeeAssignment history split at a transfer's effective date (state correct on both sides of the date), staffing-position capacity enforcement + override with permission, termination with correct Employee-status rollup, rehire reusing the same Employee row, multiple concurrent employments (secondary termination leaving primary + Employee active), org-chart/headcount/staffing-capacity/health reports, approval workflow (hire PENDING blocks posting until DEPARTMENT_HEAD approves, hire reject permanently blocks posting, transfer and termination each gated the same way once their department has an appointed head), leave accrual engine (unlimited ANNUAL leave with no policy configured, idempotent monthly accrual + re-run rejection, balance-gated create, approve-time consumption, the movement ledger) |
 | `backend/test/work-time.e2e-spec.ts` | 14 | Attendance idempotency on re-import, missing-clock-out and duplicate-punch detection, a production calendar with a holiday and a shortened day, a standard 5-day schedule template, the full spec section-172 end-to-end month (hire, schedule assignment, mid-month department transfer, annual leave, approved overtime, daily plan generation reflecting calendar + transfer, regular attendance with break deduction, partial absence, a night shift crossing midnight with correct 6h night premium and no worked-hours inflation, holiday work, timesheet generate ⇒ submit ⇒ approve ⇒ lock, Work Time Register + Payroll Time Input Register generation with no money fields), a locked-timesheet direct-edit block requiring a Time Correction (which correctly flags `requiresRecalculation`), an unapproved-overtime exception that blocks timesheet approval until resolved, and the plan-vs-actual/overtime/night/holiday-weekend reports |
 | `backend/test/payroll.e2e-spec.ts` | 3 | Full base-salary proration with progressive AZ income tax/social/unemployment/medical contributions against a real Work Time Register month, a backdated salary raise recalculated into a new version with the original preserved as SUPERSEDED, and the full GL-posting pipeline (approve ⇒ draft PayrollPosting ⇒ post through the generic document-framework command ⇒ balanced journal entry assertion ⇒ payment batch payout ⇒ second-batch-against-fully-paid-period and unpost-after-payment both refused ⇒ register/payslip/employer-cost/liability reports ⇒ close) |
-| `backend/test/expenses.e2e-spec.ts` | 16 | Claim create/submit with mandatory-receipt block + duplicate-receipt rejection, business-purpose-required rejection, employee advance settlement (fully settled, overspend producing a reimbursement payable, no-advance producing a full reimbursement payable), partial approval, gross-to-net VAT split via the Tax Engine, balanced GL posting (net expense + recoverable VAT = employee reimbursement payable), SUPPLIER_SETTLEMENT exclusion from GL and the register, 12-month straight-line prepaid recognition with same-period-retry idempotency, headcount-driver cost allocation reconciling to the exact total with zero residual + balanced GL, reciprocal/self-loop cycle detection, budget-vs-actual from the posted register, a cost-center reclassification adjustment with balanced GL + cost-center P&L verification, expense-period close gated on an unresolved claim then an unposted claim then an unrecognized prepaid schedule row + successful close/reopen, and the health check surfacing a real approved-but-unposted claim |
+| `backend/test/expenses.e2e-spec.ts` | 17 | Claim create/submit with mandatory-receipt block + duplicate-receipt rejection, business-purpose-required rejection, employee advance settlement (fully settled, overspend producing a reimbursement payable, no-advance producing a full reimbursement payable), partial approval, gross-to-net VAT split via the Tax Engine, balanced GL posting (net expense + recoverable VAT = employee reimbursement payable), SUPPLIER_SETTLEMENT exclusion from GL and the register, 12-month straight-line prepaid recognition with same-period-retry idempotency, headcount-driver cost allocation reconciling to the exact total with zero residual + balanced GL, reciprocal/self-loop cycle detection plus a longer 3-node cycle (X→Y→Z→X) rejected by the same full-graph DFS while a non-cyclic chain extension is accepted, budget-vs-actual from the posted register, a cost-center reclassification adjustment with balanced GL + cost-center P&L verification, expense-period close gated on an unresolved claim then an unposted claim then an unrecognized prepaid schedule row + successful close/reopen, and the health check surfacing a real approved-but-unposted claim |
 
 All run against a real PostgreSQL instance — no mocked database.
 
@@ -835,12 +833,11 @@ All run against a real PostgreSQL instance — no mocked database.
   (seventh Truth Engine reuse) plus a new
   `EMPLOYEE_EXPENSE_REIMBURSEMENT_REGISTER`; an idempotent straight-line
   Prepaid Expense recognition run; Cost Allocation (DIRECT/DRIVER_BASED,
-  drivers backed by real Phase 17/18 data, self-loop + direct-reciprocal
-  cycle detection, exact-total reconciliation); cost-center
+  drivers backed by real Phase 17/18 data, full-graph N-node cycle
+  detection, exact-total reconciliation); cost-center
   reclassification adjustments; budget-vs-actual from the posted
   register; period close gated on the period's own unallocated cost, not
-  a blanket rule-exists check. Cost-allocation cycle detection is
-  partial (no full topological detection); the reclassification GL entry
+  a blanket rule-exists check. The reclassification GL entry
   assumes a single account for the pool; budget commitment is manually
   entered; INVENTORY_COST/FIXED_ASSET classifications are flagged but not
   auto-wired into a receipt or acquisition candidate — see
